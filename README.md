@@ -51,6 +51,7 @@ rental_agent/
     state_tools.py    write tools
     registry.py       one dispatch path: errors, audit, idempotency
   agent/
+    providers/        model adapters — gemini (default, free tier), anthropic
     schemas.py        the 17 tools as JSON schemas the model can call
     prompt.py         frozen system prompt + per-turn state snapshot
     extraction.py     structured entity extraction + additive state merge
@@ -88,7 +89,8 @@ Useful console commands:
   pickup=2026-09-04T20:00`, `/extend DEMO-1042 <iso>`, `/cancel DEMO-1042`
 - **Inspect:** `/state`, `/demo-fleet`, `/demo-bookings`, `/demo-conversations`
 - **Raw:** `/tool <name> <json>`, `/tools`
-- **Talk to it:** type anything not starting with `/` (needs `ANTHROPIC_API_KEY`)
+- **Talk to it:** type anything not starting with `/` (needs `GEMINI_API_KEY`)
+- **Check models:** `/models` lists what your key can actually reach
 - **Reset:** `/demo-reset` wipes the demo database and reloads config
 
 Write commands persist to `demo.db` (override with `--db`).
@@ -100,8 +102,26 @@ from the engine and the database live. They are **not** the agent — they exist
 show the stack can supply everything a conversation needs, and they still run
 without an API key.
 
-To talk to the actual agent, set `ANTHROPIC_API_KEY` and just type into the
-console.
+To talk to the actual agent, set a key and just type into the console.
+
+## Model provider
+
+The agent runs on **Google Gemini's free tier** by default. Get a key at
+<https://aistudio.google.com/apikey>, then:
+
+```bash
+export GEMINI_API_KEY='...'
+.venv/bin/python -m rental_agent.simulator.cli --date 2026-09-01
+```
+
+Everything below the agent — engine, tools, persistence, state, escalation — is
+provider-agnostic. Only `agent/providers/` knows an SDK exists, so switching is
+an environment variable:
+
+```bash
+RENTAL_AGENT_PROVIDER=anthropic   # needs ANTHROPIC_API_KEY
+GEMINI_MODEL=gemini-2.5-flash     # or whatever `/models` shows you
+```
 
 Scenarios that write (booking, escalation) run against a scratch database, so
 they are reproducible on demand and never pollute the demo data.

@@ -50,9 +50,10 @@ Fleet & pricing
   /quote <id> [k=v]          Priced demo quote (calculation only, not stored)
   /discount <id>             Maximum discount the engine permits
 
-Talking to the agent (needs ANTHROPIC_API_KEY)
+Talking to the agent (needs GEMINI_API_KEY)
   <anything not starting with />  Speak to the agent as a customer
   /chat <message>            Same thing, explicitly
+  /models                    Models this API key can reach
 
 Booking (writes to the demo database)
   /book <id> [k=v]           Quote and reserve in one step
@@ -309,10 +310,10 @@ _AGENT: list = []
 
 
 def _agent():
-    from ..agent.loop import Agent, build_client
+    from ..agent.loop import build_agent
 
     if not _AGENT:
-        _AGENT.append(Agent(build_client()))
+        _AGENT.append(build_agent())
     return _AGENT[0]
 
 
@@ -320,7 +321,10 @@ def _is_auth_problem(exc: Exception) -> bool:
     """The SDK reports a missing key as a TypeError at request time, not at
     construction, so match on the message rather than the exception class."""
     text = str(exc).lower()
-    return "authentication" in text or "api_key" in text or "api key" in text
+    return any(
+        marker in text
+        for marker in ("authentication", "api_key", "api key", "credentials", "permission_denied")
+    )
 
 
 def cmd_chat(ctx: ToolContext, parts: list[str]) -> None:
@@ -335,8 +339,15 @@ def cmd_chat(ctx: ToolContext, parts: list[str]) -> None:
         turn = _agent().respond(ctx, message)
     except Exception as exc:  # noqa: BLE001 - surfaced to a human at a console
         if _is_auth_problem(exc):
+            from ..agent.settings import AgentSettings
+
+            provider = AgentSettings().provider
             print("  No API credentials found, so there is no model to talk to.")
-            print("  Set ANTHROPIC_API_KEY in your environment, or run `ant auth login`.")
+            if provider == "gemini":
+                print("  Get a free key at https://aistudio.google.com/apikey")
+                print("  then: export GEMINI_API_KEY='...'")
+            else:
+                print("  Set ANTHROPIC_API_KEY, or run `ant auth login`.")
             print("  Every other command in this console works without one.")
         else:
             print(f"  agent error: {type(exc).__name__}: {exc}")
@@ -354,6 +365,26 @@ def cmd_chat(ctx: ToolContext, parts: list[str]) -> None:
         print("  · escalated to a human")
     if turn.refusal:
         print("  · the model declined this request")
+
+
+def cmd_models(ctx: ToolContext, parts: list[str]) -> None:
+    """List the models this key can actually reach, so the default can be checked."""
+    from ..agent.settings import AgentSettings
+
+    settings = AgentSettings()
+    print(f"  provider: {settings.provider}   configured model: {settings.resolved_model()}")
+    try:
+        client = _agent().client
+    except Exception as exc:  # noqa: BLE001
+        print(f"  cannot reach the provider: {exc}")
+        return
+    lister = getattr(client, "available_models", None)
+    if lister is None:
+        print("  this provider does not expose a model list")
+        return
+    for name in lister():
+        marker = "  <- in use" if name == settings.resolved_model() else ""
+        print(f"    {name}{marker}")
 
 
 def cmd_state(ctx: ToolContext, parts: list[str]) -> None:
@@ -755,6 +786,7 @@ COMMANDS: dict[str, Callable[[ToolContext, list[str]], None]] = {
     "cancel": cmd_cancel,
     "state": cmd_state,
     "chat": cmd_chat,
+    "models": cmd_models,
     "tool": cmd_tool,
     "tools": cmd_tools,
     "scenario": cmd_scenario,

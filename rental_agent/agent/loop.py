@@ -51,7 +51,9 @@ class Agent:
     def __init__(self, client: Any, settings: AgentSettings | None = None):
         self.client = client
         self.settings = settings or AgentSettings()
-        self._fallbacks_supported = self.settings.use_fallbacks
+        # Server-side refusal fallbacks are an Anthropic feature. The client
+        # declares whether it has them rather than the settings guessing.
+        self._fallbacks_supported = bool(getattr(client, "supports_fallbacks", True))
 
     # -- API ------------------------------------------------------------
 
@@ -106,7 +108,7 @@ class Agent:
                 state=state,
                 now=now,
                 active_reservation=active_reservation,
-                model=self.settings.extraction_model,
+                model=self.settings.resolved_extraction_model(),
                 effort=self.settings.extraction_effort,
                 max_tokens=self.settings.extraction_max_tokens,
             )
@@ -176,7 +178,7 @@ class Agent:
         while iterations < self.settings.max_tool_iterations:
             iterations += 1
             response = self._create(
-                model=self.settings.model,
+                model=self.settings.resolved_model(),
                 max_tokens=self.settings.max_tokens,
                 system=build_system(engine.rules, engine.operator),
                 tools=TOOLS,
@@ -285,12 +287,9 @@ class Agent:
         ctx.save_state(state)
 
 
-def build_client() -> Any:
-    """Construct the Anthropic client.
+def build_agent(settings: AgentSettings | None = None) -> Agent:
+    """Build an agent on the configured provider."""
+    from .providers import build_client
 
-    Credentials resolve from the environment (`ANTHROPIC_API_KEY`) or an
-    `ant auth login` profile — the zero-argument constructor handles both.
-    """
-    import anthropic
-
-    return anthropic.Anthropic()
+    settings = settings or AgentSettings()
+    return Agent(build_client(settings.provider, model=settings.model), settings)

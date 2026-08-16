@@ -1,7 +1,7 @@
 """Agent configuration.
 
-Everything here is overridable by environment variable so a demo can be tuned
-without touching code.
+Everything is overridable by environment variable so a demo can be tuned without
+touching code — including which model provider runs the conversation.
 """
 
 from __future__ import annotations
@@ -9,31 +9,36 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-#: The model that talks to customers.
-DEFAULT_MODEL = "claude-opus-5"
+#: Model to use when none is configured, per provider. A model name is only
+#: meaningful to its own provider, so this is resolved at use time rather than
+#: baked into a single `model` default.
+PROVIDER_DEFAULT_MODELS = {
+    "gemini": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+    "anthropic": "claude-opus-5",
+}
+
+DEFAULT_PROVIDER = os.getenv("RENTAL_AGENT_PROVIDER", "gemini")
 
 
 @dataclass(frozen=True)
 class AgentSettings:
-    model: str = os.getenv("RENTAL_AGENT_MODEL", DEFAULT_MODEL)
+    #: "gemini" (free tier) or "anthropic". The engine, tools, persistence and
+    #: state are provider-agnostic; only the adapter changes.
+    provider: str = DEFAULT_PROVIDER
 
-    #: The extraction pass is a narrow, scoped task. It runs on the same model by
-    #: default; a smaller one is a reasonable cost tuning if a demo needs it.
-    extraction_model: str = os.getenv("RENTAL_AGENT_EXTRACTION_MODEL", DEFAULT_MODEL)
+    #: None means "this provider's default model".
+    model: str | None = os.getenv("RENTAL_AGENT_MODEL") or None
+    extraction_model: str | None = os.getenv("RENTAL_AGENT_EXTRACTION_MODEL") or None
 
-    #: WhatsApp is a latency-sensitive surface and this model is unusually strong
-    #: at lower effort, so `medium` rather than the API default of `high`.
+    #: WhatsApp is latency-sensitive, so below the usual default. Honoured by
+    #: the Anthropic adapter; Gemini has no equivalent knob and ignores it.
     effort: str = os.getenv("RENTAL_AGENT_EFFORT", "medium")
     extraction_effort: str = os.getenv("RENTAL_AGENT_EXTRACTION_EFFORT", "low")
 
-    #: Replies are a few lines, but thinking counts against max_tokens, so this
-    #: needs real headroom despite the short visible output.
+    #: Replies are a few lines, but reasoning counts against the output budget,
+    #: so this needs headroom despite the short visible output.
     max_tokens: int = int(os.getenv("RENTAL_AGENT_MAX_TOKENS", "8000"))
     extraction_max_tokens: int = int(os.getenv("RENTAL_AGENT_EXTRACTION_MAX_TOKENS", "4000"))
-
-    #: Safety classifiers can decline a request. Server-side fallbacks re-run it
-    #: on another model rather than leaving the customer with nothing.
-    use_fallbacks: bool = os.getenv("RENTAL_AGENT_FALLBACKS", "1") != "0"
 
     #: Hard stop on the tool loop so a confused turn cannot spin.
     max_tool_iterations: int = int(os.getenv("RENTAL_AGENT_MAX_TOOL_ITERATIONS", "8"))
@@ -42,5 +47,12 @@ class AgentSettings:
     #: isolating which layer caused a bad turn).
     extraction_enabled: bool = os.getenv("RENTAL_AGENT_EXTRACTION", "1") != "0"
 
+    def resolved_model(self) -> str:
+        return self.model or PROVIDER_DEFAULT_MODELS.get(self.provider, "")
 
+    def resolved_extraction_model(self) -> str:
+        return self.extraction_model or self.resolved_model()
+
+
+#: Anthropic-only: re-runs a policy-declined request on another model.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"

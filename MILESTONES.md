@@ -82,6 +82,9 @@ Tracking against the ten development phases in the project specification.
       that forgets to call the tool cannot cause a missed incident
 - [x] Server-side refusal fallbacks, degrading gracefully when the beta is off
 - [x] Console chat mode — type a message and talk to the agent
+- [x] **Provider abstraction**: Gemini (free tier, default) and Anthropic behind
+      one duck-typed client surface. The engine, tools, persistence and state
+      never learn which is in use.
 
 **Verified by test:** an empty extraction cannot clear a known value; a
 malformed timestamp is ignored rather than overwriting a good one; an accident
@@ -119,8 +122,12 @@ run — credentials are needed for that.
   and serve them, or upload once to the WhatsApp media API and store the ids.
   Needed before Milestone 4.
 - **WhatsApp Business test number.** Needed only at Milestone 4.
-- **Anthropic API key.** Needed *now* to run the agent. Everything else in the
-  project works without one.
+- **A model API key.** Needed *now* to run the agent — free from
+  <https://aistudio.google.com/apikey> for the default Gemini provider.
+  Everything else in the project works without one.
+- **Gemini model choice.** `gemini-2.0-flash` is the default; `/models` lists
+  what a given key can actually reach, and `GEMINI_MODEL` overrides it. Worth
+  checking on first run rather than trusting the default.
 - **Turnaround buffer between rentals.** Real operators need cleaning and
   inspection time between bookings; the prototype currently allows a return and
   the next pickup at the same minute. Trivial to add as a rules setting when a

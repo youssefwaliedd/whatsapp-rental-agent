@@ -2,6 +2,10 @@
 pydantic>=2.13
 python-dateutil>=2.9
 sqlalchemy>=2.0
+
+# Model providers. Gemini is the default (free tier); Anthropic is supported
+# by the same agent via a second adapter. Install whichever you use.
+google-genai>=1.0
 anthropic>=0.40
 
 # Milestone 4 (WhatsApp webhook) — install when it lands
