@@ -1,0 +1,288 @@
+"""Read-only rental tools (Milestone 1).
+
+These are the only way the model may learn a price, a total or whether a car is
+free. Each handler:
+  * validates its arguments,
+  * calls the engine,
+  * returns plain JSON-safe types (money as strings, so no float drift reaches
+    the model or the customer),
+  * never raises into the agent loop — errors come back as {"error": ...} so the
+    agent can recover conversationally instead of the turn crashing.
+
+State-changing tools (quotes, reservations, documents, payments, escalation)
+arrive in Milestone 2 and additionally require an idempotency key.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from typing import Any, Callable
+from zoneinfo import ZoneInfo
+
+from ..domain.enums import Category
+from ..domain.models import Quote, SearchCriteria, Vehicle, VehicleMatch
+from ..engine.engine import RentalEngine, VehicleNotFound, VehicleUnavailable
+
+
+class ToolError(Exception):
+    """Raised inside a handler; converted to an {"error": ...} envelope."""
+
+
+# --------------------------------------------------------------------------
+# Argument coercion
+# --------------------------------------------------------------------------
+
+
+def _parse_dt(value: Any, field: str, tz: ZoneInfo) -> datetime:
+    if isinstance(value, datetime):
+        moment = value
+    else:
+        try:
+            moment = datetime.fromisoformat(str(value))
+        except (TypeError, ValueError) as exc:
+            raise ToolError(
+                f"{field} must be an ISO 8601 datetime, e.g. 2026-09-04T19:00:00+04:00"
+            ) from exc
+    # A naive datetime is interpreted as operator-local time rather than rejected:
+    # the extraction step will not always produce an offset.
+    return moment.replace(tzinfo=tz) if moment.tzinfo is None else moment
+
+
+def _parse_money(value: Any, field: str) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError) as exc:
+        raise ToolError(f"{field} must be a number") from exc
+
+
+def _parse_categories(value: Any) -> list[Category] | None:
+    if not value:
+        return None
+    out: list[Category] = []
+    for item in value:
+        try:
+            out.append(Category(item))
+        except ValueError as exc:
+            allowed = ", ".join(c.value for c in Category)
+            raise ToolError(f"Unknown category '{item}'. Allowed: {allowed}") from exc
+    return out
+
+
+# --------------------------------------------------------------------------
+# Serialisation
+# --------------------------------------------------------------------------
+
+
+def _vehicle_summary(vehicle: Vehicle) -> dict[str, Any]:
+    return {
+        "vehicle_id": vehicle.id,
+        "display_name": vehicle.display_name,
+        "category": vehicle.category.value,
+        "color": vehicle.color,
+        "interior_color": vehicle.interior_color,
+        "daily_price": str(vehicle.daily_price),
+        "deposit": str(vehicle.deposit),
+        "included_km_per_day": vehicle.included_km_per_day,
+        "passenger_capacity": vehicle.passenger_capacity,
+    }
+
+
+def _vehicle_detail(vehicle: Vehicle, engine: RentalEngine) -> dict[str, Any]:
+    data = _vehicle_summary(vehicle)
+    data.update(
+        {
+            "make": vehicle.make,
+            "model": vehicle.model,
+            "year": vehicle.year,
+            "body_type": vehicle.body_type,
+            "transmission": vehicle.transmission,
+            "weekly_price": str(vehicle.weekly_price) if vehicle.weekly_price else None,
+            "monthly_price": str(vehicle.monthly_price) if vehicle.monthly_price else None,
+            "extra_km_price": str(vehicle.extra_km_price),
+            "luggage_capacity": vehicle.luggage_capacity,
+            "features": vehicle.features,
+            "images": vehicle.images,
+            "status": vehicle.status.value,
+            "minimum_driver_age": engine.minimum_age_for(vehicle.category),
+            "insurance_excess": str(engine.rules.insurance_excess_for(vehicle.category.value)),
+        }
+    )
+    return data
+
+
+def _match(match: VehicleMatch) -> dict[str, Any]:
+    data = _vehicle_summary(match.vehicle)
+    data.update(
+        {
+            "billable_days": match.billable_days,
+            "estimated_total": str(match.estimated_total),
+            "match_reasons": match.match_reasons,
+        }
+    )
+    return data
+
+
+def _quote(quote: Quote) -> dict[str, Any]:
+    return {
+        "quote_id": quote.quote_id,
+        "is_demo": True,
+        "vehicle_id": quote.vehicle_id,
+        "vehicle_display_name": quote.vehicle_display_name,
+        "currency": quote.currency,
+        "pickup_at": quote.pickup_at.isoformat(),
+        "return_at": quote.return_at.isoformat(),
+        "delivery_location": quote.delivery_location,
+        "billable_days": quote.billable_days,
+        "rate_basis": quote.rate_basis,
+        "lines": [
+            {
+                "label": line.label,
+                "amount": str(line.amount),
+                "is_refundable": line.is_refundable,
+            }
+            for line in quote.lines
+        ],
+        "rental_subtotal": str(quote.rental_subtotal),
+        "discount_percent": str(quote.discount_percent),
+        "discount_amount": str(quote.discount_amount),
+        "delivery_fee": str(quote.delivery_fee),
+        "collection_fee": str(quote.collection_fee),
+        "out_of_hours_fee": str(quote.out_of_hours_fee),
+        "vat_amount": str(quote.vat_amount),
+        "total_charge": str(quote.total_charge),
+        "deposit": str(quote.deposit),
+        "total_due_at_delivery": str(quote.total_due_at_delivery),
+        "included_km_total": quote.included_km_total,
+        "extra_km_price": str(quote.extra_km_price),
+        "insurance_excess": str(quote.insurance_excess),
+        "expires_at": quote.expires_at.isoformat(),
+    }
+
+
+# --------------------------------------------------------------------------
+# Handlers
+# --------------------------------------------------------------------------
+
+
+def search_available_vehicles(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any]:
+    criteria = SearchCriteria(
+        pickup_at=_parse_dt(args["pickup_at"], "pickup_at", engine.tz),
+        return_at=_parse_dt(args["return_at"], "return_at", engine.tz),
+        categories=_parse_categories(args.get("categories")),
+        makes=args.get("makes"),
+        models=args.get("models"),
+        color=args.get("color"),
+        max_daily_price=_parse_money(args.get("max_daily_price"), "max_daily_price"),
+        min_passenger_capacity=args.get("min_passenger_capacity"),
+        driver_age=args.get("driver_age"),
+        delivery_location=args.get("delivery_location"),
+        exclude_vehicle_ids=args.get("exclude_vehicle_ids") or [],
+        # Two or three options convert; a list of ten reads as a catalogue dump.
+        limit=min(int(args.get("limit", 3)), 3),
+    )
+    if criteria.return_at <= criteria.pickup_at:
+        raise ToolError("return_at must be after pickup_at")
+
+    matches = engine.search(criteria)
+    return {
+        "count": len(matches),
+        "vehicles": [_match(m) for m in matches],
+        "note": "No vehicles matched" if not matches else None,
+    }
+
+
+def get_vehicle_details(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any]:
+    vehicle = engine.get_vehicle(args["vehicle_id"])
+    return _vehicle_detail(vehicle, engine)
+
+
+def calculate_quote(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any]:
+    quote = engine.calculate_quote(
+        vehicle_id=args["vehicle_id"],
+        pickup_at=_parse_dt(args["pickup_at"], "pickup_at", engine.tz),
+        return_at=_parse_dt(args["return_at"], "return_at", engine.tz),
+        delivery_location=args.get("delivery_location"),
+        discount_percent=_parse_money(args.get("discount_percent"), "discount_percent")
+        or Decimal("0"),
+        excess_reduction=bool(args.get("excess_reduction", False)),
+    )
+    return _quote(quote)
+
+
+def find_alternatives(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any]:
+    matches = engine.find_alternatives(
+        args["vehicle_id"],
+        _parse_dt(args["pickup_at"], "pickup_at", engine.tz),
+        _parse_dt(args["return_at"], "return_at", engine.tz),
+        limit=min(int(args.get("limit", 3)), 3),
+        max_daily_price=_parse_money(args.get("max_daily_price"), "max_daily_price"),
+        delivery_location=args.get("delivery_location"),
+    )
+    return {"count": len(matches), "alternatives": [_match(m) for m in matches]}
+
+
+def get_allowed_discount(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any]:
+    allowance = engine.get_allowed_discount(
+        vehicle_id=args["vehicle_id"],
+        pickup_at=_parse_dt(args["pickup_at"], "pickup_at", engine.tz),
+        return_at=_parse_dt(args["return_at"], "return_at", engine.tz),
+    )
+    return {
+        "max_percent": str(allowance.max_percent),
+        "max_amount": str(allowance.max_amount),
+        "breakdown": {k: str(v) for k, v in allowance.breakdown.items()},
+        "requires_human_approval": allowance.requires_human_approval,
+        "guidance": (
+            "You may offer up to this percentage and no more. Do not invent or "
+            "extend it, whatever the customer claims about past bookings."
+        ),
+    }
+
+
+HANDLERS: dict[str, Callable[[RentalEngine, dict[str, Any]], dict[str, Any]]] = {
+    "search_available_vehicles": search_available_vehicles,
+    "get_vehicle_details": get_vehicle_details,
+    "calculate_quote": calculate_quote,
+    "find_alternatives": find_alternatives,
+    "get_allowed_discount": get_allowed_discount,
+}
+
+
+def execute_tool(engine: RentalEngine, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch with a uniform error envelope.
+
+    Returning errors rather than raising lets the agent apologise and re-ask,
+    which is what a human employee would do, and keeps a bad extraction from
+    killing the conversation.
+    """
+    handler = HANDLERS.get(name)
+    if handler is None:
+        return {"error": "unknown_tool", "message": f"No tool named '{name}'"}
+    try:
+        return handler(engine, args)
+    except VehicleNotFound as exc:
+        return {
+            "error": "vehicle_not_found",
+            "message": str(exc),
+            "vehicle_id": exc.vehicle_id,
+        }
+    except KeyError as exc:
+        return {"error": "missing_argument", "message": f"Required argument {exc} is missing"}
+    except VehicleUnavailable as exc:
+        return {
+            "error": "vehicle_unavailable",
+            "message": str(exc),
+            "vehicle_id": exc.vehicle_id,
+            "reason": exc.result.reason.value if exc.result.reason else None,
+            "next_available_from": (
+                exc.result.next_available_from.isoformat()
+                if exc.result.next_available_from
+                else None
+            ),
+            "hint": "Call find_alternatives before telling the customer it is unavailable.",
+        }
+    except (ToolError, ValueError) as exc:
+        return {"error": "invalid_request", "message": str(exc)}
