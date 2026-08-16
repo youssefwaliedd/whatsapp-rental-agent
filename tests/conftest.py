@@ -13,7 +13,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from rental_agent.config import load_rules
+from rental_agent.context import ToolContext
 from rental_agent.engine.engine import RentalEngine
+from rental_agent.store.db import create_db_engine, init_db
 
 TZ = ZoneInfo("Asia/Dubai")
 
@@ -49,3 +51,42 @@ def engine_factory():
         )
 
     return _make
+
+
+@pytest.fixture
+def ctx(engine) -> ToolContext:
+    """Read-only context: engine access, no persistence."""
+    return ToolContext.read_only(engine)
+
+
+@pytest.fixture
+def session_factory(tmp_path):
+    """A real file-backed SQLite database per test.
+
+    A file rather than :memory: so the connection pooling behaviour matches
+    what the deployed prototype will actually do.
+    """
+    db_engine = create_db_engine(tmp_path / "test.db")
+    return init_db(db_engine)
+
+
+@pytest.fixture
+def session(session_factory):
+    with session_factory() as sess:
+        yield sess
+        sess.commit()
+
+
+@pytest.fixture
+def booking_ctx(session) -> ToolContext:
+    """A context with a customer and an open conversation, ready to book."""
+    ctx = ToolContext(
+        session=session,
+        now_fn=lambda: FROZEN_NOW,
+        reference_date=REFERENCE_DATE,
+    )
+    customer, _ = ctx.customers.get_or_create("+971500000001", FROZEN_NOW)
+    conversation, _ = ctx.conversations.get_or_create(customer.customer_id, FROZEN_NOW)
+    ctx.customer_id = customer.customer_id
+    ctx.conversation_id = conversation.conversation_id
+    return ctx

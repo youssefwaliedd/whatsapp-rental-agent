@@ -1,0 +1,214 @@
+"""Persistence schema.
+
+Design notes that matter later:
+
+* Conversation *state* is stored as a JSON blob in its own column, separate from
+  the message transcript. The agent reads state; the transcript is evidence for
+  the evaluator. Keeping them apart is what stops the agent re-reading chat
+  history and re-asking questions.
+* `tool_calls` is both the audit log and the idempotency ledger. One table, so
+  a replayed call cannot be served from a cache that the audit log never saw.
+* `reservations.history` is append-only. Modifications never overwrite; the
+  evaluator needs to see what changed and when.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from .types import AwareDateTime, Money
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Customer(Base):
+    __tablename__ = "customers"
+
+    customer_id: Mapped[str] = mapped_column(String, primary_key=True)
+    #: The WhatsApp phone number. The only identity the prototype has.
+    whatsapp_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(String, default=None)
+    email: Mapped[str | None] = mapped_column(String, default=None)
+    residency: Mapped[str] = mapped_column(String, default="unknown")
+    date_of_birth: Mapped[str | None] = mapped_column(String, default=None)
+    driver_age: Mapped[int | None] = mapped_column(Integer, default=None)
+    documents_on_file: Mapped[list[str]] = mapped_column(JSON, default=list)
+    #: Learned, non-authoritative: colour, favourite models, preferred pickup
+    #: time, tone. Never business facts.
+    preferences: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(AwareDateTime)
+
+    conversations: Mapped[list["Conversation"]] = relationship(back_populates="customer")
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    conversation_id: Mapped[str] = mapped_column(String, primary_key=True)
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.customer_id"), index=True)
+
+    stage: Mapped[str] = mapped_column(String, default="new_lead", index=True)
+    intent: Mapped[str] = mapped_column(String, default="unknown")
+    #: The serialised ConversationState. Source of truth for what the agent knows.
+    state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    strategy_version: Mapped[str | None] = mapped_column(String, default=None)
+    escalated: Mapped[bool] = mapped_column(Boolean, default=False)
+    escalation_reason: Mapped[str | None] = mapped_column(String, default=None)
+    #: Set when the conversation closes; the evaluator reads it.
+    outcome: Mapped[str | None] = mapped_column(String, default=None)
+
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    updated_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    last_message_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
+
+    customer: Mapped[Customer] = relationship(back_populates="conversations")
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="conversation", order_by="Message.id"
+    )
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.conversation_id"), index=True
+    )
+    direction: Mapped[str] = mapped_column(String)  # inbound | outbound
+    #: WhatsApp's message id. Unique, so a webhook retry cannot double-process.
+    #: Nullable because simulator and agent messages have no provider id.
+    provider_message_id: Mapped[str | None] = mapped_column(String, default=None)
+    content: Mapped[str] = mapped_column(Text)
+    media: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+
+    conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+    __table_args__ = (
+        # A partial-style guarantee: SQLite treats NULLs as distinct, so many
+        # rows may have no provider id while real ids stay unique.
+        UniqueConstraint("provider_message_id", name="uq_messages_provider_message_id"),
+        Index("ix_messages_conversation_created", "conversation_id", "created_at"),
+    )
+
+
+class ToolCall(Base):
+    """Audit log and idempotency ledger in one table."""
+
+    __tablename__ = "tool_calls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str | None] = mapped_column(String, index=True, default=None)
+    tool_name: Mapped[str] = mapped_column(String, index=True)
+    arguments: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String, default="ok")  # ok | error
+    error_code: Mapped[str | None] = mapped_column(String, default=None)
+    #: Only set for state-changing tools. Read-only tools are audited but never
+    #: replayed from the ledger — re-reading availability must always be fresh.
+    idempotency_key: Mapped[str | None] = mapped_column(String, default=None)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, default=None)
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+
+    __table_args__ = (
+        UniqueConstraint("tool_name", "idempotency_key", name="uq_tool_calls_idempotency"),
+    )
+
+
+class Quote(Base):
+    __tablename__ = "quotes"
+
+    quote_id: Mapped[str] = mapped_column(String, primary_key=True)
+    conversation_id: Mapped[str | None] = mapped_column(String, index=True, default=None)
+    customer_id: Mapped[str | None] = mapped_column(String, index=True, default=None)
+    vehicle_id: Mapped[str] = mapped_column(String, index=True)
+    #: The full serialised Quote, so the exact figures shown can be reproduced
+    #: even if config or pricing logic changes afterwards.
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    total_charge: Mapped[Decimal] = mapped_column(Money)
+    deposit: Mapped[Decimal] = mapped_column(Money)
+    status: Mapped[str] = mapped_column(String, default="active")  # active|superseded|converted
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    expires_at: Mapped[datetime] = mapped_column(AwareDateTime)
+
+
+class Reservation(Base):
+    __tablename__ = "reservations"
+
+    reservation_id: Mapped[str] = mapped_column(String, primary_key=True)
+    #: Structurally true, never derived from a flag the model could set.
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=True)
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.customer_id"), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String, index=True, default=None)
+    vehicle_id: Mapped[str] = mapped_column(String, index=True)
+    quote_id: Mapped[str | None] = mapped_column(String, default=None)
+
+    status: Mapped[str] = mapped_column(String, default="confirmed", index=True)
+    pickup_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    return_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    delivery_location: Mapped[str | None] = mapped_column(String, default=None)
+
+    total_charge: Mapped[Decimal] = mapped_column(Money)
+    deposit: Mapped[Decimal] = mapped_column(Money)
+    currency: Mapped[str] = mapped_column(String, default="AED")
+
+    #: All simulated. none | authorised | paid | refunded
+    payment_status: Mapped[str] = mapped_column(String, default="none")
+    payment_reference: Mapped[str | None] = mapped_column(String, default=None)
+    documents: Mapped[list[str]] = mapped_column(JSON, default=list)
+    delivery_scheduled_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
+
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    updated_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    #: Bumped on every change. Auto-derived idempotency keys include it, so
+    #: "move it to 8pm" applied, reverted, then applied again is three distinct
+    #: operations rather than one replayed twice.
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    #: Append-only. Modifications add entries; nothing is overwritten.
+    history: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+
+    __table_args__ = (
+        Index("ix_reservations_vehicle_status", "vehicle_id", "status"),
+    )
+
+
+class Escalation(Base):
+    __tablename__ = "escalations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(String, index=True)
+    customer_id: Mapped[str | None] = mapped_column(String, default=None)
+    reason: Mapped[str] = mapped_column(String)
+    detail: Mapped[str | None] = mapped_column(Text, default=None)
+    #: Populated once a staff notification is actually sent (Milestone 4).
+    notified_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
+    status: Mapped[str] = mapped_column(String, default="open")
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+
+
+class Counter(Base):
+    """Sequential demo references. A table rather than max()+1 so two concurrent
+    bookings cannot be handed the same DEMO- number."""
+
+    __tablename__ = "counters"
+
+    name: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[int] = mapped_column(Integer, default=0)

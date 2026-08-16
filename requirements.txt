@@ -1,9 +1,9 @@
-# Milestone 1 — engine, tools, simulator
+# Milestones 1-2 — engine, tools, persistence, simulator
 pydantic>=2.13
 python-dateutil>=2.9
+sqlalchemy>=2.0
 
-# Milestone 2+ (webhook, storage, agent) — install when those land
+# Milestone 3+ (agent loop, webhook) — install when those land
+# anthropic>=0.40
 # fastapi>=0.115
 # uvicorn>=0.32
-# sqlalchemy>=2.0
-# anthropic>=0.40

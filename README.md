@@ -28,6 +28,7 @@ config/
                       discounts, insurance, cancellation, escalation triggers
 rental_agent/
   config.py           loads and caches the approved configuration
+  context.py          ToolContext: session + customer + conversation + clock
   domain/             enums (closed vocabularies) and Pydantic models
   engine/
     pricing.py        billable days, rate selection, fees, discounts, quotes
@@ -35,12 +36,27 @@ rental_agent/
     search.py         hard filters, deterministic ranking, alternative tiers
     locations.py      "marina" -> "Dubai Marina"
     engine.py         the facade the tool layer calls
+  store/
+    models.py         SQLAlchemy schema (Postgres-compatible)
+    types.py          decimals as text, datetimes with their offset
+    repositories.py   every read and write; the blocking-status rule lives here
+    db.py             engine, sessions, reset, demo-reference sequences
+  services/
+    booking.py        quotes, reservations, modify, extend, cancel, documents,
+                      simulated payment, delivery, customer memory
+    escalation.py     trigger classification and urgency
+    idempotency.py    the ledger that stops duplicate reservations
   tools/
-    rental_tools.py   the typed surface the model is allowed to touch
+    rental_tools.py   read tools
+    state_tools.py    write tools
+    registry.py       one dispatch path: errors, audit, idempotency
   formatting.py       WhatsApp rendering of engine facts
   simulator/cli.py    local console + scripted scenario replay
-tests/                76 tests, frozen clock, fixed reference date
+tests/                189 tests, frozen clock, fixed reference date
 ```
+
+All 17 tools from the specification are implemented: 7 read, 10 write. Every
+write is idempotent and audited.
 
 ## Running it
 
@@ -57,18 +73,33 @@ Freeze the clock for a reproducible demo:
 .venv/bin/python -m rental_agent.simulator.cli --date 2026-09-01 --run "scenario 1"
 ```
 
-Useful console commands: `/fleet`, `/search models=G63 color=black`,
-`/quote veh_13 days=3 location=Marina`, `/alts veh_18`, `/discount veh_13`,
-`/demo-fleet`, `/tool <name> <json>`, `/scenario`.
+Useful console commands:
+
+- **Read:** `/fleet`, `/search models=G63 color=black`, `/quote veh_13 days=3
+  location=Marina`, `/alts veh_18`, `/discount veh_13`
+- **Write:** `/book veh_13 days=3 location=Marina`, `/modify DEMO-1042
+  pickup=2026-09-04T20:00`, `/extend DEMO-1042 <iso>`, `/cancel DEMO-1042`
+- **Inspect:** `/state`, `/demo-fleet`, `/demo-bookings`, `/demo-conversations`
+- **Raw:** `/tool <name> <json>`, `/tools`
+- **Reset:** `/demo-reset` wipes the demo database and reloads config
+
+Write commands persist to `demo.db` (override with `--db`).
 
 ## What the scripted scenarios are and are not
 
-`/scenario 1..4` replay fixed customer/agent wording while pulling every number
-from the engine live. They demonstrate that the engine can supply everything the
-conversation needs, and they are **not** the agent — there is no model in the
-loop yet. The stateful agent (Milestone 4) replaces the scripted wording.
+`/scenario 1..6` replay fixed customer/agent wording while pulling every number
+from the engine and the database live. They demonstrate that the stack can
+supply everything the conversation needs, and they are **not** the agent — there
+is no model in the loop yet. The stateful agent (Milestone 3) replaces the
+scripted wording.
+
+Scenarios that write (booking, escalation) run against a scratch database, so
+they are reproducible on demand and never pollute the demo data.
 
 ## Status
 
-See `MILESTONES.md`. Milestone 1 is complete and tested; the conversation state,
-persistence, agent loop, WhatsApp transport and learning loop are not built yet.
+See `MILESTONES.md`. Milestones 1 and 2 are complete and tested: the engine,
+the full tool surface, persistence, customer memory and idempotency all work.
+
+Not built yet: the agent loop (no language model is in the loop at all), the
+WhatsApp transport, and the evaluation and learning loop.

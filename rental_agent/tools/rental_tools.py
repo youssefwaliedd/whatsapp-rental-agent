@@ -1,4 +1,4 @@
-"""Read-only rental tools (Milestone 1).
+"""Read-only rental tools.
 
 These are the only way the model may learn a price, a total or whether a car is
 free. Each handler:
@@ -9,8 +9,8 @@ free. Each handler:
   * never raises into the agent loop — errors come back as {"error": ...} so the
     agent can recover conversationally instead of the turn crashing.
 
-State-changing tools (quotes, reservations, documents, payments, escalation)
-arrive in Milestone 2 and additionally require an idempotency key.
+Dispatch, the error envelope, auditing and idempotency all live in
+`registry.py`, so read and state-changing tools share one code path.
 """
 
 from __future__ import annotations
@@ -22,7 +22,8 @@ from zoneinfo import ZoneInfo
 
 from ..domain.enums import Category
 from ..domain.models import Quote, SearchCriteria, Vehicle, VehicleMatch
-from ..engine.engine import RentalEngine, VehicleNotFound, VehicleUnavailable
+from ..context import ToolContext
+from ..engine.engine import RentalEngine
 
 
 class ToolError(Exception):
@@ -167,7 +168,8 @@ def _quote(quote: Quote) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-def search_available_vehicles(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any]:
+def search_available_vehicles(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    engine = ctx.engine
     criteria = SearchCriteria(
         pickup_at=_parse_dt(args["pickup_at"], "pickup_at", engine.tz),
         return_at=_parse_dt(args["return_at"], "return_at", engine.tz),
@@ -194,12 +196,14 @@ def search_available_vehicles(engine: RentalEngine, args: dict[str, Any]) -> dic
     }
 
 
-def get_vehicle_details(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any]:
+def get_vehicle_details(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    engine = ctx.engine
     vehicle = engine.get_vehicle(args["vehicle_id"])
     return _vehicle_detail(vehicle, engine)
 
 
-def calculate_quote(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any]:
+def calculate_quote(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    engine = ctx.engine
     quote = engine.calculate_quote(
         vehicle_id=args["vehicle_id"],
         pickup_at=_parse_dt(args["pickup_at"], "pickup_at", engine.tz),
@@ -212,7 +216,8 @@ def calculate_quote(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any
     return _quote(quote)
 
 
-def find_alternatives(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any]:
+def find_alternatives(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    engine = ctx.engine
     matches = engine.find_alternatives(
         args["vehicle_id"],
         _parse_dt(args["pickup_at"], "pickup_at", engine.tz),
@@ -224,7 +229,8 @@ def find_alternatives(engine: RentalEngine, args: dict[str, Any]) -> dict[str, A
     return {"count": len(matches), "alternatives": [_match(m) for m in matches]}
 
 
-def get_allowed_discount(engine: RentalEngine, args: dict[str, Any]) -> dict[str, Any]:
+def get_allowed_discount(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    engine = ctx.engine
     allowance = engine.get_allowed_discount(
         vehicle_id=args["vehicle_id"],
         pickup_at=_parse_dt(args["pickup_at"], "pickup_at", engine.tz),
@@ -242,47 +248,10 @@ def get_allowed_discount(engine: RentalEngine, args: dict[str, Any]) -> dict[str
     }
 
 
-HANDLERS: dict[str, Callable[[RentalEngine, dict[str, Any]], dict[str, Any]]] = {
+READ_HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]] = {
     "search_available_vehicles": search_available_vehicles,
     "get_vehicle_details": get_vehicle_details,
     "calculate_quote": calculate_quote,
     "find_alternatives": find_alternatives,
     "get_allowed_discount": get_allowed_discount,
 }
-
-
-def execute_tool(engine: RentalEngine, name: str, args: dict[str, Any]) -> dict[str, Any]:
-    """Dispatch with a uniform error envelope.
-
-    Returning errors rather than raising lets the agent apologise and re-ask,
-    which is what a human employee would do, and keeps a bad extraction from
-    killing the conversation.
-    """
-    handler = HANDLERS.get(name)
-    if handler is None:
-        return {"error": "unknown_tool", "message": f"No tool named '{name}'"}
-    try:
-        return handler(engine, args)
-    except VehicleNotFound as exc:
-        return {
-            "error": "vehicle_not_found",
-            "message": str(exc),
-            "vehicle_id": exc.vehicle_id,
-        }
-    except KeyError as exc:
-        return {"error": "missing_argument", "message": f"Required argument {exc} is missing"}
-    except VehicleUnavailable as exc:
-        return {
-            "error": "vehicle_unavailable",
-            "message": str(exc),
-            "vehicle_id": exc.vehicle_id,
-            "reason": exc.result.reason.value if exc.result.reason else None,
-            "next_available_from": (
-                exc.result.next_available_from.isoformat()
-                if exc.result.next_available_from
-                else None
-            ),
-            "hint": "Call find_alternatives before telling the customer it is unavailable.",
-        }
-    except (ToolError, ValueError) as exc:
-        return {"error": "invalid_request", "message": str(exc)}
