@@ -119,9 +119,23 @@ provider-agnostic. Only `agent/providers/` knows an SDK exists, so switching is
 an environment variable:
 
 ```bash
-RENTAL_AGENT_PROVIDER=anthropic   # needs ANTHROPIC_API_KEY
-GEMINI_MODEL=gemini-2.5-flash     # or whatever `/models` shows you
+RENTAL_AGENT_PROVIDER=anthropic     # needs ANTHROPIC_API_KEY
+GEMINI_MODEL=gemini-3.6-flash       # or whatever `/models` shows you
 ```
+
+### Free-tier notes
+
+Gemini's free tier caps requests **per model, per day**. The adapter handles
+this rather than dying mid-conversation:
+
+- A per-minute limit is waited out, honouring Google's own `retryDelay`
+- A per-day limit fails over to the next model, which has its own budget
+- The extraction pass runs on a different model from the conversation, so the
+  two requests each turn draw on two separate quotas
+
+Budget about two requests per customer message. If everything is exhausted, the
+agent apologises and asks the customer to resend — it never crashes or goes
+silent.
 
 Scenarios that write (booking, escalation) run against a scratch database, so
 they are reproducible on demand and never pollute the demo data.

@@ -93,8 +93,36 @@ message is not answered twice; a runaway tool loop is capped and handed over; a
 refusal never leaves the customer with silence; the system prompt contains
 nothing volatile and is byte-identical across calls.
 
-**Not yet verified:** anything that needs a real model. No live conversation has
-run — credentials are needed for that.
+**Verified live** on Gemini (free tier), 17 Aug 2026 — a full conversation from
+enquiry to booking to contextual follow-up:
+
+- Correct engine-computed total (AED 7,560) quoted, never invented
+- Demonstration notice on every quote and confirmation
+- One question per turn; nothing re-asked
+- `DEMO-1042` created, then "actually can you make it 8 instead" resolved via
+  `get_active_reservation` → `modify_demo_reservation` with no "which car?"
+
+**Five bugs the live run found that no offline test could:**
+
+1. `503 UNAVAILABLE` was not in the retry predicate (only 429 was)
+2. A provider outage **crashed the turn** instead of degrading to an apology
+3. A failed extraction pass also crashed the turn, though it is only an
+   enhancement — the agent can run on tools and stored state alone
+4. Gemini 3.x **requires `thought_signature`** on function-call parts when they
+   are replayed; the adapter was reconstructing calls and dropping it
+5. The default model `gemini-2.0-flash` no longer exists, and `models.list()`
+   happily returns models that then 404 as "no longer available to new users"
+
+**Free-tier operating notes:**
+
+- Quota is `GenerateRequestsPerDay**PerModel**` — per model, per day. The
+  advertised `retryDelay` of ~40s is misleading; a daily cap resets tomorrow.
+- So the adapter distinguishes a per-day cap from a per-minute one: it waits out
+  the latter (honouring Google's own `retryDelay`) and **fails over to the next
+  model** for the former. Five models are tried in order.
+- The extraction pass runs on a *different* model from the conversation, so two
+  requests per turn land in two quota buckets rather than exhausting one.
+- Budget roughly two requests per customer message when estimating a demo day.
 
 ## ▢ Milestone 4 — WhatsApp transport
 

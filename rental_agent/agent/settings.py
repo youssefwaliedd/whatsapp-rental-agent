@@ -9,12 +9,25 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from ..env import load_dotenv
+
+# Loaded before the field defaults below are evaluated at import time.
+load_dotenv()
+
 #: Model to use when none is configured, per provider. A model name is only
 #: meaningful to its own provider, so this is resolved at use time rather than
 #: baked into a single `model` default.
 PROVIDER_DEFAULT_MODELS = {
-    "gemini": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+    "gemini": os.getenv("GEMINI_MODEL", "gemini-3.7-flash"),
     "anthropic": "claude-opus-5",
+}
+
+#: The extraction pass deliberately runs on a *different* model from the
+#: conversation. Rate limits are per-model, so on a free tier this spreads two
+#: requests per turn across two quota buckets instead of exhausting one — and
+#: extraction is a narrow, schema-constrained task a small model does well.
+PROVIDER_DEFAULT_EXTRACTION_MODELS = {
+    "gemini": os.getenv("GEMINI_EXTRACTION_MODEL", "gemini-3.1-flash-lite"),
 }
 
 DEFAULT_PROVIDER = os.getenv("RENTAL_AGENT_PROVIDER", "gemini")
@@ -51,7 +64,11 @@ class AgentSettings:
         return self.model or PROVIDER_DEFAULT_MODELS.get(self.provider, "")
 
     def resolved_extraction_model(self) -> str:
-        return self.extraction_model or self.resolved_model()
+        return (
+            self.extraction_model
+            or PROVIDER_DEFAULT_EXTRACTION_MODELS.get(self.provider)
+            or self.resolved_model()
+        )
 
 
 #: Anthropic-only: re-runs a policy-declined request on another model.

@@ -23,6 +23,7 @@ from typing import Any
 from ..context import ToolContext
 from ..domain.enums import Stage
 from ..tools.registry import execute_tool
+from .providers.errors import ProviderUnavailable
 from . import extraction as extraction_mod
 from .prompt import build_system, render_state
 from .schemas import TOOLS
@@ -35,6 +36,14 @@ SAFE_FALLBACK_REPLY = (
     "with you."
 )
 
+#: The model provider is down or overloaded. Not the customer's problem and not
+#: worth escalating a colleague for — their message is already recorded, so ask
+#: them to hold rather than dropping the conversation.
+PROVIDER_BUSY_REPLY = (
+    "Sorry, my system is running slow right now — give me a moment and send that "
+    "again."
+)
+
 
 @dataclass
 class AgentTurn:
@@ -45,6 +54,10 @@ class AgentTurn:
     refusal: bool = False
     iterations: int = 0
     stop_reason: str | None = None
+    #: Set when the provider failed rather than the conversation going wrong.
+    provider_error: str | None = None
+    #: Set when the extraction pass failed; the turn still ran without it.
+    extraction_error: str | None = None
 
 
 class Agent:
@@ -100,18 +113,26 @@ class Agent:
         active_reservation = active.get("reservation") if active.get("has_active_reservation") else None
         customer = execute_tool(ctx, "get_customer", {})
 
-        # 1. Extraction — additive merge into state.
+        # 1. Extraction — additive merge into state. It sharpens the turn but
+        #    is not a prerequisite for it: the agent still has its tools and the
+        #    stored state, so a failed extraction degrades rather than aborts.
+        extraction_error: str | None = None
         if self.settings.extraction_enabled:
-            extracted = extraction_mod.extract(
-                self.client,
-                message=message,
-                state=state,
-                now=now,
-                active_reservation=active_reservation,
-                model=self.settings.resolved_extraction_model(),
-                effort=self.settings.extraction_effort,
-                max_tokens=self.settings.extraction_max_tokens,
-            )
+            try:
+                extracted = extraction_mod.extract(
+                    self.client,
+                    message=message,
+                    state=state,
+                    now=now,
+                    active_reservation=active_reservation,
+                    model=self.settings.resolved_extraction_model(),
+                    effort=self.settings.extraction_effort,
+                    max_tokens=self.settings.extraction_max_tokens,
+                )
+            except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
+                extraction_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+                extracted = extraction_mod.Extraction()
+
             state = extraction_mod.merge(state, extracted, ctx.engine.tz)
             ctx.save_state(state)
 
@@ -125,8 +146,13 @@ class Agent:
                 )
                 state = ctx.load_state()
 
-        # 3. Conversational turn.
-        turn = self._run_tool_loop(ctx, state, now, customer, active_reservation)
+        # 3. Conversational turn. A provider outage must degrade into an
+        #    apology, never into a crashed turn with no reply at all.
+        try:
+            turn = self._run_tool_loop(ctx, state, now, customer, active_reservation)
+        except ProviderUnavailable as exc:
+            turn = AgentTurn(reply=PROVIDER_BUSY_REPLY, provider_error=str(exc)[:200])
+        turn.extraction_error = extraction_error
 
         ctx.messages.record(
             conversation_id=ctx.conversation_id or "",

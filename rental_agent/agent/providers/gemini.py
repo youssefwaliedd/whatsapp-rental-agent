@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -30,9 +31,25 @@ from typing import Any
 from google import genai
 from google.genai import types
 
+from ...env import load_dotenv
+from .errors import ProviderUnavailable
+
+load_dotenv()
+
 #: Free-tier default. Override with GEMINI_MODEL — run `/models` in the console
 #: to see what your key can actually reach.
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+
+#: Tried in order when the configured model's daily quota is exhausted. Free-tier
+#: request caps are per model per day, so a demo that would otherwise stop dead
+#: mid-conversation can keep going on the next model's budget.
+FALLBACK_MODELS = [
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+    "gemini-3.1-flash-lite",
+]
 
 #: Marker for content that is operator instruction rather than customer speech.
 STATE_MARKER = "[SYSTEM NOTE — not from the customer, do not quote it back]"
@@ -59,6 +76,7 @@ _FINISH_REASONS = {
 class TextBlock:
     text: str
     type: str = "text"
+    signature: Any = None
 
 
 @dataclass
@@ -67,6 +85,11 @@ class ToolUseBlock:
     input: dict[str, Any]
     id: str
     type: str = "tool_use"
+    #: Gemini 3.x returns an opaque signature on function-call parts and rejects
+    #: the conversation if it is missing when the call is replayed back. The
+    #: analogue of passing thinking blocks back unchanged on other providers —
+    #: carry it, never synthesise it.
+    signature: Any = None
 
 
 @dataclass
@@ -126,6 +149,26 @@ def to_function_declarations(tools: list[dict[str, Any]]) -> list[types.Function
     return declarations
 
 
+_RETRY_DELAY = re.compile(r"retrydelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s", re.IGNORECASE)
+
+
+def _server_retry_delay(message: str) -> float | None:
+    """Pull `retryDelay: '30s'` out of a 429 body, if present."""
+    found = _RETRY_DELAY.search(message)
+    return float(found.group(1)) if found else None
+
+
+def is_daily_quota_exhausted(message: str) -> bool:
+    """A per-day cap, as opposed to a per-minute one.
+
+    Worth distinguishing: waiting is pointless (the advertised `retryDelay` is
+    seconds, but the quota resets tomorrow), whereas another model has its own
+    separate daily budget.
+    """
+    lowered = message.lower()
+    return "perday" in lowered.replace("_", "") or "per day" in lowered
+
+
 def _field(block: Any, name: str, default: Any = None) -> Any:
     """Read a field from a block that may be a dataclass or a plain dict.
 
@@ -148,14 +191,17 @@ def _parts_from_assistant(content: Any) -> list[types.Part]:
         if kind == "text":
             text = _field(block, "text", "") or ""
             if text.strip():
-                parts.append(types.Part.from_text(text=text))
+                parts.append(
+                    types.Part(text=text, thought_signature=_field(block, "signature"))
+                )
         elif kind == "tool_use":
             parts.append(
                 types.Part(
                     function_call=types.FunctionCall(
                         name=_field(block, "name"),
                         args=dict(_field(block, "input", {}) or {}),
-                    )
+                    ),
+                    thought_signature=_field(block, "signature"),
                 )
             )
     return parts
@@ -238,10 +284,15 @@ def from_response(response: Any) -> Response:
                     name=call.name,
                     input=dict(call.args or {}),
                     id=call.id or encode_call_id(call.name, index),
+                    signature=getattr(part, "thought_signature", None),
                 )
             )
         elif getattr(part, "text", None):
-            blocks.append(TextBlock(text=part.text))
+            blocks.append(
+                TextBlock(
+                    text=part.text, signature=getattr(part, "thought_signature", None)
+                )
+            )
 
     if any(isinstance(b, ToolUseBlock) for b in blocks):
         stop_reason = "tool_use"
@@ -253,8 +304,21 @@ def from_response(response: Any) -> Response:
 # --------------------------------------------------------------------------
 
 
-class _RateLimited(Exception):
-    pass
+#: Substrings marking a transient provider failure worth retrying. Free-tier
+#: traffic hits both rate limits (429) and capacity limits (503) routinely.
+_RETRYABLE = (
+    "resource_exhausted",
+    "429",
+    "rate limit",
+    "unavailable",
+    "503",
+    "overloaded",
+    "high demand",
+    "internal error",
+    "500",
+    "deadline",
+    "timeout",
+)
 
 
 class _Messages:
@@ -278,22 +342,41 @@ class _Messages:
         )
 
     def _generate(self, model: str, contents: Any, config: Any) -> Any:
-        """Free-tier requests-per-minute limits are low; back off rather than
-        dropping the customer's turn."""
-        delay = 2.0
-        for attempt in range(self.owner.max_retries + 1):
-            try:
-                return self.owner.raw.models.generate_content(
-                    model=model, contents=contents, config=config
-                )
-            except Exception as exc:  # noqa: BLE001 - provider exception surface
-                message = str(exc).lower()
-                retryable = "resource_exhausted" in message or "429" in message or "rate" in message
-                if not retryable or attempt == self.owner.max_retries:
-                    raise
-                time.sleep(delay)
-                delay *= 2
-        raise _RateLimited("exhausted retries")  # pragma: no cover
+        """Retry transient provider failures.
+
+        Free-tier capacity is shared, so both 429 (rate) and 503 (demand) show
+        up in ordinary use. Neither should cost the customer their message.
+
+        A 429 carries Google's own `retryDelay` — a per-minute quota does not
+        clear on a two-second backoff, so honour the server's figure when it
+        gives one rather than guessing with exponential backoff.
+        """
+        candidates = [model] + [m for m in self.owner.fallback_models if m != model]
+        last: Exception | None = None
+
+        for current in candidates:
+            delay = 2.0
+            for attempt in range(self.owner.max_retries + 1):
+                try:
+                    response = self.owner.raw.models.generate_content(
+                        model=current, contents=contents, config=config
+                    )
+                    if current != model:
+                        self.owner.active_model = current
+                    return response
+                except Exception as exc:  # noqa: BLE001 - provider exception surface
+                    last = exc
+                    message = str(exc)
+                    if is_daily_quota_exhausted(message):
+                        break  # waiting will not help; the next model has its own budget
+                    if not any(marker in message.lower() for marker in _RETRYABLE):
+                        raise
+                    if attempt == self.owner.max_retries:
+                        break
+                    time.sleep(min(_server_retry_delay(message) or delay, self.owner.max_backoff))
+                    delay *= 2
+
+        raise ProviderUnavailable(str(last)) from last
 
     def create(self, **kwargs: Any) -> Response:
         response = self._generate(
@@ -345,17 +428,27 @@ class GeminiClient:
         *,
         model: str | None = None,
         api_key: str | None = None,
-        max_retries: int = 3,
+        # Two retries, capped: a customer waiting on WhatsApp would rather be
+        # told to resend than sit through a three-minute backoff chain.
+        max_retries: int = 2,
+        max_backoff: float = 30.0,
+        fallback_models: list[str] | None = None,
     ):
         key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not key:
             raise RuntimeError(
-                "No Gemini credentials. Get a free key at https://aistudio.google.com/apikey "
-                "and set GEMINI_API_KEY."
+                "No Gemini credentials. Get a free key at "
+                "https://aistudio.google.com/apikey, then put it in a .env file at "
+                "the project root as GEMINI_API_KEY=... (or export it)."
             )
         self.raw = genai.Client(api_key=key)
         self.model = model or DEFAULT_MODEL
         self.max_retries = max_retries
+        #: Per-minute quotas need a full minute; cap the wait just past that.
+        self.max_backoff = max_backoff
+        self.fallback_models = FALLBACK_MODELS if fallback_models is None else fallback_models
+        #: Set when a daily quota forced a switch, so the console can say so.
+        self.active_model: str | None = None
         self.messages = _Messages(self)
         self.beta = _UnsupportedBeta()
 

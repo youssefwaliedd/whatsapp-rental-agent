@@ -248,9 +248,17 @@ def test_an_explicit_model_overrides_the_provider_default():
     assert AgentSettings(provider="gemini", model="gemini-2.5-pro").resolved_model() == "gemini-2.5-pro"
 
 
-def test_extraction_falls_back_to_the_main_model():
+def test_extraction_runs_on_a_separate_model_by_default():
+    """Rate limits are per-model, so two requests per turn should land in two
+    quota buckets rather than exhausting one."""
     settings = AgentSettings(provider="gemini", model="gemini-x", extraction_model=None)
-    assert settings.resolved_extraction_model() == "gemini-x"
+    assert settings.resolved_extraction_model() != "gemini-x"
+    assert settings.resolved_extraction_model().startswith("gemini")
+
+
+def test_an_explicit_extraction_model_wins():
+    settings = AgentSettings(provider="gemini", model="a", extraction_model="b")
+    assert settings.resolved_extraction_model() == "b"
 
 
 def test_gemini_declares_no_fallback_support():
@@ -350,3 +358,118 @@ def test_a_gemini_safety_block_escalates(booking_ctx, gemini_client):
     assert turn.refusal is True
     assert turn.escalated is True
     assert booking_ctx.load_state().escalated is True
+
+
+# --------------------------------------------------------------------------
+# Thought signatures
+# --------------------------------------------------------------------------
+
+
+def test_a_function_call_signature_survives_the_round_trip():
+    """Gemini 3.x rejects a replayed function call whose thought_signature is
+    missing. It must be carried from the response into the next request, never
+    dropped and never invented."""
+    call = SimpleNamespace(name="get_customer", args={}, id=None)
+    part = SimpleNamespace(text=None, function_call=call, thought=None)
+    part.thought_signature = b"sig-abc"
+
+    block = from_response(
+        SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(parts=[part]),
+                    finish_reason=SimpleNamespace(name="STOP"),
+                )
+            ]
+        )
+    ).content[0]
+    assert block.signature == b"sig-abc"
+
+    contents = to_contents(
+        [{"role": "user", "content": "hi"}, {"role": "assistant", "content": [block]}]
+    )
+    assert contents[-1].parts[0].thought_signature == b"sig-abc"
+
+
+def test_a_missing_signature_is_not_invented():
+    call = SimpleNamespace(name="get_customer", args={}, id=None)
+    part = SimpleNamespace(text=None, function_call=call, thought=None, thought_signature=None)
+    block = from_response(
+        SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(parts=[part]),
+                    finish_reason=SimpleNamespace(name="STOP"),
+                )
+            ]
+        )
+    ).content[0]
+    assert block.signature is None
+
+
+def test_the_servers_retry_delay_is_honoured():
+    """A per-minute quota does not clear on a 2s backoff — when Google says how
+    long to wait, waiting that long is the difference between recovering and
+    burning the retries."""
+    from rental_agent.agent.providers.gemini import _server_retry_delay
+
+    body = "429 RESOURCE_EXHAUSTED {'details': [{'retryDelay': '31s'}]}"
+    assert _server_retry_delay(body) == 31.0
+    assert _server_retry_delay("503 UNAVAILABLE high demand") is None
+
+
+# --------------------------------------------------------------------------
+# Free-tier quota handling
+# --------------------------------------------------------------------------
+
+
+def test_a_daily_quota_is_told_apart_from_a_rate_limit():
+    """They need opposite responses: wait out a per-minute limit, switch models
+    on a per-day one. The advertised retryDelay is seconds in both cases."""
+    from rental_agent.agent.providers.gemini import is_daily_quota_exhausted
+
+    daily = "429 quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'"
+    per_minute = "429 quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier'"
+    assert is_daily_quota_exhausted(daily) is True
+    assert is_daily_quota_exhausted(per_minute) is False
+
+
+def test_an_exhausted_daily_quota_moves_to_the_next_model(gemini_client):
+    """The demo keeps going on another model's budget instead of stopping dead
+    mid-conversation."""
+    calls = []
+
+    def generate_content(*, model, contents, config):
+        calls.append(model)
+        if model in ("gemini-test", "gemini-3.7-flash"):
+            raise RuntimeError("429 quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'")
+        return _candidate([_part(text="served by the fallback")])
+
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    result = gemini_client.messages.create(messages=[{"role": "user", "content": "hi"}])
+
+    assert result.content[0].text == "served by the fallback"
+    assert len(calls) > 1
+    assert gemini_client.active_model == calls[-1]
+
+
+def test_every_model_exhausted_raises_provider_unavailable(gemini_client):
+    from rental_agent.agent.providers.errors import ProviderUnavailable
+
+    def generate_content(*, model, contents, config):
+        raise RuntimeError("429 quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'")
+
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    with pytest.raises(ProviderUnavailable):
+        gemini_client.messages.create(messages=[{"role": "user", "content": "hi"}])
+
+
+def test_a_non_retryable_error_is_not_masked_by_failover(gemini_client):
+    """A bad request must surface immediately, not be retried across five
+    models and reported as a quota problem."""
+    def generate_content(*, model, contents, config):
+        raise RuntimeError("400 INVALID_ARGUMENT bad schema")
+
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    with pytest.raises(RuntimeError, match="INVALID_ARGUMENT"):
+        gemini_client.messages.create(messages=[{"role": "user", "content": "hi"}])
