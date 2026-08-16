@@ -136,6 +136,30 @@ enquiry to booking to contextual follow-up:
   requests per turn land in two quota buckets rather than exhausting one.
 - Budget roughly two requests per customer message when estimating a demo day.
 
+## Required demonstration scenarios
+
+The specification lists eight. This is the acceptance criterion that matters for
+showing the prototype to a rental company, so it is tracked separately from the
+milestones.
+
+*Engine* = the underlying tools are tested. *Live* = a real conversation with the
+agent has been observed doing it end to end.
+
+| # | Scenario | Engine | Live |
+|---|---|:---:|:---:|
+| 1 | Requested vehicle is available | ✅ | ✅ black G63, booked as DEMO-1042 |
+| 2 | Unavailable → targeted alternatives | ✅ | ▢ not yet run with the agent |
+| 3 | Customer has a specific budget | ✅ | ◐ budget respected; not pushed hard |
+| 4 | Customer requests a discount | ✅ | ✅ incl. the ceiling-disclosure fix |
+| 5 | Changes dates, location or delivery time | ✅ | ✅ "make it 8 instead" |
+| 6 | Returns later with a contextual follow-up | ✅ | ✅ resolved without re-asking |
+| 7 | Requests a rental extension | ✅ | ▢ not yet run with the agent |
+| 8 | Reports an accident → escalation | ✅ | ▢ not yet run with the agent |
+
+**Five of eight proven live.** Scenarios 2, 7 and 8 have passing engine and tool
+tests but no observed agent conversation — 8 is the most important of the three,
+because escalation is the failure with the highest cost.
+
 ## ▢ Milestone 4 — WhatsApp transport
 
 - [ ] Cloud API webhook, signature verification, 200-fast + async processing
