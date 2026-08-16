@@ -113,6 +113,18 @@ enquiry to booking to contextual follow-up:
 5. The default model `gemini-2.0-flash` no longer exists, and `models.list()`
    happily returns models that then 404 as "no longer available to new users"
 
+**Observed and fixed from live play:**
+
+- Asked "is there a discount?", the agent announced its **maximum** ceiling for
+  **three cars at once**, to a customer who had not chosen one. The figures were
+  correct (10% economy / 13% sedan on a 7-day rental, straight from the rules) —
+  the fact boundary held. The *selling* was the defect: it gave away its whole
+  negotiating position unprompted. Now it asks which car first, opens below its
+  limit, and keeps room to move.
+- Still open, deliberately left as a first test case for the Milestone 5
+  evaluator: the agent will say "we can arrange a black G63" *before* calling
+  the availability tool. Not false, but a commitment made ahead of the facts.
+
 **Free-tier operating notes:**
 
 - Quota is `GenerateRequestsPerDay**PerModel**` — per model, per day. The
