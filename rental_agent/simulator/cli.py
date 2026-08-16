@@ -38,7 +38,7 @@ CONSOLE_WHATSAPP_ID = "+971500000000"
 BANNER = """
 Sandline Rentals — DEMO console
 Fictional fleet, fictional prices, simulated bookings. Nothing here is real.
-Type /help for commands, /quit to exit.
+Type a message to talk to the agent, /help for commands, /quit to exit.
 """.strip()
 
 HELP = """
@@ -49,6 +49,10 @@ Fleet & pricing
   /alts <id>                 Alternatives when <id> is unavailable
   /quote <id> [k=v]          Priced demo quote (calculation only, not stored)
   /discount <id>             Maximum discount the engine permits
+
+Talking to the agent (needs ANTHROPIC_API_KEY)
+  <anything not starting with />  Speak to the agent as a customer
+  /chat <message>            Same thing, explicitly
 
 Booking (writes to the demo database)
   /book <id> [k=v]           Quote and reserve in one step
@@ -298,6 +302,58 @@ def cmd_cancel(ctx: ToolContext, parts: list[str]) -> None:
             {"reservation_id": parts[0], "reason": " ".join(parts[1:]) or None},
         )
     )
+
+
+#: Built on first use so every other command works without an API key.
+_AGENT: list = []
+
+
+def _agent():
+    from ..agent.loop import Agent, build_client
+
+    if not _AGENT:
+        _AGENT.append(Agent(build_client()))
+    return _AGENT[0]
+
+
+def _is_auth_problem(exc: Exception) -> bool:
+    """The SDK reports a missing key as a TypeError at request time, not at
+    construction, so match on the message rather than the exception class."""
+    text = str(exc).lower()
+    return "authentication" in text or "api_key" in text or "api key" in text
+
+
+def cmd_chat(ctx: ToolContext, parts: list[str]) -> None:
+    """One conversational turn. This is the real agent, with a model in the loop."""
+    message = " ".join(parts).strip()
+    if not message:
+        print("  usage: /chat <what the customer says>  (or just type it)")
+        return
+
+    print(f"\n  Customer │ {message}\n")
+    try:
+        turn = _agent().respond(ctx, message)
+    except Exception as exc:  # noqa: BLE001 - surfaced to a human at a console
+        if _is_auth_problem(exc):
+            print("  No API credentials found, so there is no model to talk to.")
+            print("  Set ANTHROPIC_API_KEY in your environment, or run `ant auth login`.")
+            print("  Every other command in this console works without one.")
+        else:
+            print(f"  agent error: {type(exc).__name__}: {exc}")
+        return
+
+    if turn.duplicate:
+        print("  (duplicate message — already answered)")
+        return
+    for i, line in enumerate(turn.reply.split("\n")):
+        print(f"  {'Agent   ' if i == 0 else '        '} │ {line}")
+    print()
+    if turn.tool_calls:
+        print(f"  · tools: {' → '.join(turn.tool_calls)}")
+    if turn.escalated:
+        print("  · escalated to a human")
+    if turn.refusal:
+        print("  · the model declined this request")
 
 
 def cmd_state(ctx: ToolContext, parts: list[str]) -> None:
@@ -683,6 +739,9 @@ def cmd_tools(ctx: ToolContext, parts: list[str]) -> None:
         print(f"  {name}{marker}")
 
 
+#: Commands whose argument is a sentence, not a token list.
+FREE_TEXT_COMMANDS = {"chat"}
+
 COMMANDS: dict[str, Callable[[ToolContext, list[str]], None]] = {
     "fleet": cmd_fleet,
     "vehicle": cmd_vehicle,
@@ -695,6 +754,7 @@ COMMANDS: dict[str, Callable[[ToolContext, list[str]], None]] = {
     "extend": cmd_extend,
     "cancel": cmd_cancel,
     "state": cmd_state,
+    "chat": cmd_chat,
     "tool": cmd_tool,
     "tools": cmd_tools,
     "scenario": cmd_scenario,
@@ -742,16 +802,19 @@ def main() -> None:
     ctx, _factory = build_context(args.date, args.db)
 
     def dispatch(line: str) -> None:
-        parts = shlex.split(line)
-        if parts[0] == "demo-reset":
+        command, _, rest = line.partition(" ")
+        if command == "demo-reset":
             perform_reset(ctx, args.db)
             return
-        handler = COMMANDS.get(parts[0])
+        # Free-text commands bypass shlex — an apostrophe in "I don't want that"
+        # is an unbalanced quote to the shell lexer, not a typo by the customer.
+        parts = [rest] if command in FREE_TEXT_COMMANDS else shlex.split(rest)
+        handler = COMMANDS.get(command)
         if handler is None:
-            print(f"  unknown command '{parts[0]}' — /help for the list")
+            print(f"  unknown command '{command}' — /help for the list")
             return
         try:
-            handler(ctx, parts[1:])
+            handler(ctx, parts)
             ctx.session.commit()
         except Exception as exc:  # noqa: BLE001 - a console should not die on a typo
             ctx.session.rollback()
@@ -776,7 +839,8 @@ def main() -> None:
         if line == "/help":
             print(HELP)
             continue
-        dispatch(line.lstrip("/"))
+        # Anything that isn't a command is what the customer just said.
+        dispatch(line.lstrip("/") if line.startswith("/") else f"chat {line}")
 
 
 if __name__ == "__main__":

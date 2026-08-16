@@ -66,17 +66,32 @@ Tracking against the ten development phases in the project specification.
   deposit or policy — "you always give me 20% off" cannot become a rule.
 - Money survives SQLite exactly; timezone-aware times survive with their offset.
 
-## ▢ Milestone 3 — the stateful agent
+## ✅ Milestone 3 — the stateful agent (built, 218 tests; live run pending credentials)
 
-- [ ] JSON tool schemas for the Anthropic tool-use API (deferred from M2 to
-      where they are actually consumed)
-- [ ] Intent and entity extraction into `ConversationState`
-- [ ] Stage machine and the "consult state before asking" rule
-- [ ] Anthropic tool-use loop over the existing tool surface
-- [ ] Contextual follow-up resolution ("make it 8 instead")
-- [ ] Escalation detection from message content, not just explicit tool calls
-- [ ] System prompt carrying the fact boundary and demo disclosure rules
-- [ ] Scenarios replaced with generated rather than scripted wording
+- [x] JSON tool schemas for all 17 tools, with prescriptive "call this when…"
+      trigger conditions and a byte-stable ordering
+- [x] Structured intent and entity extraction (`messages.parse`) with a
+      **deterministic, additive-only merge** into `ConversationState`
+- [x] Frozen system prompt + per-turn state injected as a mid-conversation
+      system message, so state changes never invalidate the prompt cache
+- [x] Manual tool-use loop with iteration cap, refusal handling and a safe
+      fallback reply
+- [x] Contextual follow-up resolution — the extractor is given the live booking
+      and the clock, so "make it 8 instead" resolves to a full timestamp
+- [x] Escalation executed **in code** from the extraction signal, so a model
+      that forgets to call the tool cannot cause a missed incident
+- [x] Server-side refusal fallbacks, degrading gracefully when the beta is off
+- [x] Console chat mode — type a message and talk to the agent
+
+**Verified by test:** an empty extraction cannot clear a known value; a
+malformed timestamp is ignored rather than overwriting a good one; an accident
+escalates even when the model never calls the tool; a redelivered WhatsApp
+message is not answered twice; a runaway tool loop is capped and handed over; a
+refusal never leaves the customer with silence; the system prompt contains
+nothing volatile and is byte-identical across calls.
+
+**Not yet verified:** anything that needs a real model. No live conversation has
+run — credentials are needed for that.
 
 ## ▢ Milestone 4 — WhatsApp transport
 
@@ -103,8 +118,9 @@ Tracking against the ten development phases in the project specification.
   ids. `fleet.json` holds placeholder paths. Options: commit ~20 licensed images
   and serve them, or upload once to the WhatsApp media API and store the ids.
   Needed before Milestone 4.
-- **WhatsApp Business test number.** Needed only at Milestone 4. No credentials
-  required until then.
+- **WhatsApp Business test number.** Needed only at Milestone 4.
+- **Anthropic API key.** Needed *now* to run the agent. Everything else in the
+  project works without one.
 - **Turnaround buffer between rentals.** Real operators need cleaning and
   inspection time between bookings; the prototype currently allows a return and
   the next pickup at the same minute. Trivial to add as a rules setting when a

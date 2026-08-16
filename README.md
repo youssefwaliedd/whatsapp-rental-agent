@@ -50,9 +50,16 @@ rental_agent/
     rental_tools.py   read tools
     state_tools.py    write tools
     registry.py       one dispatch path: errors, audit, idempotency
+  agent/
+    schemas.py        the 17 tools as JSON schemas the model can call
+    prompt.py         frozen system prompt + per-turn state snapshot
+    extraction.py     structured entity extraction + additive state merge
+    loop.py           the tool-use loop
+    settings.py       model, effort and limits (all env-overridable)
   formatting.py       WhatsApp rendering of engine facts
   simulator/cli.py    local console + scripted scenario replay
-tests/                189 tests, frozen clock, fixed reference date
+tests/                218 tests, frozen clock, fixed reference date,
+                      scripted model responses (no API key needed)
 ```
 
 All 17 tools from the specification are implemented: 7 read, 10 write. Every
@@ -81,6 +88,7 @@ Useful console commands:
   pickup=2026-09-04T20:00`, `/extend DEMO-1042 <iso>`, `/cancel DEMO-1042`
 - **Inspect:** `/state`, `/demo-fleet`, `/demo-bookings`, `/demo-conversations`
 - **Raw:** `/tool <name> <json>`, `/tools`
+- **Talk to it:** type anything not starting with `/` (needs `ANTHROPIC_API_KEY`)
 - **Reset:** `/demo-reset` wipes the demo database and reloads config
 
 Write commands persist to `demo.db` (override with `--db`).
@@ -88,18 +96,21 @@ Write commands persist to `demo.db` (override with `--db`).
 ## What the scripted scenarios are and are not
 
 `/scenario 1..6` replay fixed customer/agent wording while pulling every number
-from the engine and the database live. They demonstrate that the stack can
-supply everything the conversation needs, and they are **not** the agent — there
-is no model in the loop yet. The stateful agent (Milestone 3) replaces the
-scripted wording.
+from the engine and the database live. They are **not** the agent — they exist to
+show the stack can supply everything a conversation needs, and they still run
+without an API key.
+
+To talk to the actual agent, set `ANTHROPIC_API_KEY` and just type into the
+console.
 
 Scenarios that write (booking, escalation) run against a scratch database, so
 they are reproducible on demand and never pollute the demo data.
 
 ## Status
 
-See `MILESTONES.md`. Milestones 1 and 2 are complete and tested: the engine,
-the full tool surface, persistence, customer memory and idempotency all work.
+See `MILESTONES.md`. Milestones 1–3 are built and tested: the engine, the full
+tool surface, persistence, customer memory, idempotency, and the stateful agent.
 
-Not built yet: the agent loop (no language model is in the loop at all), the
-WhatsApp transport, and the evaluation and learning loop.
+The agent is tested against scripted model responses — no live conversation has
+run yet. Not built at all: the WhatsApp transport and the evaluation/learning
+loop.
