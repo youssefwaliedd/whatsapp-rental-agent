@@ -175,7 +175,9 @@ agent has been observed doing it end to end.
 
 - [ ] Cloud API webhook, signature verification, 200-fast + async processing
 - [ ] Wire `provider_message_id` dedup into the webhook path
-- [ ] Media (vehicle photos) — needs publicly reachable image URLs
+- [x] Media: vehicle cards rendered from `fleet.json` (`rental_agent/media/cards.py`)
+- [ ] Host them — GitHub Pages, so WhatsApp has a public HTTPS URL
+- [ ] Send them in the conversation at the right moment
 - [ ] Staff escalation to a configured WhatsApp number (`staff_notified`)
 
 ## ✅ Milestone 5 — evaluation and learning (complete)
@@ -226,10 +228,13 @@ candidate **rejected**, and `strategy_1.0` keeps serving with no lessons in forc
 
 ## Open items needing a decision
 
-- **Vehicle photos.** WhatsApp needs publicly reachable URLs or uploaded media
-  ids. `fleet.json` holds placeholder paths. Options: commit ~20 licensed images
-  and serve them, or upload once to the WhatsApp media API and store the ids.
-  Needed before Milestone 4.
+- ~~**Vehicle photos.**~~ **Decided:** cards rendered from `fleet.json` rather
+  than stock photography. A stock photo of a white G-Wagon under the caption
+  "black with red interior" is a mismatch a rental professional notices
+  immediately, and it costs more credibility than a photograph buys. Cards
+  cannot disagree with the data, carry no licensing risk, and are honestly
+  labelled as demonstration material. A rental company adopting this points
+  `fleet.json` at their own photographs and nothing else changes.
 - **WhatsApp Business test number.** Needed only at Milestone 4.
 - **A model API key.** Needed *now* to run the agent — free from
   <https://aistudio.google.com/apikey> for the default Gemini provider.

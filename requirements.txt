@@ -2,6 +2,7 @@
 pydantic>=2.13
 python-dateutil>=2.9
 sqlalchemy>=2.0
+Pillow>=10.0          # renders the demonstration vehicle cards
 
 # Model providers. Gemini is the default (free tier); Anthropic is supported
 # by the same agent via a second adapter. Install whichever you use.
