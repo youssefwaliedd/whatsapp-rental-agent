@@ -271,3 +271,57 @@ class Mistake(Base):
     conversation_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(AwareDateTime)
     updated_at: Mapped[datetime] = mapped_column(AwareDateTime)
+
+
+class Strategy(Base):
+    """A versioned set of behavioural lessons appended to the agent's prompt.
+
+    Deliberately *additive only*. A strategy cannot rewrite the system prompt,
+    cannot touch configuration, and cannot carry a price, a policy or a limit —
+    those come from the engine and are not learnable. What it can carry is how
+    to conduct a conversation: what to ask first, when to offer alternatives,
+    how to handle a push on price.
+
+    A version is created as a candidate and only becomes active if every
+    regression case still passes against it.
+    """
+
+    __tablename__ = "strategies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version: Mapped[str] = mapped_column(String, unique=True, index=True)
+    #: candidate -> active -> superseded, or candidate -> rejected
+    status: Mapped[str] = mapped_column(String, default="candidate", index=True)
+    lessons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    #: Mistake ids this version was built to correct.
+    derived_from: Mapped[list[int]] = mapped_column(JSON, default=list)
+    parent_version: Mapped[str | None] = mapped_column(String, default=None)
+
+    replay_passed: Mapped[int] = mapped_column(Integer, default=0)
+    replay_failed: Mapped[int] = mapped_column(Integer, default=0)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, default=None)
+
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    activated_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
+
+
+class RegressionCase(Base):
+    """A real conversation that once went wrong, kept as a test.
+
+    Stores the customer's turns and the mistake that must not recur. A candidate
+    strategy is replayed against every case before it can be activated — which
+    is what stops a correction for one problem from quietly creating another.
+    """
+
+    __tablename__ = "regression_cases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String)
+    #: The customer side of the conversation, in order.
+    customer_turns: Mapped[list[str]] = mapped_column(JSON, default=list)
+    #: The finding type that must not appear when this is replayed.
+    forbidden_finding: Mapped[str] = mapped_column(String, index=True)
+    source_conversation_id: Mapped[str | None] = mapped_column(String, default=None)
+    source_mistake_id: Mapped[int | None] = mapped_column(Integer, default=None)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)

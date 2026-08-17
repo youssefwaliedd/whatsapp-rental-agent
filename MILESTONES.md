@@ -178,27 +178,51 @@ agent has been observed doing it end to end.
 - [ ] Media (vehicle photos) — needs publicly reachable image URLs
 - [ ] Staff escalation to a configured WhatsApp number (`staff_notified`)
 
-## ◐ Milestone 5 — evaluation and learning (in progress)
+## ✅ Milestone 5 — evaluation and learning (complete)
 
-- [x] **Event-based evaluator** reading the tool-call audit log — no model
-      consulted, so a finding is a fact and the same conversation always
+The self-improvement loop, and the reason the project is more than a chatbot.
+
+**Evaluation — reads events, not opinions**
+
+- [x] Six deterministic checks over the transcript and tool-call audit log, no
+      model consulted, so a finding is a fact and the same conversation always
       evaluates the same way
-- [x] Six deterministic checks: `unsupported_claim` (the automated guard on the
-      central promise), `missed_escalation`, `unauthorised_discount`,
-      `repeated_question`, `no_alternatives_offered`, `too_many_options`
-- [x] `evaluations` and `mistakes` tables — an evaluation is a snapshot of one
-      conversation, a mistake is a durable lesson that outlives it
-- [x] Occurrences count **distinct conversations**, so re-evaluating cannot
+- [x] `unsupported_claim` compares every figure shown to a customer against
+      every figure the tools returned — the automated guard on the central promise
+- [x] Also: `missed_escalation`, `unauthorised_discount`, `repeated_question`,
+      `no_alternatives_offered`, `too_many_options`
+- [x] Abstains when the audit log holds no results to check against — absence of
+      evidence is not evidence of invention
+- [x] Mistake occurrences count *distinct conversations*, so re-evaluating cannot
       inflate them
-- [x] `/demo-report` and `/demo-learning`
-- [ ] Model judgement pass for the softer questions (tone, sales quality)
-- [ ] Structured corrections generated from mistakes
-- [ ] Regression test generation from real conversations
-- [ ] Replay harness over historical scenarios
-- [ ] Versioned strategies, activated only when replay passes
-- [ ] Lesson retrieval into future conversations
-- [ ] `/demo-report`, `/demo-learning`
-- [ ] The visible before/after learning demonstration
+
+**Learning — gated, versioned, reversible**
+
+- [x] Corrections generated per mistake type, in the voice of the system prompt
+- [x] **Safety boundary enforced in code**: a lesson carrying a figure, a
+      percentage or a policy claim is refused before it can be stored. No amount
+      of learning can move a price
+- [x] Versioned strategies — additive lesson sets, never a prompt rewrite
+- [x] Bad conversations become regression cases (customer turns only — replaying
+      the agent's old replies would defeat the point)
+- [x] Replay harness runs candidates in scratch conversations, excluded from reports
+- [x] **Activation gate**: a candidate is activated only if every regression case
+      passes. A failing candidate is rejected with its reason recorded and the
+      previous version keeps serving
+- [x] A crashing replay counts as a failure, never as a pass
+- [x] Active lessons retrieved into the per-turn state block, so a new strategy
+      takes effect on the next turn without a restart
+- [x] `/demo-report`, `/demo-learning`, `/demo-learn`
+- [x] `/scenario 7` — the visible before-and-after demonstration
+
+**The demonstration** (`/scenario 7`, no API key needed): the agent quotes
+AED 6,200 when the engine says 7,560 → evaluator catches it with evidence →
+correction generated → the conversation becomes a regression case → candidate
+replayed → activated only because nothing regressed → the lesson appears in the
+next conversation's state block.
+
+Verified both ways: an agent that repeats the mistake on replay gets its
+candidate **rejected**, and `strategy_1.0` keeps serving with no lessons in force.
 
 ## Open items needing a decision
 

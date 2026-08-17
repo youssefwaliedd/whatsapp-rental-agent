@@ -156,8 +156,12 @@ def _promote(ctx: ToolContext, finding: Finding, conversation_id: str, now: Any)
 
 def evaluate_all(ctx: ToolContext) -> list[EvaluationResult]:
     """Evaluate every conversation that has had a reply."""
+    from .replay import REPLAY_OUTCOME
+
     results = []
     for conversation in ctx.conversations.all():
+        if conversation.outcome == REPLAY_OUTCOME:
+            continue  # a replay artefact, not a real customer
         result = evaluate_conversation(ctx, conversation.conversation_id)
         if result.message_count:
             record(ctx, result)

@@ -67,6 +67,9 @@ class Agent:
         # Server-side refusal fallbacks are an Anthropic feature. The client
         # declares whether it has them rather than the settings guessing.
         self._fallbacks_supported = bool(getattr(client, "supports_fallbacks", True))
+        #: Set during a replay to run under a candidate strategy's lessons
+        #: instead of the active ones. None means "use whatever is active".
+        self.lessons_override: list[str] | None = None
 
     # -- API ------------------------------------------------------------
 
@@ -165,6 +168,20 @@ class Agent:
 
     # -- internals ------------------------------------------------------
 
+    def _lessons(self, ctx: ToolContext) -> list[str]:
+        """What the agent has learned, injected into the per-turn state block.
+
+        Read fresh every turn, so activating a new strategy takes effect in the
+        next conversation without a restart.
+        """
+        if self.lessons_override is not None:
+            return self.lessons_override
+        if ctx.session is None:
+            return []
+        from ..evaluation.strategies import active_lessons
+
+        return active_lessons(ctx)
+
     def _history(self, ctx: ToolContext) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         for stored in ctx.messages.for_conversation(ctx.conversation_id or ""):
@@ -194,6 +211,7 @@ class Agent:
                     now=now,
                     customer=customer if "error" not in customer else None,
                     active_reservation=active_reservation,
+                    lessons=self._lessons(ctx),
                 ),
             }
         )

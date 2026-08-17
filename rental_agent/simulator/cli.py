@@ -75,7 +75,8 @@ Admin
   /demo-bookings             Every demo reservation
   /demo-conversations        Conversations, stages and tool activity
   /demo-report               Evaluate every conversation from recorded events
-  /demo-learning             Mistakes the evaluator has found
+  /demo-learning             Strategy versions and open mistakes
+  /demo-learn                Run a learning cycle: evaluate, correct, replay, activate
   /demo-reset                Wipe the demo database and reload config
   /help  /quit
 """.strip()
@@ -479,19 +480,62 @@ def cmd_demo_report(ctx: ToolContext, parts: list[str]) -> None:
 
 
 def cmd_demo_learning(ctx: ToolContext, parts: list[str]) -> None:
-    """Mistakes the evaluator has accumulated, worst and most frequent first."""
+    """What the agent has learned: strategy versions and open mistakes."""
     from ..evaluation.evaluator import open_mistakes
+    from ..evaluation.strategies import history
+
+    versions = history(ctx)
+    if versions:
+        print("  Strategy versions\n")
+        for v in versions:
+            marker = {"active": "  <- in use", "rejected": "  (rejected)"}.get(v.status, "")
+            print(f"    {v.version:<16} {v.status:<12} {len(v.lessons)} lesson(s)"
+                  f"  replay {v.replay_passed}/{v.replay_passed + v.replay_failed}{marker}")
+            if v.rejection_reason:
+                print(f"        reason: {v.rejection_reason}")
+        active = next((v for v in versions if v.status == "active"), None)
+        if active and active.lessons:
+            print("\n  Lessons currently in force\n")
+            for lesson in active.lessons:
+                print(f"    - {lesson}")
 
     mistakes = open_mistakes(ctx)
-    if not mistakes:
-        print("  no mistakes on record — run /demo-report first")
-        return
+    print(f"\n  Open mistakes: {len(mistakes)}")
     for m in mistakes:
-        seen = f"{m.occurrences} conversation(s)"
-        print(f"\n  [{m.severity}] {m.type}   seen in {seen}   status={m.status}")
-        print(f"     situation: {m.situation}")
-        print(f"     was:       {m.bad_behavior}")
-        print(f"     should:    {m.correct_behavior}")
+        print(f"\n    [{m.severity}] {m.type}   seen in {m.occurrences} conversation(s)")
+        print(f"       was:    {m.bad_behavior[:90]}")
+        print(f"       should: {m.correct_behavior[:90]}")
+
+
+def cmd_demo_learn(ctx: ToolContext, parts: list[str]) -> None:
+    """Run one full learning cycle: evaluate, correct, replay, activate."""
+    from ..evaluation import cycle
+
+    try:
+        agent = _agent()
+    except Exception:
+        agent = None
+
+    report = cycle.run(ctx, agent)
+    print(f"  evaluated {report.evaluated} conversation(s): "
+          f"{report.clean} clean, {report.findings} finding(s)")
+    print(f"  regression cases captured: {report.new_cases}")
+
+    if not report.candidate_version:
+        print(f"  no new strategy — {report.reason}")
+        return
+
+    print(f"\n  candidate {report.candidate_version} with {len(report.lessons)} lesson(s):")
+    for lesson in report.lessons:
+        print(f"    - {lesson[:100]}")
+
+    if agent is None:
+        print(f"\n  {report.reason}")
+        print("  (activation requires replay, and replay needs a model)")
+        return
+
+    print(f"\n  replay: {report.replay_passed} passed, {report.replay_failed} failed")
+    print(f"  {'ACTIVATED ' + report.candidate_version if report.activated else 'REJECTED — ' + (report.reason or '')}")
 
 
 def perform_reset(ctx: ToolContext, db_path: str | None) -> None:
@@ -762,6 +806,100 @@ class _scratch_context:
         self._tmp.cleanup()
 
 
+def scenario_learning(ctx: ToolContext) -> None:
+    """7. The agent makes a mistake, the system detects it, and stops making it.
+
+    The whole loop with nothing mocked except the agent's wording: the
+    evaluator, the correction, the regression case, the replay and the
+    activation gate are all the real implementations.
+    """
+    from ..agent.loop import Agent
+    from ..agent.settings import AgentSettings
+    from ..evaluation import replay as replay_mod
+    from ..evaluation import strategies
+    from ..evaluation.corrections import lessons_from
+    from ..evaluation.evaluator import evaluate_conversation, open_mistakes, record
+
+    class Scripted:
+        """Stands in for the model so the demonstration is reproducible."""
+
+        supports_fallbacks = False
+
+        def __init__(self, reply):
+            self.reply = reply
+            self.messages = self
+            self.beta = self
+
+        def create(self, **kwargs):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="text", text=self.reply)], stop_reason="end_turn"
+            )
+
+    with _scratch_context(ctx) as demo:
+        strategies.ensure_baseline(demo)
+
+        print("  ── 1. A conversation goes wrong ──\n")
+        execute_tool(demo, "create_demo_quote", {
+            "vehicle_id": "veh_13",
+            "pickup_at": next_weekday(demo.now(), 4, 19).isoformat(),
+            "return_at": (next_weekday(demo.now(), 4, 19) + timedelta(days=3)).isoformat(),
+            "delivery_location": "Dubai Marina"})
+        for direction, text in [
+            ("inbound", "how much for the G63 friday to monday?"),
+            ("outbound", "That'll be around AED 6,200 all in."),
+        ]:
+            demo.messages.record(conversation_id=demo.conversation_id, direction=direction,
+                                 content=text, now=demo.now())
+            _turn("c" if direction == "inbound" else "a", text)
+
+        print("  ── 2. The evaluator reads what actually happened ──\n")
+        result = evaluate_conversation(demo, demo.conversation_id)
+        for f in result.findings:
+            print(f"  [{f.severity.upper()}] {f.type}")
+            print(f"     {f.bad_behavior}")
+            print(f"     evidence: quoted {f.evidence.get('unsupported')} — "
+                  f"the engine said {execute_tool(demo, 'calculate_quote', {'vehicle_id': 'veh_13', 'pickup_at': next_weekday(demo.now(), 4, 19).isoformat(), 'return_at': (next_weekday(demo.now(), 4, 19) + timedelta(days=3)).isoformat(), 'delivery_location': 'Dubai Marina'}).get('total_charge')}\n")
+        record(demo, result)
+
+        print("  ── 3. A correction is generated ──\n")
+        for lesson in lessons_from(open_mistakes(demo)):
+            print(f"  from {lesson.mistake_type}:")
+            print(f"     \"{lesson.text}\"\n")
+
+        print("  ── 4. The bad conversation becomes a regression test ──\n")
+        cases = replay_mod.capture_from_evaluation(demo, result)
+        for case in cases:
+            print(f"  case: must never produce '{case.forbidden_finding}' again")
+            print(f"        replaying: {case.customer_turns}\n")
+
+        print("  ── 5. The candidate is replayed before it is trusted ──\n")
+        candidate = strategies.propose(demo)
+        corrected = Agent(Scripted("Let me check that for you and come straight back."),
+                          AgentSettings(extraction_enabled=False))
+        summary = replay_mod.replay_all(demo, corrected, candidate.lessons)
+        for r in summary.results:
+            print(f"  {'PASS' if r.passed else 'FAIL'}  {r.case_name[:60]}")
+        print()
+
+        print("  ── 6. Activated only because nothing regressed ──\n")
+        outcome = strategies.activate(demo, candidate, summary.passed, summary.failed)
+        print(f"  {candidate.version}: {'ACTIVATED' if outcome.activated else 'REJECTED'}"
+              f"   (replay {summary.passed} passed, {summary.failed} failed)")
+        print(f"  the agent now runs with {len(strategies.active_lessons(demo))} learned lesson(s)\n")
+
+        print("  ── 7. What the next conversation sees ──\n")
+        from ..agent.prompt import render_state
+
+        snapshot = render_state(demo.load_state(), now=demo.now(),
+                                lessons=strategies.active_lessons(demo))
+        tail = snapshot.split("Lessons from previous conversations")[-1]
+        print("  Lessons from previous conversations" + tail[:300])
+        _note("nothing about a price was learned — only how to behave. "
+              "A lesson carrying a figure is refused before it can be stored.")
+
+
 SCENARIOS: list[tuple[str, Callable[[ToolContext], None]]] = [
     ("Requested vehicle is available", scenario_available),
     ("Requested vehicle is unavailable → alternatives", scenario_unavailable),
@@ -769,6 +907,7 @@ SCENARIOS: list[tuple[str, Callable[[ToolContext], None]]] = [
     ("Customer asks for a discount", scenario_discount),
     ("Booking, then a contextual follow-up two days later", scenario_booking_and_follow_up),
     ("Accident reported → escalation", scenario_escalation),
+    ("Learning: a mistake is detected, corrected and prevented", scenario_learning),
 ]
 
 
@@ -832,6 +971,7 @@ COMMANDS: dict[str, Callable[[ToolContext, list[str]], None]] = {
     "demo-conversations": cmd_demo_conversations,
     "demo-report": cmd_demo_report,
     "demo-learning": cmd_demo_learning,
+    "demo-learn": cmd_demo_learn,
 }
 
 
