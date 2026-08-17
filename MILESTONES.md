@@ -171,14 +171,31 @@ agent has been observed doing it end to end.
   produced `categories: []` and the agent had no constraint to search against.
   Adding the eight allowed values took the same turn to **one** tool call.
 
-## ▢ Milestone 4 — WhatsApp transport
+## ◐ Milestone 4 — WhatsApp transport (built; awaiting a number)
 
-- [ ] Cloud API webhook, signature verification, 200-fast + async processing
-- [ ] Wire `provider_message_id` dedup into the webhook path
-- [x] Media: vehicle cards rendered from `fleet.json` (`rental_agent/media/cards.py`)
-- [ ] Host them — GitHub Pages, so WhatsApp has a public HTTPS URL
-- [ ] Send them in the conversation at the right moment
-- [ ] Staff escalation to a configured WhatsApp number (`staff_notified`)
+- [x] Cloud API webhook — verification handshake, HMAC-SHA256 signature check on
+      the **raw body**, fast 200 then async processing
+- [x] Delivery and read receipts told apart from customer messages
+- [x] Button and list replies read as their labels; images and voice notes get an
+      explanation rather than silence
+- [x] `provider_message_id` dedup wired through, so a redelivery is never
+      answered twice
+- [x] Sending: text with paragraph-aware splitting at the 4096-char limit,
+      images by public URL, read receipts
+- [x] Staff escalation to a configured WhatsApp number, best-effort
+- [x] Vehicle cards rendered from `fleet.json`
+- [x] `run_webhook.py` + `/health` reporting exactly which settings are missing
+- [ ] **Host the cards** — GitHub Pages, so Meta can fetch them
+- [ ] **Send a card at the right moment** in the conversation
+- [ ] **Live run** — needs a WhatsApp test number and a tunnel
+
+**Verified without credentials:** an unsigned request is never processed; a
+tampered body fails; a crashing turn still returns 200 (a 500 would make Meta
+redeliver the same crash forever); a redelivery produces no second reply; an
+escalation reaches both the customer and the colleague.
+
+**Still needed to go live:** a Meta test number (free, five minutes), four values
+in `.env`, and `cloudflared` to expose the local webhook.
 
 ## ✅ Milestone 5 — evaluation and learning (complete)
 
