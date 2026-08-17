@@ -24,6 +24,7 @@ from ..domain.enums import Category
 from ..domain.models import Quote, SearchCriteria, Vehicle, VehicleMatch
 from ..context import ToolContext
 from ..engine.engine import RentalEngine
+from ..engine.search import _matches_text as _matches_named_model
 
 
 class ToolError(Exception):
@@ -189,6 +190,49 @@ def search_available_vehicles(ctx: ToolContext, args: dict[str, Any]) -> dict[st
         raise ToolError("return_at must be after pickup_at")
 
     matches = engine.search(criteria)
+
+    # If the customer named a model that exists in the fleet but is not free,
+    # refuse to hand back a generic availability list. Ranking puts the cheapest
+    # unrelated car first, so this path offers a hatchback to someone asking for
+    # a supercar — the exact failure the tiered alternatives exist to prevent.
+    # Returning nothing but a pointer makes find_alternatives the only way on.
+    if criteria.models:
+        named = [
+            v for v in engine.list_fleet() if _matches_named_model(v.model, criteria.models)
+        ]
+        returned = {m.vehicle.id for m in matches}
+        if named and not any(v.id in returned for v in named):
+            unavailable = []
+            for vehicle in named:
+                result = engine.check_availability(
+                    vehicle.id, criteria.pickup_at, criteria.return_at
+                )
+                unavailable.append(
+                    {
+                        "vehicle_id": vehicle.id,
+                        "display_name": vehicle.display_name,
+                        "daily_price": str(vehicle.daily_price),
+                        "reason": result.reason.value if result.reason else None,
+                        "next_available_from": (
+                            result.next_available_from.isoformat()
+                            if result.next_available_from
+                            else None
+                        ),
+                    }
+                )
+            return {
+                "count": 0,
+                "vehicles": [],
+                "requested_model_unavailable": unavailable,
+                "hint": (
+                    "The customer asked for a specific model that is not free for these "
+                    "dates. Call find_alternatives with one of the vehicle_ids above to "
+                    "get proper substitutes, then offer those. Do not run a general "
+                    "search and offer whatever comes back — an unrelated cheaper car is "
+                    "not a substitute."
+                ),
+            }
+
     return {
         "count": len(matches),
         "vehicles": [_match(m) for m in matches],

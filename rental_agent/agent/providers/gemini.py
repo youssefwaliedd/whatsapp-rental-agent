@@ -353,10 +353,18 @@ class _Messages:
         """
         candidates = [model] + [m for m in self.owner.fallback_models if m != model]
         last: Exception | None = None
+        delay = 2.0
 
-        for current in candidates:
-            delay = 2.0
-            for attempt in range(self.owner.max_retries + 1):
+        # Sweep every model before waiting on any of them. Both failure modes
+        # here are model-specific — a daily quota belongs to one model, and a
+        # capacity 503 means *that* model is busy — so switching is faster and
+        # likelier to work than backing off against the same one. Only when the
+        # whole fleet is unavailable is waiting the right move.
+        for round_number in range(self.owner.max_retries + 1):
+            exhausted: set[str] = set()
+            for current in candidates:
+                if current in exhausted:
+                    continue
                 try:
                     response = self.owner.raw.models.generate_content(
                         model=current, contents=contents, config=config
@@ -368,13 +376,15 @@ class _Messages:
                     last = exc
                     message = str(exc)
                     if is_daily_quota_exhausted(message):
-                        break  # waiting will not help; the next model has its own budget
+                        exhausted.add(current)  # will not recover today
+                        continue
                     if not any(marker in message.lower() for marker in _RETRYABLE):
                         raise
-                    if attempt == self.owner.max_retries:
-                        break
-                    time.sleep(min(_server_retry_delay(message) or delay, self.owner.max_backoff))
-                    delay *= 2
+
+            if round_number == self.owner.max_retries:
+                break
+            time.sleep(min(_server_retry_delay(str(last)) or delay, self.owner.max_backoff))
+            delay *= 2
 
         raise ProviderUnavailable(str(last)) from last
 

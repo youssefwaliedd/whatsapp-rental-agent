@@ -136,3 +136,36 @@ def test_naive_datetimes_are_interpreted_in_operator_time(ctx):
 def test_shortlist_cap_cannot_be_overridden_by_the_model(ctx):
     result = execute_tool(ctx, "search_available_vehicles", {**WINDOW, "limit": 20})
     assert result["count"] <= 3
+
+
+# --------------------------------------------------------------------------
+# A named model that is unavailable must not become a generic list
+# --------------------------------------------------------------------------
+
+
+def test_an_unavailable_named_model_returns_a_pointer_not_a_hatchback(ctx):
+    """Ranking puts the cheapest unrelated car first, so a plain search for a
+    booked Lamborghini returns a Kia. That is the failure the tiered
+    alternatives exist to prevent, so this path refuses to answer at all."""
+    result = execute_tool(
+        ctx, "search_available_vehicles", {**WINDOW, "models": ["Huracan"]}
+    )
+    assert result["count"] == 0
+    assert result["vehicles"] == []
+    assert result["requested_model_unavailable"][0]["vehicle_id"] == "veh_18"
+    assert result["requested_model_unavailable"][0]["next_available_from"]
+    assert "find_alternatives" in result["hint"]
+
+
+def test_an_available_named_model_is_returned_normally(ctx):
+    result = execute_tool(ctx, "search_available_vehicles", {**WINDOW, "models": ["G63"]})
+    assert result["count"] >= 1
+    assert "requested_model_unavailable" not in result
+
+
+def test_a_model_not_in_the_fleet_still_gets_a_general_search(ctx):
+    """Asking for a Bugatti is different from asking for a car we own but have
+    booked out — there is nothing to substitute for, so show what is free."""
+    result = execute_tool(ctx, "search_available_vehicles", {**WINDOW, "models": ["Chiron"]})
+    assert "requested_model_unavailable" not in result
+    assert result["count"] >= 1

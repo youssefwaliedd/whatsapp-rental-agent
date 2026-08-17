@@ -147,18 +147,29 @@ agent has been observed doing it end to end.
 
 | # | Scenario | Engine | Live |
 |---|---|:---:|:---:|
-| 1 | Requested vehicle is available | ✅ | ✅ black G63, booked as DEMO-1042 |
-| 2 | Unavailable → targeted alternatives | ✅ | ▢ not yet run with the agent |
-| 3 | Customer has a specific budget | ✅ | ◐ budget respected; not pushed hard |
-| 4 | Customer requests a discount | ✅ | ✅ incl. the ceiling-disclosure fix |
+| 1 | Requested vehicle is available | ✅ | ✅ black G63 → DEMO-1042 |
+| 2 | Unavailable → targeted alternatives | ✅ | ✅ Huracan → Ferrari 488 Spider |
+| 3 | Customer has a specific budget | ✅ | ✅ SUV under AED 400 → Fortuner |
+| 4 | Customer requests a discount | ✅ | ✅ 5% offered against a 10% ceiling |
 | 5 | Changes dates, location or delivery time | ✅ | ✅ "make it 8 instead" |
 | 6 | Returns later with a contextual follow-up | ✅ | ✅ resolved without re-asking |
-| 7 | Requests a rental extension | ✅ | ▢ not yet run with the agent |
-| 8 | Reports an accident → escalation | ✅ | ▢ not yet run with the agent |
+| 7 | Requests a rental extension | ✅ | ✅ +3 days, +AED 1,102.50 |
+| 8 | Reports an accident → escalation | ✅ | ✅ safety first, 999, handed over |
 
-**Five of eight proven live.** Scenarios 2, 7 and 8 have passing engine and tool
-tests but no observed agent conversation — 8 is the most important of the three,
-because escalation is the failure with the highest cost.
+**All eight proven live.** Two defects were found and fixed in the process:
+
+- **Scenario 2 offered a Ford Mustang and a BMW X7 as substitutes for a
+  Lamborghini**, and never called `find_alternatives`. Root cause: a plain search
+  for an unavailable named model returns the *cheapest* unrelated car, so the
+  ranking hands back a Kia Pegas for a Huracan. Fixed structurally — when a
+  customer names a model that exists in the fleet but is not free,
+  `search_available_vehicles` now returns no vehicles at all, only the vehicle id
+  and a pointer to `find_alternatives`. The bad path is gone rather than
+  discouraged.
+- **Scenario 3 made eight tool calls, six of them searches.** Root cause: the
+  extraction prompt never listed the category vocabulary, so "I need an SUV"
+  produced `categories: []` and the agent had no constraint to search against.
+  Adding the eight allowed values took the same turn to **one** tool call.
 
 ## ▢ Milestone 4 — WhatsApp transport
 

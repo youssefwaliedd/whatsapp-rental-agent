@@ -103,6 +103,20 @@ Rules:
   breakdowns, medical emergencies, legal threats, payment disputes, suspected
   fraud, abuse, or an explicit request for a human. Otherwise "none".
 - Budget is per day in AED.
+
+`categories` must use exactly these values, and nothing else:
+  economy        small cheap cars
+  sedan          ordinary saloons
+  luxury_sedan   premium saloons (Mercedes C-Class, BMW 5 Series)
+  suv            4x4s and family SUVs — "SUV", "4x4", "jeep", "7 seater"
+  luxury_suv     premium SUVs — "G-Wagon", "Range Rover", "big SUV"
+  sports         sports coupes — "sports car", "fast car"
+  supercar       exotics — "Lamborghini", "Ferrari", "supercar"
+  convertible    soft-tops — "convertible", "cabrio", "drop top"
+
+Map the customer's words onto that list whenever they describe a *type* of car
+rather than naming a model. "I need an SUV" is categories: ["suv"]. Leave the
+list empty only when they have described no type at all.
 """.strip()
 
 

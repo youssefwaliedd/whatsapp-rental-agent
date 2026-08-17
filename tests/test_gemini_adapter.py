@@ -473,3 +473,22 @@ def test_a_non_retryable_error_is_not_masked_by_failover(gemini_client):
     gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
     with pytest.raises(RuntimeError, match="INVALID_ARGUMENT"):
         gemini_client.messages.create(messages=[{"role": "user", "content": "hi"}])
+
+
+def test_a_busy_model_is_swapped_before_it_is_retried(gemini_client):
+    """A 503 means *that* model is busy, so trying another one beats backing off
+    against the same one. Waiting is for when the whole fleet is unavailable."""
+    calls = []
+
+    def generate_content(*, model, contents, config):
+        calls.append(model)
+        if len(calls) == 1:
+            raise RuntimeError("503 UNAVAILABLE high demand")
+        return _candidate([_part(text="second model answered")])
+
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    result = gemini_client.messages.create(messages=[{"role": "user", "content": "hi"}])
+
+    assert result.content[0].text == "second model answered"
+    assert calls[0] != calls[1]      # switched rather than retried
+    assert len(calls) == 2           # and did so without sleeping first

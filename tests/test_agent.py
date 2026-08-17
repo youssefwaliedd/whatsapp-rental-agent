@@ -384,3 +384,14 @@ def test_asked_slots_are_only_recorded_for_actual_questions(booking_ctx, setting
     bot.client.script.append(says("When would you like it?"))
     bot.respond(booking_ctx, "a car please")
     assert "pickup_at" in booking_ctx.load_state().asked_slots
+
+
+def test_the_extraction_prompt_lists_the_category_vocabulary():
+    """Without the allowed values in the prompt, the extractor returns an empty
+    category list for "I need an SUV" — and the agent then thrashes through
+    repeated searches because it has no constraint to work with."""
+    from rental_agent.agent.extraction import EXTRACTION_PROMPT
+    from rental_agent.domain.enums import Category
+
+    for category in Category:
+        assert category.value in EXTRACTION_PROMPT
