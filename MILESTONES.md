@@ -66,7 +66,7 @@ Tracking against the ten development phases in the project specification.
   deposit or policy — "you always give me 20% off" cannot become a rule.
 - Money survives SQLite exactly; timezone-aware times survive with their offset.
 
-## ✅ Milestone 3 — the stateful agent (built, 218 tests; live run pending credentials)
+## ✅ Milestone 3 — the stateful agent (complete, live-verified)
 
 - [x] JSON tool schemas for all 17 tools, with prescriptive "call this when…"
       trigger conditions and a byte-stable ordering
@@ -189,9 +189,10 @@ because escalation is the failure with the highest cost.
 - **A model API key.** Needed *now* to run the agent — free from
   <https://aistudio.google.com/apikey> for the default Gemini provider.
   Everything else in the project works without one.
-- **Gemini model choice.** `gemini-2.0-flash` is the default; `/models` lists
-  what a given key can actually reach, and `GEMINI_MODEL` overrides it. Worth
-  checking on first run rather than trusting the default.
+- **Gemini model choice.** `gemini-3.7-flash` is the default (`gemini-2.0-flash`
+  was retired mid-build). `/models` lists what a given key can actually reach,
+  and `GEMINI_MODEL` overrides it. Note that `models.list()` returns models that
+  then 404 — listing is not a capability check.
 - **Turnaround buffer between rentals.** Real operators need cleaning and
   inspection time between bookings; the prototype currently allows a return and
   the next pickup at the same minute. Trivial to add as a rules setting when a
