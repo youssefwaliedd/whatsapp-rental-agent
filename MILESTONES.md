@@ -178,11 +178,21 @@ agent has been observed doing it end to end.
 - [ ] Media (vehicle photos) — needs publicly reachable image URLs
 - [ ] Staff escalation to a configured WhatsApp number (`staff_notified`)
 
-## ▢ Milestone 5 — evaluation and learning
+## ◐ Milestone 5 — evaluation and learning (in progress)
 
-- [ ] Event-based conversation evaluator reading the tool-call audit log first,
-      model judgement second
-- [ ] Mistake classification and structured corrections
+- [x] **Event-based evaluator** reading the tool-call audit log — no model
+      consulted, so a finding is a fact and the same conversation always
+      evaluates the same way
+- [x] Six deterministic checks: `unsupported_claim` (the automated guard on the
+      central promise), `missed_escalation`, `unauthorised_discount`,
+      `repeated_question`, `no_alternatives_offered`, `too_many_options`
+- [x] `evaluations` and `mistakes` tables — an evaluation is a snapshot of one
+      conversation, a mistake is a durable lesson that outlives it
+- [x] Occurrences count **distinct conversations**, so re-evaluating cannot
+      inflate them
+- [x] `/demo-report` and `/demo-learning`
+- [ ] Model judgement pass for the softer questions (tone, sales quality)
+- [ ] Structured corrections generated from mistakes
 - [ ] Regression test generation from real conversations
 - [ ] Replay harness over historical scenarios
 - [ ] Versioned strategies, activated only when replay passes

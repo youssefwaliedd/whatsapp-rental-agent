@@ -106,13 +106,17 @@ def audit_read(
     Read tools are audited but never replayed: the evaluator needs to know the
     agent actually checked availability before promising a car, and a cached
     availability answer would be worse than useless.
+
+    The full result is stored, not just the fact of the call. The evaluator's
+    most valuable check — did the agent state a figure no tool produced? — needs
+    to know what the tools actually returned.
     """
     if ctx.session is None:
         return
     ctx.tool_calls.record(
         tool_name=tool_name,
         arguments=args,
-        result={} if "error" not in result else result,
+        result=result,
         now=ctx.now(),
         conversation_id=ctx.conversation_id,
         status="error" if "error" in result else "ok",

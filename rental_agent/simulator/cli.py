@@ -74,6 +74,8 @@ Admin
   /demo-fleet                Availability snapshot for the next 14 days
   /demo-bookings             Every demo reservation
   /demo-conversations        Conversations, stages and tool activity
+  /demo-report               Evaluate every conversation from recorded events
+  /demo-learning             Mistakes the evaluator has found
   /demo-reset                Wipe the demo database and reload config
   /help  /quit
 """.strip()
@@ -457,6 +459,41 @@ def cmd_demo_conversations(ctx: ToolContext, parts: list[str]) -> None:
             print(f"      tool failures: {[c.error_code for c in failures]}")
 
 
+def cmd_demo_report(ctx: ToolContext, parts: list[str]) -> None:
+    """Evaluate every stored conversation from its recorded events."""
+    from ..evaluation.evaluator import evaluate_all
+
+    results = evaluate_all(ctx)
+    if not results:
+        print("  no conversations to evaluate yet")
+        return
+
+    clean = sum(1 for r in results if r.passed)
+    print(f"  {len(results)} conversation(s) — {clean} clean, {len(results) - clean} with findings\n")
+    for r in results:
+        verdict = "clean" if r.passed else f"{len(r.findings)} finding(s)"
+        print(f"  {r.conversation_id[:20]}  msgs={r.message_count:<3} tools={r.tool_call_count:<3}"
+              f" questions={r.question_count:<3} {verdict}")
+        for f in r.findings:
+            print(f"      [{f.severity}] {f.type}: {f.bad_behavior[:80]}")
+
+
+def cmd_demo_learning(ctx: ToolContext, parts: list[str]) -> None:
+    """Mistakes the evaluator has accumulated, worst and most frequent first."""
+    from ..evaluation.evaluator import open_mistakes
+
+    mistakes = open_mistakes(ctx)
+    if not mistakes:
+        print("  no mistakes on record — run /demo-report first")
+        return
+    for m in mistakes:
+        seen = f"{m.occurrences} conversation(s)"
+        print(f"\n  [{m.severity}] {m.type}   seen in {seen}   status={m.status}")
+        print(f"     situation: {m.situation}")
+        print(f"     was:       {m.bad_behavior}")
+        print(f"     should:    {m.correct_behavior}")
+
+
 def perform_reset(ctx: ToolContext, db_path: str | None) -> None:
     """Wipe the demo database and reload config, then re-establish the console
     customer so the next command has somewhere to write."""
@@ -793,6 +830,8 @@ COMMANDS: dict[str, Callable[[ToolContext, list[str]], None]] = {
     "demo-fleet": cmd_demo_fleet,
     "demo-bookings": cmd_demo_bookings,
     "demo-conversations": cmd_demo_conversations,
+    "demo-report": cmd_demo_report,
+    "demo-learning": cmd_demo_learning,
 }
 
 

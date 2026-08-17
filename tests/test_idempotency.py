@@ -196,17 +196,19 @@ def test_the_audit_log_keeps_the_arguments_the_model_supplied(booking_ctx):
     assert quote_call.result["total_charge"] == "7560.00"
 
 
-def test_read_results_are_not_duplicated_into_the_audit_log(booking_ctx):
-    """Successful read payloads are left out; the log records that the check
-    happened, not a second copy of the fleet."""
+def test_read_results_are_retained_for_the_evaluator(booking_ctx):
+    """The evaluator's central check — did the agent state a figure no tool
+    produced? — needs to know what the tools actually returned, so read results
+    are stored rather than discarded."""
     execute_tool(
         booking_ctx,
         "search_available_vehicles",
         {"pickup_at": dt(4, 19).isoformat(), "return_at": dt(7, 19).isoformat()},
     )
     call = booking_ctx.tool_calls.for_conversation(booking_ctx.conversation_id)[0]
-    assert call.result == {}
     assert call.status == "ok"
+    assert call.result["count"] >= 1
+    assert call.result["vehicles"][0]["vehicle_id"]
 
 
 # --------------------------------------------------------------------------

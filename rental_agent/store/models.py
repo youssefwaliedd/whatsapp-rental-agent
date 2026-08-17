@@ -212,3 +212,62 @@ class Counter(Base):
 
     name: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Evaluation(Base):
+    """One assessment of one conversation.
+
+    Findings are stored with the evidence that produced them, so a mistake can
+    always be traced back to the message and tool call that prove it — the
+    difference between a learning loop and a rumour mill.
+    """
+
+    __tablename__ = "evaluations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(String, index=True)
+    #: Which agent strategy produced the conversation being judged.
+    strategy_version: Mapped[str | None] = mapped_column(String, default=None)
+    outcome: Mapped[str | None] = mapped_column(String, default=None)
+
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    tool_call_count: Mapped[int] = mapped_column(Integer, default=0)
+    tool_failure_count: Mapped[int] = mapped_column(Integer, default=0)
+    #: Customer messages per agent question — lower is a tighter conversation.
+    question_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    findings: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    passed: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+
+
+class Mistake(Base):
+    """A classified mistake, promoted from an evaluation finding.
+
+    Deliberately separate from `evaluations`: an evaluation is a snapshot of one
+    conversation, while a mistake is a durable lesson that outlives it and can be
+    retrieved into future conversations.
+    """
+
+    __tablename__ = "mistakes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    type: Mapped[str] = mapped_column(String, index=True)
+    severity: Mapped[str] = mapped_column(String, default="medium")
+    situation: Mapped[str] = mapped_column(Text)
+    bad_behavior: Mapped[str] = mapped_column(Text)
+    correct_behavior: Mapped[str] = mapped_column(Text)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    conversation_id: Mapped[str | None] = mapped_column(String, default=None)
+    agent_version: Mapped[str | None] = mapped_column(String, default=None)
+    #: detected -> corrected -> tested -> active
+    status: Mapped[str] = mapped_column(String, default="detected", index=True)
+    #: How many separate conversations produced this same mistake.
+    occurrences: Mapped[int] = mapped_column(Integer, default=1)
+    #: Which ones. Kept so re-evaluating a conversation cannot inflate the count
+    #: — the number has to mean "distinct conversations", or a habit seen once
+    #: looks like a crisis after a few re-runs.
+    conversation_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    updated_at: Mapped[datetime] = mapped_column(AwareDateTime)
