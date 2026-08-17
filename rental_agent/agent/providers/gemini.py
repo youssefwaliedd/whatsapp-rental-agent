@@ -40,6 +40,12 @@ load_dotenv()
 #: to see what your key can actually reach.
 DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
 
+#: Gemini 3.x reasons internally before answering, which dominates latency on a
+#: conversational turn. Measured on gemini-3.5-flash: default 15.6s vs 9.4s at
+#: "medium" for the same request. A rental conversation does not need deep
+#: reasoning — the engine does the thinking that matters.
+DEFAULT_THINKING_LEVEL = os.getenv("GEMINI_THINKING_LEVEL", "medium")
+
 #: Tried in order when the configured model's daily quota is exhausted. Free-tier
 #: request caps are per model per day, so a demo that would otherwise stop dead
 #: mid-conversation can keep going on the next model's budget.
@@ -156,6 +162,19 @@ def _server_retry_delay(message: str) -> float | None:
     """Pull `retryDelay: '30s'` out of a 429 body, if present."""
     found = _RETRY_DELAY.search(message)
     return float(found.group(1)) if found else None
+
+
+def _without_thinking(config: Any) -> Any:
+    """Same config with the thinking knob removed."""
+    data = config.model_dump(exclude_none=True)
+    data.pop("thinking_config", None)
+    return types.GenerateContentConfig(**data)
+
+
+def _rejects_thinking_level(message: str) -> bool:
+    """This model does not accept a thinking level (400, not a capacity issue)."""
+    lowered = message.lower()
+    return "thinking" in lowered and ("400" in lowered or "invalid" in lowered)
 
 
 def is_daily_quota_exhausted(message: str) -> bool:
@@ -327,6 +346,10 @@ class _Messages:
 
     def _config(self, kwargs: dict[str, Any], **extra: Any) -> types.GenerateContentConfig:
         tools = kwargs.get("tools")
+        if self.owner.thinking_level and "thinking_config" not in extra:
+            extra["thinking_config"] = types.ThinkingConfig(
+                thinking_level=self.owner.thinking_level
+            )
         return types.GenerateContentConfig(
             system_instruction=to_system_instruction(kwargs.get("system")),
             max_output_tokens=kwargs.get("max_tokens"),
@@ -375,6 +398,12 @@ class _Messages:
                 except Exception as exc:  # noqa: BLE001 - provider exception surface
                     last = exc
                     message = str(exc)
+                    if self.owner.thinking_level and _rejects_thinking_level(message):
+                        # Not every model accepts the knob. Drop it for the rest
+                        # of the process rather than failing every request.
+                        self.owner.thinking_level = None
+                        config = _without_thinking(config)
+                        continue
                     if is_daily_quota_exhausted(message):
                         exhausted.add(current)  # will not recover today
                         continue
@@ -443,6 +472,7 @@ class GeminiClient:
         max_retries: int = 2,
         max_backoff: float = 30.0,
         fallback_models: list[str] | None = None,
+        thinking_level: str | None = DEFAULT_THINKING_LEVEL,
     ):
         key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not key:
@@ -457,6 +487,8 @@ class GeminiClient:
         #: Per-minute quotas need a full minute; cap the wait just past that.
         self.max_backoff = max_backoff
         self.fallback_models = FALLBACK_MODELS if fallback_models is None else fallback_models
+        #: Cleared automatically if a model rejects it.
+        self.thinking_level = thinking_level
         #: Set when a daily quota forced a switch, so the console can say so.
         self.active_model: str | None = None
         self.messages = _Messages(self)

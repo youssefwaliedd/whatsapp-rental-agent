@@ -492,3 +492,42 @@ def test_a_busy_model_is_swapped_before_it_is_retried(gemini_client):
     assert result.content[0].text == "second model answered"
     assert calls[0] != calls[1]      # switched rather than retried
     assert len(calls) == 2           # and did so without sleeping first
+
+
+# --------------------------------------------------------------------------
+# Latency controls
+# --------------------------------------------------------------------------
+
+
+def test_a_thinking_level_is_sent_by_default(gemini_client):
+    """Internal reasoning dominates turn latency — measured 15.6s vs 9.4s for the
+    same request on gemini-3.5-flash. A rental conversation does not need deep
+    reasoning; the engine does the thinking that matters."""
+    seen = {}
+
+    def generate_content(*, model, contents, config):
+        seen["config"] = config
+        return _candidate([_part(text="ok")])
+
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    gemini_client.messages.create(messages=[{"role": "user", "content": "hi"}])
+    assert seen["config"].thinking_config is not None
+
+
+def test_a_model_that_rejects_the_thinking_level_still_answers(gemini_client):
+    """Not every model accepts the knob. One 400 must not fail every request for
+    the rest of the process."""
+    attempts = []
+
+    def generate_content(*, model, contents, config):
+        attempts.append(config.thinking_config)
+        if config.thinking_config is not None:
+            raise RuntimeError("400 INVALID_ARGUMENT: thinking_level is not supported")
+        return _candidate([_part(text="answered without it")])
+
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    result = gemini_client.messages.create(messages=[{"role": "user", "content": "hi"}])
+
+    assert result.content[0].text == "answered without it"
+    assert attempts[0] is not None and attempts[-1] is None
+    assert gemini_client.thinking_level is None   # remembered, not retried each time
