@@ -11,6 +11,7 @@ paragraph boundaries rather than truncated.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,6 +21,13 @@ from .settings import GRAPH_BASE, WhatsAppSettings
 
 #: Cloud API hard limit for a text body.
 MAX_BODY = 4096
+
+#: WhatsApp uses *bold*, _italic_, ~strike~ — not markdown. A model reaching for
+#: **bold** out of habit would show a customer literal asterisks, so the markup
+#: is normalised on the way out rather than left to the prompt to remember.
+_MD_BOLD = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", re.DOTALL)
+_MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
+_MD_BULLET = re.compile(r"^\s{0,3}[-*+]\s+", re.MULTILINE)
 #: Split below the limit so a paragraph is never cut mid-sentence.
 SPLIT_TARGET = 3500
 
@@ -29,6 +37,17 @@ class SendResult:
     ok: bool
     message_ids: list[str] = field(default_factory=list)
     error: str | None = None
+
+
+def to_whatsapp_markup(text: str) -> str:
+    """Convert stray markdown into what WhatsApp actually renders.
+
+    `**total**` would reach the customer as asterisks around their price, which
+    looks broken at exactly the moment they are deciding to trust the figure.
+    """
+    text = _MD_BOLD.sub(r"*\1*", text or "")
+    text = _MD_HEADING.sub("", text)
+    return _MD_BULLET.sub("• ", text)
 
 
 def split_message(text: str, limit: int = SPLIT_TARGET) -> list[str]:
@@ -104,7 +123,7 @@ class WhatsAppClient:
 
     def send_text(self, to: str, text: str) -> SendResult:
         """Send a reply, split across messages if it exceeds the body limit."""
-        parts = split_message(text)
+        parts = split_message(to_whatsapp_markup(text))
         if not parts:
             return SendResult(ok=True)
 

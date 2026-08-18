@@ -455,3 +455,47 @@ def test_health_reports_what_is_still_missing(session_factory):
     assert body["status"] == "ok"
     assert body["whatsapp_configured"] is False
     assert "WHATSAPP_ACCESS_TOKEN" in body["missing_settings"]
+
+
+# --------------------------------------------------------------------------
+# Markup — WhatsApp is not markdown
+# --------------------------------------------------------------------------
+
+
+def test_markdown_bold_is_converted_before_sending():
+    """A model reaching for **bold** out of habit would put literal asterisks
+    around the customer's total, at exactly the moment they are deciding whether
+    to trust the figure."""
+    from rental_agent.whatsapp.client import to_whatsapp_markup
+
+    assert to_whatsapp_markup("The total is **AED 7,560**") == "The total is *AED 7,560*"
+
+
+def test_whatsapp_bold_is_left_alone():
+    from rental_agent.whatsapp.client import to_whatsapp_markup
+
+    assert to_whatsapp_markup("The total is *AED 7,560*") == "The total is *AED 7,560*"
+
+
+def test_headings_and_bullets_become_whatsapp_friendly():
+    from rental_agent.whatsapp.client import to_whatsapp_markup
+
+    result = to_whatsapp_markup("## Options\n- Kia Pegas\n- Nissan Sunny")
+    assert "#" not in result
+    assert result.count("•") == 2
+
+
+def test_a_lone_asterisk_is_not_mangled():
+    from rental_agent.whatsapp.client import to_whatsapp_markup
+
+    assert to_whatsapp_markup("2 * 3 = 6") == "2 * 3 = 6"
+
+
+def test_the_normaliser_runs_on_the_send_path():
+    sent = []
+    client = WhatsAppClient(
+        WhatsAppSettings(phone_number_id="PID", access_token="TOK"),
+        transport=lambda p: sent.append(p) or {"messages": [{"id": "x"}]},
+    )
+    client.send_text("971500000001", "Your total is **AED 7,560**")
+    assert sent[0]["text"]["body"] == "Your total is *AED 7,560*"
