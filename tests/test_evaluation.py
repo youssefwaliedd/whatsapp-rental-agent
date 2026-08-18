@@ -7,7 +7,7 @@ also means the whole evaluator is testable without a model.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
@@ -34,6 +34,7 @@ class Call:
 @dataclass
 class State:
     asked_slots: list[str]
+    redundant_asks: list[str] = field(default_factory=list)
 
 
 def types_of(findings: list[Finding]) -> list[str]:
@@ -178,14 +179,22 @@ def test_a_checked_discount_is_fine():
     ) == []
 
 
-def test_asking_the_same_thing_twice_is_caught():
-    findings = checks.check_repeated_questions(State(["pickup_at", "return_at", "pickup_at"]))
+def test_asking_for_something_already_known_is_caught():
+    findings = checks.check_repeated_questions(
+        State(["pickup_at", "return_at", "pickup_at"], ["pickup_at"])
+    )
     assert types_of(findings) == ["repeated_question"]
     assert findings[0].evidence["slot"] == "pickup_at"
 
 
 def test_asking_different_things_is_not():
     assert checks.check_repeated_questions(State(["pickup_at", "return_at"])) == []
+
+
+def test_asking_twice_because_the_customer_never_answered_is_not():
+    """A question the customer walked past is not a mistake to learn from —
+    flagging it would teach the agent to stop chasing missing details."""
+    assert checks.check_repeated_questions(State(["pickup_at", "pickup_at"])) == []
 
 
 def test_saying_unavailable_with_nothing_to_offer_is_caught():

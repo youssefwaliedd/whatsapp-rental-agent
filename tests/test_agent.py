@@ -381,9 +381,37 @@ def test_asked_slots_are_only_recorded_for_actual_questions(booking_ctx, setting
     bot.respond(booking_ctx, "hi")
     assert booking_ctx.load_state().asked_slots == []
 
-    bot.client.script.append(says("When would you like it?"))
+    bot.client.script.append(says("When do you need the car?"))
     bot.respond(booking_ctx, "a car please")
     assert "pickup_at" in booking_ctx.load_state().asked_slots
+
+
+def test_asking_again_because_nobody_answered_is_not_a_mistake(booking_ctx, settings):
+    """The customer ignoring a question is not the agent's failure. Asking a
+    second time is how a salesperson gets an answer, so it must leave no trace
+    the evaluator can mistake for one."""
+    bot, _ = agent(script=[says("When do you need the car?")], settings=settings)
+    bot.respond(booking_ctx, "a car please")
+
+    bot.client.script.append(says("Sure — when do you need it collected?"))
+    bot.respond(booking_ctx, "just book something")
+
+    state = booking_ctx.load_state()
+    assert state.asked_slots.count("pickup_at") == 2
+    assert state.redundant_asks == []
+
+
+def test_asking_for_something_already_known_is_recorded(booking_ctx, settings):
+    """This is the real repeated-question failure, and it is only visible at ask
+    time — by evaluation time the value is in state either way."""
+    state = booking_ctx.load_state()
+    state.pickup_at = dt(4, 19)
+    booking_ctx.save_state(state)
+
+    bot, _ = agent(script=[says("When do you need the car?")], settings=settings)
+    bot.respond(booking_ctx, "book it")
+
+    assert booking_ctx.load_state().redundant_asks == ["pickup_at"]
 
 
 def test_the_extraction_prompt_lists_the_category_vocabulary():

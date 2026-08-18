@@ -261,8 +261,13 @@ class ConversationState(Base):
     driver_age: int | None = None
     residency: ResidencyType = ResidencyType.UNKNOWN
 
-    #: Questions already asked, so the agent can detect its own repetition.
+    #: Slots the agent has asked about. Asking twice because the customer never
+    #: answered is legitimate, so this alone is not evidence of a mistake.
     asked_slots: list[str] = Field(default_factory=list)
+    #: Slots the agent asked for *while already knowing them*. That is the real
+    #: repeated-question failure, and it can only be detected at ask time —
+    #: by evaluation time the value is present either way.
+    redundant_asks: list[str] = Field(default_factory=list)
     escalated: bool = False
     escalation_reason: str | None = None
 

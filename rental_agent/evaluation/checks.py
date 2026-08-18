@@ -191,19 +191,23 @@ def check_unsupported_claims(messages, tool_calls) -> list[Finding]:
 
 
 def check_repeated_questions(state) -> list[Finding]:
-    """The same slot asked for more than once."""
-    asked = list(getattr(state, "asked_slots", []) or [])
-    repeated = {slot for slot in asked if asked.count(slot) > 1}
+    """Asking for something the customer had already supplied.
+
+    Not the same as asking twice: if the customer changed the subject without
+    answering, asking again is right. Only a question about a value already in
+    state is a mistake, and that is recorded at ask time.
+    """
+    redundant = list(getattr(state, "redundant_asks", []) or [])
     return [
         Finding(
             type="repeated_question",
             severity="medium",
             situation="the customer had already supplied this",
-            bad_behavior=f"asked for '{slot}' more than once",
+            bad_behavior=f"asked for '{slot}' again despite already knowing it",
             correct_behavior="read the state block and ask only for what is genuinely missing",
-            evidence={"slot": slot, "times_asked": asked.count(slot)},
+            evidence={"slot": slot, "times_asked": redundant.count(slot)},
         )
-        for slot in sorted(repeated)
+        for slot in sorted(set(redundant))
     ]
 
 

@@ -17,6 +17,7 @@ and stops a stale tool result from being mistaken for a current one.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,6 +29,26 @@ from . import extraction as extraction_mod
 from .prompt import build_system, render_state
 from .schemas import TOOLS
 from .settings import FALLBACK_BETA, AgentSettings
+
+#: Which requirement a question is about. Deliberately loose — a false negative
+#: costs the evaluator one signal, while a false positive would accuse the agent
+#: of a mistake it did not make.
+_SLOT_QUESTIONS = {
+    "pickup_at": re.compile(
+        r"\b(when|what time|what day)\b[^?]{0,80}\b(need|want|start|pick|collect|deliver|"
+        r"drop it off to you)\b|\bwhat time.{0,40}\bdeliver",
+        re.IGNORECASE,
+    ),
+    "return_at": re.compile(
+        r"\b(when|what time|what day|how long)\b[^?]{0,80}\b(return|back|bring|drop it back|"
+        r"finish|end|keep it)\b",
+        re.IGNORECASE,
+    ),
+    "delivery_location": re.compile(
+        r"\bwhere\b[^?]{0,80}\b(deliver|drop|bring|collect|pick|like it|want it)\b",
+        re.IGNORECASE,
+    ),
+}
 
 #: Sent when the model declines or the turn fails outright. The customer must
 #: never be left with silence.
@@ -318,16 +339,25 @@ class Agent:
 
     @staticmethod
     def _record_asked_slots(ctx: ToolContext, reply: str) -> None:
-        """Heuristic record of what the agent asked for, for the evaluator.
+        """Record what the agent asked for, and whether it already knew it.
 
-        Only meaningful when the reply actually contains a question; the
-        evaluator uses it to detect the same slot being asked for twice.
+        The distinction matters: asking a second time because the customer
+        never answered is right, while asking for something already supplied is
+        the mistake the evaluator is looking for. Only the second can be
+        detected here — by evaluation time the value is present either way.
         """
         if "?" not in reply:
             return
+
+        asked = [slot for slot, pattern in _SLOT_QUESTIONS.items() if pattern.search(reply)]
+        if not asked:
+            return
+
         state = ctx.load_state()
-        for slot in state.missing_requirements():
+        for slot in asked:
             state.asked_slots.append(slot)
+            if getattr(state, slot, None) is not None:
+                state.redundant_asks.append(slot)
         ctx.save_state(state)
 
 
