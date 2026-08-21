@@ -47,5 +47,10 @@ app = create_app(
 
 if __name__ == "__main__":
     print("\n  Sandline Rentals — test chat")
+    # Pay the provider's first-call cost now rather than making the first
+    # message of the session absorb it.
+    print("  warming up the model…", end="", flush=True)
+    took = agent_factory().warm_up()
+    print(f" {took:.1f}s" if took else " unavailable (it will retry on your first message)")
     print("  http://localhost:8100\n")
     uvicorn.run(app, host="127.0.0.1", port=8100, log_level="warning")

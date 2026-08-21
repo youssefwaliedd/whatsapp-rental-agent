@@ -60,6 +60,13 @@ class AgentSettings:
     #: isolating which layer caused a bad turn).
     extraction_enabled: bool = os.getenv("RENTAL_AGENT_EXTRACTION", "1") != "0"
 
+    #: Run extraction *alongside* the first conversation call instead of before
+    #: it. A turn is three sequential model calls otherwise, and this removes
+    #: one of them from the critical path — roughly a third of the wait on a
+    #: turn that uses no tools. Switchable because the sequential order is
+    #: easier to reason about when diagnosing a bad turn.
+    parallel_extraction: bool = os.getenv("RENTAL_AGENT_PARALLEL_EXTRACTION", "1") != "0"
+
     def resolved_model(self) -> str:
         return self.model or PROVIDER_DEFAULT_MODELS.get(self.provider, "")
 

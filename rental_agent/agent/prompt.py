@@ -165,6 +165,7 @@ def render_state(
     active_reservation: dict[str, Any] | None = None,
     lessons: list[str] | None = None,
     directive: str | None = None,
+    live_quote: dict[str, Any] | None = None,
 ) -> str:
     """The operator-channel message injected after the customer's turn.
 
@@ -223,7 +224,21 @@ def render_state(
         lines.append(f"Already shown them: {', '.join(state.presented_vehicle_ids)}")
     if state.selected_vehicle_id:
         lines.append(f"They chose: {state.selected_vehicle_id}")
-    if state.quote_id:
+    if state.quote_id and live_quote:
+        # The substance, not just the reference. Given only an id the agent
+        # cannot use the quote it already has, so on "book it" it searches and
+        # re-quotes from scratch — three extra round trips, and a second chance
+        # to produce a total that differs from the one the customer was shown.
+        lines += [
+            "",
+            f"Live quote {live_quote['quote_id']} — already calculated, already "
+            "shown to them. Book from this; do not search or re-quote:",
+            f"  {live_quote['vehicle']} for {live_quote['currency']} "
+            f"{live_quote['total_charge']}",
+            f"  deposit {live_quote['currency']} {live_quote['deposit']}"
+            f" · expires {live_quote['expires_at']}",
+        ]
+    elif state.quote_id:
         lines.append(f"Live quote: {state.quote_id}")
 
     if active_reservation:

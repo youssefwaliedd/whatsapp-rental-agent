@@ -301,7 +301,7 @@ def test_an_accident_escalates_even_if_the_model_never_calls_the_tool(booking_ct
     """Escalation is executed in code from the extraction signal. A model that
     forgets to call the tool cannot cause a missed incident."""
     bot, _ = agent(
-        script=[says("Are you and your passengers safe?")],
+        script=[says("Here are three SUVs."), says("Are you and your passengers safe?")],
         extractions=[Extraction(intent="report_problem", escalation_signal="accident")],
         settings=settings,
     )
@@ -312,6 +312,54 @@ def test_an_accident_escalates_even_if_the_model_never_calls_the_tool(booking_ct
     assert state.escalation_reason == "accident"
     assert state.stage is Stage.ESCALATED
     assert len(booking_ctx.escalations.open_escalations()) == 1
+
+
+def test_a_reply_written_before_the_accident_was_known_is_thrown_away(booking_ctx, settings):
+    """Extraction runs alongside the first conversation call, so a reply can be
+    composed before anyone knows the customer has crashed. That reply is
+    discarded and the turn answered again against the escalated state.
+
+    It costs one extra model call on the rarest and highest-stakes turn there
+    is, which is the right side of that trade."""
+    bot, client = agent(
+        script=[says("Great — three SUVs for those dates!"), says("Are you safe?")],
+        extractions=[Extraction(escalation_signal="accident")],
+        settings=settings,
+    )
+    turn = bot.respond(booking_ctx, "i've just crashed the car")
+
+    assert turn.reply == "Are you safe?", "the pre-escalation reply must not reach the customer"
+    assert "ESCALATED" in client.system_texts()[-1], "the second call knew"
+    assert len(client.requests) == 2
+
+
+def test_a_turn_with_no_escalation_is_not_re_run(booking_ctx, settings):
+    """The guard must fire on the transition only. Re-running every turn would
+    double the cost of the thing this parallelism exists to make cheaper."""
+    bot, client = agent(
+        script=[says("Sure — when do you need it?")],
+        extractions=[Extraction(intent="new_rental")],
+        settings=settings,
+    )
+    bot.respond(booking_ctx, "i need a car")
+    assert len(client.requests) == 1
+
+
+def test_an_already_escalated_conversation_is_not_re_run(booking_ctx, settings):
+    """A second accident signal on a conversation that is already escalated is
+    not a transition, and must not restart the turn."""
+    bot, client = agent(
+        script=[says("Are you safe?"), says("A colleague is on the way."),
+                says("Still with you.")],
+        extractions=[Extraction(escalation_signal="accident"),
+                     Extraction(escalation_signal="accident")],
+        settings=settings,
+    )
+    bot.respond(booking_ctx, "i crashed")
+    before = len(client.requests)
+    bot.respond(booking_ctx, "the police are here now")
+
+    assert len(client.requests) - before == 1
 
 
 def test_a_low_severity_signal_is_left_to_the_agent(booking_ctx, settings):
@@ -328,7 +376,10 @@ def test_a_low_severity_signal_is_left_to_the_agent(booking_ctx, settings):
 
 def test_the_escalated_state_reaches_the_next_turn(booking_ctx, settings):
     bot, client = agent(
-        script=[says("Are you safe?"), says("A colleague is taking over.")],
+        # Three: the first turn is answered twice, because the accident only
+        # became known once extraction landed alongside the first call.
+        script=[says("Three SUVs available."), says("Are you safe?"),
+                says("A colleague is taking over.")],
         extractions=[Extraction(escalation_signal="accident"), Extraction()],
         settings=settings,
     )
@@ -423,3 +474,93 @@ def test_the_extraction_prompt_lists_the_category_vocabulary():
 
     for category in Category:
         assert category.value in EXTRACTION_PROMPT
+
+
+# --------------------------------------------------------------------------
+# Latency — the shape of a turn
+#
+# The client's brief asks for 2-5 second replies. What governs that is not how
+# fast any one call is but how many of them happen in sequence, so what these
+# tests pin is the count and the ordering, which is the part we control.
+# --------------------------------------------------------------------------
+
+
+def test_extraction_does_not_add_a_round_trip(booking_ctx, settings):
+    """Extraction runs alongside the first conversation call rather than before
+    it. A turn with no tools is one conversation call, not two in sequence."""
+    bot, client = agent(
+        script=[says("Sure — when do you need it?")],
+        extractions=[Extraction(intent="new_rental")],
+        settings=settings,
+    )
+    bot.respond(booking_ctx, "i need a car")
+
+    assert len(client.requests) == 1
+
+
+def test_parallel_and_sequential_extraction_reach_the_same_state(booking_ctx, settings):
+    """Concurrency must be an optimisation, not a behaviour change. If the two
+    modes disagreed, the fast path would be quietly answering differently."""
+    from dataclasses import replace
+
+    from rental_agent.domain.enums import Category
+
+    extracted = Extraction(
+        intent="new_rental",
+        pickup_at="2026-09-04T19:00:00+04:00",
+        delivery_location="Dubai Marina",
+        categories=[Category.LUXURY_SUV],
+    )
+
+    def state_after(parallel: bool):
+        ctx = booking_ctx
+        blank = ctx.load_state()
+        blank.pickup_at = None
+        blank.delivery_location = None
+        blank.vehicle_preferences.categories = []
+        ctx.save_state(blank)
+
+        bot, _ = agent(
+            script=[says("Got it.")],
+            extractions=[extracted],
+            settings=replace(settings, parallel_extraction=parallel),
+        )
+        bot.respond(ctx, "black g wagon friday 7pm in marina")
+        return ctx.load_state()
+
+    parallel = state_after(True)
+    sequential = state_after(False)
+
+    assert parallel.pickup_at == sequential.pickup_at
+    assert parallel.delivery_location == sequential.delivery_location
+    assert parallel.vehicle_preferences.categories == sequential.vehicle_preferences.categories
+
+
+def test_the_state_block_carries_the_quote_not_just_its_id(booking_ctx, settings):
+    """Given only a reference, the agent cannot use the quote it already has —
+    on "book it" it searches and re-quotes from scratch. That is three extra
+    round trips and a second chance to produce a total that differs from the one
+    the customer was shown."""
+    from rental_agent.tools.registry import execute_tool
+
+    quote = execute_tool(
+        booking_ctx,
+        "create_demo_quote",
+        {
+            "vehicle_id": "veh_13",
+            "pickup_at": dt(4, 19).isoformat(),
+            "return_at": dt(7, 19).isoformat(),
+            "delivery_location": "Dubai Marina",
+        },
+    )
+    state = booking_ctx.load_state()
+    state.quote_id = quote["quote_id"]
+    booking_ctx.save_state(state)
+
+    bot, client = agent(script=[says("Booking that now.")], settings=settings)
+    bot.respond(booking_ctx, "ok book it")
+
+    block = client.system_texts()[-1]
+    assert quote["quote_id"] in block
+    assert str(quote["total_charge"]) in block, "the figure, not just the reference"
+    assert "do not search or re-quote" in block

@@ -53,4 +53,11 @@ if __name__ == "__main__":
         for name in missing:
             print(f"    {name}")
         print("  Starting anyway; /health will report the same.\n")
+
+    # The first provider call of a process is far slower than the rest. On a
+    # live number that cost would land on a real customer's first message, so
+    # it is paid here instead.
+    took = agent_factory().warm_up()
+    print(f"  Model warm ({took:.1f}s)\n" if took else "  Model unreachable — will retry live\n")
+
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

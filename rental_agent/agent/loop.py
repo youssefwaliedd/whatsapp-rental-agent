@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -89,6 +90,58 @@ class AgentTurn:
     extraction_error: str | None = None
 
 
+#: Extraction runs here while the first conversation call is in flight. Small
+#: and shared: one worker per concurrent turn is plenty, since each turn submits
+#: exactly one job and joins it a few seconds later.
+_EXTRACTION_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="extraction")
+
+
+@dataclass
+class _Pending:
+    """An extraction that may still be running.
+
+    Carries its own failure rather than raising, because extraction is an
+    enhancement: a turn that loses it still has tools, stored state and the
+    customer's words, and must not be lost with it.
+    """
+
+    future: Any = None
+    result: Any = None
+    error: str | None = None
+    joined: bool = False
+
+    def run_now(self, call: Any) -> None:
+        """Sequential mode — used when parallelism is switched off."""
+        try:
+            self.result = call()
+        except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
+            self.error = f"{type(exc).__name__}: {str(exc)[:200]}"
+
+    def join(self) -> Any:
+        """Wait for the extraction and hand back whatever it managed.
+
+        Returns an empty Extraction on failure, so every caller gets the same
+        shape and none of them has to branch on whether it worked.
+        """
+        if not self.joined:
+            self.joined = True
+            if self.future is not None:
+                try:
+                    self.result = self.future.result()
+                except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
+                    self.error = f"{type(exc).__name__}: {str(exc)[:200]}"
+        return self.result if self.result is not None else extraction_mod.Extraction()
+
+    def cancel(self) -> None:
+        if self.future is not None and not self.joined:
+            self.future.cancel()
+            self.joined = True
+
+    @property
+    def outstanding(self) -> bool:
+        return self.future is not None and not self.joined
+
+
 class Agent:
     def __init__(self, client: Any, settings: AgentSettings | None = None):
         self.client = client
@@ -145,46 +198,44 @@ class Agent:
         active_reservation = active.get("reservation") if active.get("has_active_reservation") else None
         customer = execute_tool(ctx, "get_customer", {})
 
-        # 1. Extraction — additive merge into state. It sharpens the turn but
-        #    is not a prerequisite for it: the agent still has its tools and the
-        #    stored state, so a failed extraction degrades rather than aborts.
-        extraction_error: str | None = None
+        # 1. Extraction — an additive merge into state. It sharpens the turn but
+        #    is not a prerequisite for it: the agent still has its tools, the
+        #    stored state and the customer's actual words, so a failed
+        #    extraction degrades rather than aborts.
+        #
+        #    It is also a whole model call, and running it before the
+        #    conversation makes a turn three sequential round trips. It takes no
+        #    session and touches no database, so it can run *alongside* the
+        #    first conversation call and be joined before the second — which
+        #    takes it off the critical path entirely.
+        pending = _Pending()
         if self.settings.extraction_enabled:
-            try:
-                extracted = extraction_mod.extract(
-                    self.client,
-                    message=message,
-                    state=state,
-                    now=now,
-                    active_reservation=active_reservation,
-                    model=self.settings.resolved_extraction_model(),
-                    effort=self.settings.extraction_effort,
-                    max_tokens=self.settings.extraction_max_tokens,
-                )
-            except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
-                extraction_error = f"{type(exc).__name__}: {str(exc)[:200]}"
-                extracted = extraction_mod.Extraction()
+            call = lambda: extraction_mod.extract(  # noqa: E731
+                self.client,
+                message=message,
+                state=state,
+                now=now,
+                active_reservation=active_reservation,
+                model=self.settings.resolved_extraction_model(),
+                effort=self.settings.extraction_effort,
+                max_tokens=self.settings.extraction_max_tokens,
+            )
+            if self.settings.parallel_extraction:
+                pending.future = _EXTRACTION_POOL.submit(call)
+            else:
+                pending.run_now(call)
+                state = self._absorb_extraction(ctx, pending, message, state)
 
-            state = extraction_mod.merge(state, extracted, ctx.engine.tz)
-            ctx.save_state(state)
-
-            # 2. Safety signals are acted on in code. Not remembering to escalate
-            #    is the most expensive mistake this system can make.
-            if extracted.escalation_signal in extraction_mod.HIGH_SEVERITY_SIGNALS:
-                execute_tool(
-                    ctx,
-                    "escalate_conversation",
-                    {"reason": extracted.escalation_signal, "detail": message},
-                )
-                state = ctx.load_state()
-
-        # 3. Conversational turn. A provider outage must degrade into an
+        # 2. Conversational turn. A provider outage must degrade into an
         #    apology, never into a crashed turn with no reply at all.
         try:
-            turn = self._run_tool_loop(ctx, state, now, customer, active_reservation)
+            turn = self._run_tool_loop(
+                ctx, state, now, customer, active_reservation, pending=pending, message=message
+            )
         except ProviderUnavailable as exc:
+            pending.cancel()
             turn = AgentTurn(reply=PROVIDER_BUSY_REPLY, provider_error=str(exc)[:200])
-        turn.extraction_error = extraction_error
+        turn.extraction_error = pending.error
 
         ctx.messages.record(
             conversation_id=ctx.conversation_id or "",
@@ -194,6 +245,33 @@ class Agent:
         )
         self._record_asked_slots(ctx, turn.reply)
         return turn
+
+    def warm_up(self) -> float | None:
+        """Pay the first-call cost before a customer is waiting on it.
+
+        The first request of a process is far slower than the rest — TLS,
+        connection setup and the provider's own cold path all land on it. It was
+        measured at 42s against 4-6s for every message after, which means the
+        first customer of the day gets by far the worst experience of anyone.
+
+        Called at server startup. Failure is returned as None rather than
+        raised: a warm-up that cannot reach the provider is not a reason to
+        refuse to start, since the next real turn will surface the problem with
+        a proper error anyway.
+        """
+        import time
+
+        started = time.time()
+        try:
+            self.client.messages.create(
+                model=self.settings.resolved_model(),
+                max_tokens=8,
+                system=[{"type": "text", "text": "Reply with OK."}],
+                messages=[{"role": "user", "content": "ok"}],
+            )
+        except Exception:  # noqa: BLE001 - never block startup on this
+            return None
+        return time.time() - started
 
     def relay(self, ctx: ToolContext, directive: str) -> AgentTurn:
         """Speak without having been spoken to.
@@ -245,6 +323,53 @@ class Agent:
 
         return active_lessons(ctx)
 
+    @staticmethod
+    def _live_quote(ctx: ToolContext, state: Any) -> dict[str, Any] | None:
+        """The quote the customer has already been shown, if it still stands.
+
+        Read straight from the store rather than recalculated, so what the state
+        block says and what the customer was told cannot drift apart.
+        """
+        if not state.quote_id or ctx.session is None:
+            return None
+        quote = ctx.quotes.get(state.quote_id)
+        if quote is None or quote.status != "active":
+            return None
+        try:
+            vehicle = ctx.engine.get_vehicle(quote.vehicle_id).display_name
+        except Exception:  # noqa: BLE001 - a stale vehicle id must not kill the turn
+            vehicle = quote.vehicle_id
+        return {
+            "quote_id": quote.quote_id,
+            "vehicle": vehicle,
+            "currency": ctx.engine.operator.currency,
+            "total_charge": quote.total_charge,
+            "deposit": quote.deposit,
+            "expires_at": quote.expires_at.strftime("%a %d %b, %-I:%M %p"),
+        }
+
+    def _absorb_extraction(
+        self, ctx: ToolContext, pending: _Pending, message: str, state: Any
+    ) -> Any:
+        """Merge a finished extraction into state, acting on safety in code.
+
+        Not remembering to escalate is the most expensive mistake this system
+        can make, so the signal is executed here rather than left to the model
+        to notice.
+        """
+        extracted = pending.join()
+        state = extraction_mod.merge(state, extracted, ctx.engine.tz)
+        ctx.save_state(state)
+
+        if extracted.escalation_signal in extraction_mod.HIGH_SEVERITY_SIGNALS:
+            execute_tool(
+                ctx,
+                "escalate_conversation",
+                {"reason": extracted.escalation_signal, "detail": message},
+            )
+            state = ctx.load_state()
+        return state
+
     def _history(self, ctx: ToolContext) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         for stored in ctx.messages.for_conversation(ctx.conversation_id or ""):
@@ -264,26 +389,37 @@ class Agent:
         customer: dict[str, Any],
         active_reservation: dict[str, Any] | None,
         directive: str | None = None,
+        pending: "_Pending | None" = None,
+        message: str = "",
     ) -> AgentTurn:
         engine = ctx.engine
+        pending = pending or _Pending()
         working = self._history(ctx)
-        working.append(
-            {
+
+        def state_block(current: Any) -> dict[str, Any]:
+            return {
                 "role": "system",
                 "content": render_state(
-                    state,
+                    current,
                     now=now,
                     customer=customer if "error" not in customer else None,
                     active_reservation=active_reservation,
                     lessons=self._lessons(ctx),
                     directive=directive,
+                    live_quote=self._live_quote(ctx, current),
                 ),
             }
-        )
+
+        #: The state block is rewritten in place once extraction lands, so the
+        #: reply is written against current knowledge even though the call that
+        #: produced it started before extraction finished.
+        state_index = len(working)
+        working.append(state_block(state))
 
         called: list[str] = []
         succeeded: list[str] = []
         iterations = 0
+        escalated_late = False
 
         while iterations < self.settings.max_tool_iterations:
             iterations += 1
@@ -295,6 +431,22 @@ class Agent:
                 output_config={"effort": self.settings.effort},
                 messages=working,
             )
+
+            # Join the extraction that has been running alongside this call. It
+            # cost nothing in wall-clock time, and everything after this point
+            # sees the merged state.
+            if pending.outstanding:
+                was_escalated = state.escalated
+                state = self._absorb_extraction(ctx, pending, message, state)
+                working[state_index] = state_block(state)
+
+                if state.escalated and not was_escalated:
+                    # The reply in hand was composed without knowing the
+                    # customer had just reported an accident. Throw it away and
+                    # answer again, now that the state block says so. One extra
+                    # call, on the rarest and highest-stakes turn there is.
+                    escalated_late = True
+                    continue
 
             stop_reason = getattr(response, "stop_reason", None)
             if stop_reason == "refusal":

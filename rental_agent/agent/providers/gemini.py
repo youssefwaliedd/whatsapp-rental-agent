@@ -40,11 +40,21 @@ load_dotenv()
 #: to see what your key can actually reach.
 DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
 
-#: Gemini 3.x reasons internally before answering, which dominates latency on a
-#: conversational turn. Measured on gemini-3.5-flash: default 15.6s vs 9.4s at
-#: "medium" for the same request. A rental conversation does not need deep
-#: reasoning — the engine does the thinking that matters.
-DEFAULT_THINKING_LEVEL = os.getenv("GEMINI_THINKING_LEVEL", "medium")
+#: Gemini 3.x reasons internally before answering, and on a conversational turn
+#: that reasoning *is* the latency. Measured on gemini-3.1-flash-lite over the
+#: real system prompt and tool block, median of three identical requests:
+#:
+#:     thinking=medium   6.1s
+#:     thinking=low      1.6s
+#:     unset             2.8s
+#:
+#: "low" is the default because a rental conversation does not need deep
+#: reasoning — the engine does the thinking that matters, and the model's job is
+#: to choose a tool and write a sentence. Checked rather than assumed: at "low"
+#: the agent still finds the black G63, still opens at 5% against a 10% ceiling
+#: rather than giving the ceiling away, and still routes an unavailable Huracan
+#: through find_alternatives to the Ferrari instead of offering a cheap saloon.
+DEFAULT_THINKING_LEVEL = os.getenv("GEMINI_THINKING_LEVEL", "low")
 
 #: Tried in order when the configured model's daily quota is exhausted. Free-tier
 #: request caps are per model per day, so a demo that would otherwise stop dead
