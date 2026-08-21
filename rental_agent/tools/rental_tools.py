@@ -292,10 +292,55 @@ def get_allowed_discount(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
     }
 
 
+def show_vehicle_photos(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Queue a vehicle's photos to go out alongside this turn's reply.
+
+    The split of responsibility is the same one that governs prices: the model
+    decides *when* showing the car helps the sale, and the engine decides *which
+    files that is* by reading the fleet's own image mapping. There is no argument
+    here that lets a caption be attached to the wrong car, because the model
+    never supplies a URL.
+
+    Photos are queued rather than sent. This tool runs inside the agent loop,
+    which has no transport and no idea whether the customer is on WhatsApp or in
+    the local test window — so it records the intent and lets whatever is
+    carrying the conversation deliver it.
+    """
+    engine = ctx.engine
+    vehicle = engine.get_vehicle(args["vehicle_id"])
+
+    if not vehicle.images:
+        return {
+            "vehicle_id": vehicle.id,
+            "sent": 0,
+            "error": "no_photos_available",
+            "message": f"No photographs are on file for the {vehicle.display_name}.",
+        }
+
+    limit = engine.rules.messaging.get("photos", {}).get("max_per_message", 3)
+    images = list(vehicle.images)[: max(1, int(limit))]
+
+    ctx.queue_media(
+        {
+            "vehicle_id": vehicle.id,
+            "display_name": vehicle.display_name,
+            "images": images,
+            "caption": args.get("caption") or None,
+        }
+    )
+    return {
+        "vehicle_id": vehicle.id,
+        "display_name": vehicle.display_name,
+        "sent": len(images),
+        "note": "The photos will be sent with your reply. Do not describe them as attached.",
+    }
+
+
 READ_HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]] = {
     "search_available_vehicles": search_available_vehicles,
     "get_vehicle_details": get_vehicle_details,
     "calculate_quote": calculate_quote,
     "find_alternatives": find_alternatives,
     "get_allowed_discount": get_allowed_discount,
+    "show_vehicle_photos": show_vehicle_photos,
 }

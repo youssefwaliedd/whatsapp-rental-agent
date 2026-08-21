@@ -141,3 +141,41 @@ def test_an_escalation_is_visible(session_factory):
     )
     body = TestClient(app).post("/api/message", json={"message": "I crashed"}).json()
     assert body["escalated"] is True
+
+
+def test_the_chat_window_receives_the_photos_the_agent_chose(chat):
+    """The local window is where this gets tested before a WhatsApp number
+    exists, so it has to carry the same media the transport would send."""
+    client, agent = chat
+    agent.turn = AgentTurn(
+        reply="Here's the G63.",
+        media=[{
+            "vehicle_id": "veh_13",
+            "display_name": "Mercedes-Benz G63 — 2025",
+            "images": ["assets/vehicles/veh_13.png", "assets/vehicles/veh_13_spec.png"],
+            "caption": None,
+        }],
+    )
+    body = client.post("/api/message", json={"message": "can i see it"}).json()
+
+    assert [i["vehicle"] for i in body["media"]] == ["Mercedes-Benz G63 — 2025"]
+    assert body["media"][0]["images"] == [
+        "/assets/vehicles/veh_13.png",
+        "/assets/vehicles/veh_13_spec.png",
+    ]
+
+
+def test_photo_urls_are_servable_by_the_mounted_assets_route(chat):
+    """A path the browser cannot fetch renders as a broken image, which is a
+    worse demo than no photo at all."""
+    client, agent = chat
+    agent.turn = AgentTurn(
+        reply="Here it is.",
+        media=[{"vehicle_id": "veh_13", "display_name": "G63",
+                "images": ["assets/vehicles/veh_13.png"], "caption": None}],
+    )
+    url = client.post("/api/message", json={"message": "show me"}).json()["media"][0]["images"][0]
+
+    response = client.get(url)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"

@@ -29,6 +29,10 @@ class ToolContext:
     now_fn: Callable[[], datetime] | None = None
     reference_date: date | None = None
     _engine_cache: dict[str | None, RentalEngine] = field(default_factory=dict, repr=False)
+    #: Photos a tool has asked to be shown this turn. The transport drains it
+    #: after the reply is built — kept here rather than in `ConversationState`
+    #: because it describes one turn's delivery, not anything the agent knows.
+    _pending_media: list[dict] = field(default_factory=list, repr=False)
 
     # -- construction ----------------------------------------------------
 
@@ -39,6 +43,18 @@ class ToolContext:
         ctx = cls(now_fn=engine.now, reference_date=engine.reference_date)
         ctx._engine_cache[None] = engine
         return ctx
+
+    # -- media -----------------------------------------------------------
+
+    def queue_media(self, item: dict) -> None:
+        """Ask the transport to send a photo set alongside this turn's reply."""
+        self._pending_media.append(item)
+
+    def take_media(self) -> list[dict]:
+        """Drain the queue. Draining rather than reading means a turn that is
+        retried or abandoned cannot send the same photos twice."""
+        queued, self._pending_media = list(self._pending_media), []
+        return queued
 
     # -- clock -----------------------------------------------------------
 

@@ -169,3 +169,59 @@ def test_a_model_not_in_the_fleet_still_gets_a_general_search(ctx):
     result = execute_tool(ctx, "search_available_vehicles", {**WINDOW, "models": ["Chiron"]})
     assert "requested_model_unavailable" not in result
     assert result["count"] >= 1
+
+
+# --------------------------------------------------------------------------
+# Showing photos
+#
+# The split of responsibility is the same one that governs prices: the model
+# decides *when* a photo helps the sale, the engine decides *which file that
+# is*. There is no argument on this tool that lets a caption be attached to the
+# wrong car, and these tests are what keep it that way.
+# --------------------------------------------------------------------------
+
+
+def test_photos_are_queued_for_the_transport_not_sent_by_the_tool(ctx):
+    """The tool runs inside the agent loop, which has no transport and no idea
+    whether the customer is on WhatsApp or in the local test window."""
+    result = execute_tool(ctx, "show_vehicle_photos", {"vehicle_id": "veh_13"})
+
+    assert result["sent"] == 3
+    assert result["vehicle_id"] == "veh_13"
+
+    queued = ctx.take_media()
+    assert len(queued) == 1
+    assert queued[0]["vehicle_id"] == "veh_13"
+    assert all(path.startswith("assets/vehicles/veh_13") for path in queued[0]["images"])
+
+
+def test_the_model_never_supplies_an_image_path(ctx):
+    """A tool that accepted a URL would let the agent caption a Kia with a photo
+    of a G63. The only argument is the vehicle id."""
+    from rental_agent.agent.schemas import TOOLS
+
+    schema = next(t for t in TOOLS if t["name"] == "show_vehicle_photos")
+    assert set(schema["input_schema"]["properties"]) == {"vehicle_id", "caption"}
+    assert schema["input_schema"]["required"] == ["vehicle_id"]
+
+
+def test_draining_the_queue_means_a_retried_turn_cannot_send_twice(ctx):
+    execute_tool(ctx, "show_vehicle_photos", {"vehicle_id": "veh_13"})
+    assert len(ctx.take_media()) == 1
+    assert ctx.take_media() == []
+
+
+def test_asking_for_photos_of_an_unknown_car_is_reported_not_raised(ctx):
+    result = execute_tool(ctx, "show_vehicle_photos", {"vehicle_id": "veh_999"})
+    assert result["error"] == "vehicle_not_found"
+    assert ctx.take_media() == []
+
+
+def test_the_photo_count_is_capped_by_config(ctx):
+    """WhatsApp has no album; each photo is a separate message and a separate
+    notification. The ceiling belongs in rules.json, not in the prompt."""
+    from rental_agent.config import load_rules
+
+    cap = load_rules().messaging["photos"]["max_per_message"]
+    execute_tool(ctx, "show_vehicle_photos", {"vehicle_id": "veh_13"})
+    assert len(ctx.take_media()[0]["images"]) <= cap

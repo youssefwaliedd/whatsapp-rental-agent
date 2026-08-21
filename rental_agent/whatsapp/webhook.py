@@ -23,7 +23,10 @@ from typing import Any, Callable
 
 from fastapi import BackgroundTasks, FastAPI, Request, Response
 
+from ..config import load_rules
 from ..context import ToolContext
+from ..formatting import photo_caption
+from . import reactions as reactions_mod
 from .client import WhatsAppClient
 from .payloads import InboundMessage, parse_messages, parse_statuses, verify_signature
 from .settings import WhatsAppSettings
@@ -110,7 +113,7 @@ def create_app(
                 session.commit()
                 return
 
-            client.mark_read(message.message_id)
+            _acknowledge(message)
 
             turn = agent_factory().respond(
                 ctx, message.text, provider_message_id=message.message_id
@@ -121,7 +124,15 @@ def create_app(
                 log.info("ignored a redelivery of %s", message.message_id)
                 return
 
-            client.send_text(message.from_number, turn.reply)
+            # React before replying: a person marks the message they are
+            # answering, then answers. The emoji is derived from what the engine
+            # actually did, so it cannot congratulate a booking that failed.
+            emoji = reactions_mod.for_turn(turn, load_rules())
+            if emoji:
+                client.send_reaction(message.from_number, message.message_id, emoji)
+
+            client.send_text(message.from_number, turn.reply, typing_for=message.message_id)
+            _send_photos(message, turn)
 
             if turn.escalated:
                 _notify_staff(ctx, message, turn)
@@ -132,6 +143,48 @@ def create_app(
             log.exception("failed to handle %s", message.message_id)
         finally:
             session.close()
+
+    def _acknowledge(message: InboundMessage) -> None:
+        """Blue ticks, and the typing bubble when the config asks for it.
+
+        Both ride on the same Cloud API call, so this is one request either way
+        — the choice is only whether the customer sees "typing…" while the turn
+        runs or just a read receipt.
+        """
+        if load_rules().messaging.get("typing_indicator", True):
+            client.send_typing(message.message_id)
+        else:
+            client.mark_read(message.message_id)
+
+    def _send_photos(message: InboundMessage, turn: Any) -> None:
+        """Deliver whatever the agent asked to show, after the words.
+
+        The reply is the answer and goes first; photos are supporting material.
+        Sending them ahead of the text would make the customer scroll back up to
+        find out what they are looking at.
+        """
+        for item in getattr(turn, "media", []) or []:
+            urls = [client.card_url(path) for path in item.get("images", [])]
+            urls = [u for u in urls if u]
+            if not urls:
+                # No public base URL configured. Meta fetches images itself, so
+                # a local path would fail silently on the customer's phone —
+                # better a log line here than a blank bubble there.
+                log.warning(
+                    "no WHATSAPP_MEDIA_BASE_URL: cannot send photos of %s",
+                    item.get("vehicle_id"),
+                )
+                continue
+            result = client.send_images(
+                message.from_number,
+                urls,
+                caption=photo_caption(
+                    item.get("caption"), item.get("display_name", ""), turn.reply
+                ),
+                typing_for=message.message_id,
+            )
+            if not result.ok:
+                log.error("could not send photos of %s: %s", item.get("vehicle_id"), result.error)
 
     def _context_for(session: Any, message: InboundMessage) -> ToolContext:
         ctx = ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)

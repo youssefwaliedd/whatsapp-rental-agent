@@ -69,6 +69,10 @@
   .flag { color: var(--warn); }
   .err  { color: var(--bad); }
 
+  .photo { padding: 3px; max-width: min(320px, 70%); }
+  .photo img { width: 100%; display: block; border-radius: 6px; }
+  .photo .cap { font-size: 13px; padding: 6px 6px 2px; color: var(--ink); }
+
   .typing { color: var(--muted); font-size: 13px; padding: 4px 2px; }
   .typing span { animation: blink 1.2s infinite; }
   .typing span:nth-child(2) { animation-delay: .2s; }
@@ -176,12 +180,35 @@ function bubble(text, direction) {
   return row;
 }
 
+// Photos arrive one at a time, the way the transport paces them, so the
+// window shows what a phone would rather than a grid appearing at once.
+async function photos(media) {
+  for (const item of media || []) {
+    for (let i = 0; i < item.images.length; i++) {
+      const row = document.createElement('div');
+      row.className = 'row in';
+      const caption = (i === 0 && (item.caption || item.vehicle))
+        ? `<div class="cap">${esc(item.caption || item.vehicle)}</div>` : '';
+      row.innerHTML = `<div class="bubble photo">
+          <img src="${esc(item.images[i])}" alt="">${caption}
+        </div>`;
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+      await new Promise(r => setTimeout(r, 450));
+    }
+  }
+}
+
 function meta(data) {
   const bits = [];
   if (data.tools && data.tools.length) {
     bits.push(data.tools.map(t => `<span class="tool">${esc(t)}</span>`).join(' → '));
   }
   if (data.seconds) bits.push(`${data.seconds}s`);
+  if (data.media && data.media.length) {
+    const count = data.media.reduce((n, m) => n + m.images.length, 0);
+    bits.push(`${count} photo${count === 1 ? '' : 's'}`);
+  }
   if (data.escalated) bits.push('<span class="flag">escalated to a colleague</span>');
   if (data.provider_error) bits.push('<span class="err">model unavailable</span>');
   if (data.extraction_error) bits.push('<span class="err">extraction failed</span>');
@@ -270,6 +297,7 @@ form.addEventListener('submit', async (e) => {
       bubble(data.reply, 'outbound');
       meta(data);
       renderState(data.state);
+      await photos(data.media);
     }
   } catch (err) {
     typing.remove();

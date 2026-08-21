@@ -26,7 +26,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 2,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_01.png"],
+      "images": [
+        "assets/vehicles/veh_01.png",
+        "assets/vehicles/veh_01_spec.png",
+        "assets/vehicles/veh_01_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -49,7 +53,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 2,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_02.png"],
+      "images": [
+        "assets/vehicles/veh_02.png",
+        "assets/vehicles/veh_02_spec.png",
+        "assets/vehicles/veh_02_features.png"
+      ],
       "status": "active",
       "blocked_ranges": [
         {"start_offset_days": 0, "end_offset_days": 2, "reason": "on_rent"}
@@ -74,7 +82,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 2,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_03.png"],
+      "images": [
+        "assets/vehicles/veh_03.png",
+        "assets/vehicles/veh_03_spec.png",
+        "assets/vehicles/veh_03_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -97,7 +109,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 3,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_04.png"],
+      "images": [
+        "assets/vehicles/veh_04.png",
+        "assets/vehicles/veh_04_spec.png",
+        "assets/vehicles/veh_04_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -120,7 +136,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 3,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_05.png"],
+      "images": [
+        "assets/vehicles/veh_05.png",
+        "assets/vehicles/veh_05_spec.png",
+        "assets/vehicles/veh_05_features.png"
+      ],
       "status": "active",
       "blocked_ranges": [
         {"start_offset_days": 6, "end_offset_days": 12, "reason": "on_rent"}
@@ -145,7 +165,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 3,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_06.png"],
+      "images": [
+        "assets/vehicles/veh_06.png",
+        "assets/vehicles/veh_06_spec.png",
+        "assets/vehicles/veh_06_features.png"
+      ],
       "status": "maintenance",
       "blocked_ranges": []
     },
@@ -168,7 +192,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 3,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_07.png"],
+      "images": [
+        "assets/vehicles/veh_07.png",
+        "assets/vehicles/veh_07_spec.png",
+        "assets/vehicles/veh_07_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -191,7 +219,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 3,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_08.png"],
+      "images": [
+        "assets/vehicles/veh_08.png",
+        "assets/vehicles/veh_08_spec.png",
+        "assets/vehicles/veh_08_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -214,7 +246,11 @@
       "passenger_capacity": 7,
       "luggage_capacity": 4,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_09.png"],
+      "images": [
+        "assets/vehicles/veh_09.png",
+        "assets/vehicles/veh_09_spec.png",
+        "assets/vehicles/veh_09_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -237,7 +273,11 @@
       "passenger_capacity": 7,
       "luggage_capacity": 5,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_10.png"],
+      "images": [
+        "assets/vehicles/veh_10.png",
+        "assets/vehicles/veh_10_spec.png",
+        "assets/vehicles/veh_10_features.png"
+      ],
       "status": "active",
       "blocked_ranges": [
         {"start_offset_days": 5, "end_offset_days": 9, "reason": "on_rent"}
@@ -262,7 +302,11 @@
       "passenger_capacity": 8,
       "luggage_capacity": 6,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_11.png"],
+      "images": [
+        "assets/vehicles/veh_11.png",
+        "assets/vehicles/veh_11_spec.png",
+        "assets/vehicles/veh_11_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -285,7 +329,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 4,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_12.png"],
+      "images": [
+        "assets/vehicles/veh_12.png",
+        "assets/vehicles/veh_12_spec.png",
+        "assets/vehicles/veh_12_features.png"
+      ],
       "status": "active",
       "blocked_ranges": [
         {"start_offset_days": 3, "end_offset_days": 8, "reason": "on_rent"}
@@ -310,7 +358,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 4,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_13.png"],
+      "images": [
+        "assets/vehicles/veh_13.png",
+        "assets/vehicles/veh_13_spec.png",
+        "assets/vehicles/veh_13_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -333,7 +385,11 @@
       "passenger_capacity": 5,
       "luggage_capacity": 4,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_14.png"],
+      "images": [
+        "assets/vehicles/veh_14.png",
+        "assets/vehicles/veh_14_spec.png",
+        "assets/vehicles/veh_14_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -356,7 +412,11 @@
       "passenger_capacity": 7,
       "luggage_capacity": 5,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_15.png"],
+      "images": [
+        "assets/vehicles/veh_15.png",
+        "assets/vehicles/veh_15_spec.png",
+        "assets/vehicles/veh_15_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -379,7 +439,11 @@
       "passenger_capacity": 2,
       "luggage_capacity": 1,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_16.png"],
+      "images": [
+        "assets/vehicles/veh_16.png",
+        "assets/vehicles/veh_16_spec.png",
+        "assets/vehicles/veh_16_features.png"
+      ],
       "status": "active",
       "blocked_ranges": [
         {"start_offset_days": 1, "end_offset_days": 4, "reason": "on_rent"}
@@ -404,7 +468,11 @@
       "passenger_capacity": 4,
       "luggage_capacity": 2,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_17.png"],
+      "images": [
+        "assets/vehicles/veh_17.png",
+        "assets/vehicles/veh_17_spec.png",
+        "assets/vehicles/veh_17_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     },
@@ -427,7 +495,11 @@
       "passenger_capacity": 2,
       "luggage_capacity": 1,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_18.png"],
+      "images": [
+        "assets/vehicles/veh_18.png",
+        "assets/vehicles/veh_18_spec.png",
+        "assets/vehicles/veh_18_features.png"
+      ],
       "status": "active",
       "blocked_ranges": [
         {"start_offset_days": 0, "end_offset_days": 10, "reason": "on_rent"}
@@ -452,7 +524,11 @@
       "passenger_capacity": 2,
       "luggage_capacity": 1,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_19.png"],
+      "images": [
+        "assets/vehicles/veh_19.png",
+        "assets/vehicles/veh_19_spec.png",
+        "assets/vehicles/veh_19_features.png"
+      ],
       "status": "active",
       "blocked_ranges": [
         {"start_offset_days": 20, "end_offset_days": 25, "reason": "on_rent"}
@@ -477,7 +553,11 @@
       "passenger_capacity": 4,
       "luggage_capacity": 2,
       "transmission": "automatic",
-      "images": ["assets/vehicles/veh_20.png"],
+      "images": [
+        "assets/vehicles/veh_20.png",
+        "assets/vehicles/veh_20_spec.png",
+        "assets/vehicles/veh_20_features.png"
+      ],
       "status": "active",
       "blocked_ranges": []
     }

@@ -272,18 +272,47 @@ def test_a_card_url_needs_a_public_base():
 
 
 class RecordingClient(WhatsAppClient):
-    def __init__(self):
-        super().__init__(WhatsAppSettings(phone_number_id="PID", access_token="TOK",
-                                          staff_number="971500009999"))
+    """Records every outbound call instead of making it.
+
+    Subclasses the real client rather than faking it, so a signature change in
+    the transport shows up here as a failure rather than as a test that quietly
+    keeps passing against a shape that no longer exists.
+    """
+
+    def __init__(self, media_base_url=""):
+        super().__init__(
+            WhatsAppSettings(
+                phone_number_id="PID",
+                access_token="TOK",
+                staff_number="971500009999",
+                media_base_url=media_base_url,
+            )
+        )
         self.texts: list[tuple[str, str]] = []
         self.read: list[str] = []
+        self.typing: list[str] = []
+        self.reactions: list[tuple[str, str, str]] = []
+        self.images: list[tuple[str, str, str | None]] = []
 
-    def send_text(self, to, text):
+    def send_text(self, to, text, typing_for=None):
         self.texts.append((to, text))
         return SendResult(ok=True, message_ids=["wamid.OUT"])
 
+    def send_image(self, to, image_url, caption=None):
+        self.images.append((to, image_url, caption))
+        return SendResult(ok=True, message_ids=["wamid.IMG"])
+
+    def send_reaction(self, to, message_id, emoji):
+        self.reactions.append((to, message_id, emoji))
+        return SendResult(ok=True)
+
     def mark_read(self, message_id):
         self.read.append(message_id)
+        return SendResult(ok=True)
+
+    def send_typing(self, message_id):
+        self.typing.append(message_id)
+        self.read.append(message_id)  # a typing indicator marks read too
         return SendResult(ok=True)
 
 
@@ -499,3 +528,179 @@ def test_the_normaliser_runs_on_the_send_path():
     )
     client.send_text("971500000001", "Your total is **AED 7,560**")
     assert sent[0]["text"]["body"] == "Your total is *AED 7,560*"
+
+
+# --------------------------------------------------------------------------
+# WhatsApp-native behaviour — typing, reactions, photo sequences, pacing
+#
+# What these test is not "does the API accept it" but "does the customer get
+# something a person would plausibly have sent". The failures worth catching
+# here are social rather than technical: a thumbs-up on an accident report, a
+# caption repeated under three photos, a booking confirmation for a booking that
+# did not happen.
+# --------------------------------------------------------------------------
+
+
+def webhook(session_factory, client_obj, agent_obj, **settings_kwargs):
+    app = create_app(
+        session_factory=session_factory,
+        agent_factory=lambda: agent_obj,
+        settings=WhatsAppSettings(
+            phone_number_id="PID", access_token="TOK",
+            app_secret=APP_SECRET, verify_token=VERIFY_TOKEN,
+            staff_number="971500009999", **settings_kwargs,
+        ),
+        client=client_obj,
+        reference_date=REFERENCE_DATE,
+        now_fn=lambda: FROZEN_NOW,
+    )
+    return TestClient(app)
+
+
+def test_the_customer_sees_typing_while_the_agent_thinks(harness):
+    """A turn takes seconds. Blue ticks alone read as being left on read."""
+    client, outbound, _ = harness
+    post(client, text_payload())
+    assert outbound.typing == ["wamid.TEST1"]
+
+
+def test_a_confirmed_booking_is_marked_on_the_customers_message(session_factory):
+    outbound = RecordingClient()
+    agent = StubAgent(AgentTurn(
+        reply="Booked — DEMO-1042.",
+        tool_calls=["create_demo_reservation"],
+        tools_succeeded=["create_demo_reservation"],
+    ))
+    post(webhook(session_factory, outbound, agent), text_payload("book it"))
+
+    assert outbound.reactions == [("971500000001", "wamid.TEST1", "✅")]
+
+
+def test_an_accident_report_is_never_reacted_to(session_factory):
+    """The single most damaging message this system could send is a thumbs-up on
+    "I've just had an accident". Silence on escalation is a rule, not an
+    accident of the mapping."""
+    outbound = RecordingClient()
+    agent = StubAgent(AgentTurn(
+        reply="Are you safe? A colleague is calling you now.",
+        escalated=True,
+        tool_calls=["escalate_conversation", "get_active_reservation"],
+        tools_succeeded=["escalate_conversation", "get_active_reservation"],
+    ))
+    post(webhook(session_factory, outbound, agent), text_payload("i crashed the car"))
+
+    assert outbound.reactions == []
+
+
+def test_escalation_silences_a_reaction_the_turn_would_otherwise_have_earned(session_factory):
+    """A turn can cancel a booking and then escalate. Whatever else happened,
+    the customer is in trouble and the right number of emoji is zero."""
+    outbound = RecordingClient()
+    agent = StubAgent(AgentTurn(
+        reply="A colleague is taking this over.",
+        escalated=True,
+        tool_calls=["cancel_demo_reservation", "escalate_conversation"],
+        tools_succeeded=["cancel_demo_reservation", "escalate_conversation"],
+    ))
+    post(webhook(session_factory, outbound, agent), text_payload("this is unacceptable"))
+
+    assert outbound.reactions == []
+
+
+def test_a_failed_booking_earns_no_confirmation(session_factory):
+    """`tool_calls` records what was attempted. Reacting on that would tick a
+    booking that errored — the exact class of false claim this system exists to
+    prevent, delivered as an emoji."""
+    outbound = RecordingClient()
+    agent = StubAgent(AgentTurn(
+        reply="That didn't go through — let me try again.",
+        tool_calls=["create_demo_reservation"],
+        tools_succeeded=[],
+    ))
+    post(webhook(session_factory, outbound, agent), text_payload("book it"))
+
+    assert outbound.reactions == []
+
+
+def test_photos_are_sent_after_the_words(session_factory):
+    outbound = RecordingClient(media_base_url="https://cards.example.com")
+    agent = StubAgent(AgentTurn(
+        reply="Here's the G63 — AED 1,080 a day.",
+        media=[{
+            "vehicle_id": "veh_11",
+            "display_name": "Mercedes-Benz G63 — 2025",
+            "images": [
+                "assets/vehicles/veh_11.png",
+                "assets/vehicles/veh_11_spec.png",
+                "assets/vehicles/veh_11_features.png",
+            ],
+            "caption": None,
+        }],
+    ))
+    post(webhook(session_factory, outbound, agent), text_payload("can i see it"))
+
+    assert len(outbound.images) == 3
+    assert outbound.images[0][1] == "https://cards.example.com/assets/vehicles/veh_11.png"
+    assert outbound.texts, "the reply itself must still go out"
+
+
+def test_only_the_first_photo_carries_the_caption(session_factory):
+    """WhatsApp prints a caption under every image it is attached to, so
+    repeating it turns three photos of one car into one sentence printed three
+    times."""
+    outbound = RecordingClient(media_base_url="https://cards.example.com")
+    agent = StubAgent(AgentTurn(
+        reply="Here it is.",
+        media=[{
+            "vehicle_id": "veh_11",
+            "display_name": "Mercedes-Benz G63 — 2025",
+            "images": ["assets/vehicles/veh_11.png", "assets/vehicles/veh_11_spec.png"],
+            "caption": "The black G63, ready Friday",
+        }],
+    ))
+    post(webhook(session_factory, outbound, agent), text_payload("can i see it"))
+
+    captions = [caption for _, _, caption in outbound.images]
+    assert captions == ["The black G63, ready Friday", None]
+
+
+def test_photos_are_skipped_rather_than_sent_as_local_paths(session_factory):
+    """Meta fetches image URLs itself, so an unconfigured base URL must drop the
+    photos and log it — a local path renders as a blank bubble on the phone,
+    which is worse than no photo at all."""
+    outbound = RecordingClient(media_base_url="")
+    agent = StubAgent(AgentTurn(
+        reply="Here it is.",
+        media=[{"vehicle_id": "veh_11", "display_name": "G63",
+                "images": ["assets/vehicles/veh_11.png"], "caption": None}],
+    ))
+    post(webhook(session_factory, outbound, agent), text_payload("can i see it"))
+
+    assert outbound.images == []
+    assert outbound.texts, "the reply must still be sent"
+
+
+def test_the_reaction_map_is_configuration_not_code(session_factory):
+    """An operator retunes the feel by editing rules.json. If the mapping were
+    hardcoded, "stop putting emoji on my customers' messages" would be a
+    deploy."""
+    from rental_agent.config import load_rules
+    from rental_agent.whatsapp import reactions as reactions_mod
+
+    configured = reactions_mod.configured(load_rules())
+    assert configured["on_booking_confirmed"] == "✅"
+    assert configured["on_escalation"] is None
+
+
+def test_escalation_silence_is_declared_in_config_not_left_to_omission():
+    """A missing key and an explicit null read the same at runtime and very
+    differently to whoever edits the file next."""
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    raw = json.loads((root / "config" / "rules.json").read_text())
+    reactions = raw["messaging"]["reactions"]
+
+    assert "on_escalation" in reactions
+    assert reactions["on_escalation"] is None

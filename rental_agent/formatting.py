@@ -9,6 +9,7 @@ WhatsApp markup: *bold*, _italic_, ```mono```.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from decimal import Decimal
 
@@ -100,3 +101,26 @@ def demo_footer(rules: Rules) -> str:
     """Every quote, confirmation and modification carries this. Non-negotiable —
     the prototype must never read as a real booking."""
     return f"_{rules.demo_disclosure['required_footer']}_"
+
+
+def _squash(text: str) -> str:
+    """Lowercase, punctuation-free, single-spaced — for comparing two strings
+    that a customer would read as the same sentence."""
+    return " ".join(re.sub(r"[^\w\s]", " ", (text or "").lower()).split())
+
+
+def photo_caption(caption: str | None, fallback: str, reply: str) -> str | None:
+    """What goes under the first photo, given what was already said in the reply.
+
+    A model asked for a caption will often produce the sentence it just sent —
+    which on a phone is the same line printed twice, once as a message and once
+    under the picture. Rather than ask the prompt to remember not to, the
+    duplicate is detected and dropped here.
+
+    Falls back to the vehicle's name, which is never wrong and tells the
+    customer which car they are looking at when several were discussed.
+    """
+    written, spoken = _squash(caption), _squash(reply)
+    if written and spoken and (written in spoken or spoken in written):
+        return fallback or None
+    return (caption or "").strip() or fallback or None

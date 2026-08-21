@@ -192,6 +192,34 @@
     "refuelling_service_fee": 100
   },
 
+  "messaging": {
+    "_comment": "How the agent behaves as a WhatsApp participant rather than as a text generator. Pacing and reactions are configuration, not code, so an operator can retune the feel without a deploy.",
+
+    "typing_indicator": true,
+
+    "pacing": {
+      "_comment": "The first message goes out immediately; only follow-ups are paced. A customer should get an answer fast and then watch the detail arrive, which is what a person does.",
+      "enabled": true,
+      "seconds_per_character": 0.018,
+      "min_seconds": 1.0,
+      "max_seconds": 4.5
+    },
+
+    "photos": {
+      "max_per_message": 3
+    },
+
+    "reactions": {
+      "_comment": "A reaction reports what the engine did, never what the model felt. Nulls are deliberate: an emoji on an accident report would be grotesque, so escalation is silent by rule rather than by omission.",
+      "on_booking_confirmed": "\u2705",
+      "on_reservation_modified": "\ud83d\udc4d",
+      "on_rental_extended": "\ud83d\udc4d",
+      "on_reservation_cancelled": "\ud83d\udc4d",
+      "on_escalation": null,
+      "on_unreadable_message": null
+    }
+  },
+
   "demo_disclosure": {
     "reservation_prefix": "DEMO-",
     "quote_prefix": "DQ-",

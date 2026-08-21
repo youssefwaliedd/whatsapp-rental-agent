@@ -7,6 +7,11 @@ not a reason to also lose the customer's message.
 
 WhatsApp caps a text message at 4096 characters, so long replies are split on
 paragraph boundaries rather than truncated.
+
+Beyond plain text this speaks the rest of the WhatsApp vocabulary — typing
+indicators, reactions, and photo sequences — because a customer judges an agent
+partly on whether it behaves like a participant in the app or like something
+piping text into it.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from typing import Any
 
 import httpx
 
+from .pacing import Pacer
 from .settings import GRAPH_BASE, WhatsAppSettings
 
 #: Cloud API hard limit for a text body.
@@ -30,6 +36,11 @@ _MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
 _MD_BULLET = re.compile(r"^\s{0,3}[-*+]\s+", re.MULTILINE)
 #: Split below the limit so a paragraph is never cut mid-sentence.
 SPLIT_TARGET = 3500
+#: Cloud API caption limit for an image.
+MAX_CAPTION = 1024
+#: A typing indicator lasts about 25 seconds, or until a message is sent. Worth
+#: knowing rather than assuming it holds for a slow turn.
+TYPING_TTL_SECONDS = 25
 
 
 @dataclass
@@ -79,10 +90,17 @@ def split_message(text: str, limit: int = SPLIT_TARGET) -> list[str]:
 
 
 class WhatsAppClient:
-    def __init__(self, settings: WhatsAppSettings | None = None, transport: Any = None):
+    def __init__(
+        self,
+        settings: WhatsAppSettings | None = None,
+        transport: Any = None,
+        pacer: Pacer | None = None,
+    ):
         self.settings = settings or WhatsAppSettings()
         #: Injectable so every send path is testable without a network.
         self._transport = transport
+        #: Owns the only sleep in the transport. Injectable for the same reason.
+        self.pacer = pacer or Pacer()
 
     # -- plumbing --------------------------------------------------------
 
@@ -121,14 +139,27 @@ class WhatsAppClient:
 
     # -- sending ---------------------------------------------------------
 
-    def send_text(self, to: str, text: str) -> SendResult:
-        """Send a reply, split across messages if it exceeds the body limit."""
+    def send_text(self, to: str, text: str, typing_for: str | None = None) -> SendResult:
+        """Send a reply, split across messages if it exceeds the body limit.
+
+        The first part goes immediately. Anything after it is paced, with the
+        typing indicator re-shown in the gap, so a long answer arrives the way a
+        person would send it rather than all at once. `typing_for` is the
+        customer's message id, which is what a typing indicator attaches to.
+        """
         parts = split_message(to_whatsapp_markup(text))
         if not parts:
             return SendResult(ok=True)
 
         ids: list[str] = []
-        for part in parts:
+        for index, part in enumerate(parts):
+            if index > 0:
+                # Show the indicator first, then wait — otherwise the customer
+                # watches a silent gap and only then sees "typing".
+                if typing_for:
+                    self.send_typing(typing_for)
+                self.pacer.before_part(index, part)
+
             result = self._send(
                 {
                     "messaging_product": "whatsapp",
@@ -153,9 +184,59 @@ class WhatsAppClient:
         """
         image: dict[str, Any] = {"link": image_url}
         if caption:
-            image["caption"] = caption[:1024]  # Cloud API caption limit
+            image["caption"] = to_whatsapp_markup(caption)[:MAX_CAPTION]
         return self._send(
             {"messaging_product": "whatsapp", "to": to, "type": "image", "image": image}
+        )
+
+    def send_images(
+        self,
+        to: str,
+        image_urls: list[str],
+        caption: str | None = None,
+        typing_for: str | None = None,
+    ) -> SendResult:
+        """Send several photos of one vehicle, paced like a person sending them.
+
+        Only the first carries the caption. WhatsApp renders a caption under
+        every image it is attached to, so repeating it turns three photos of one
+        car into the same sentence printed three times.
+
+        A failure part-way through is reported with the ids that did land, so
+        the caller knows the customer saw something rather than nothing.
+        """
+        ids: list[str] = []
+        for index, url in enumerate(image_urls):
+            if index > 0:
+                if typing_for:
+                    self.send_typing(typing_for)
+                # An image needs no composing time; pace it on the caption so a
+                # bare photo sequence still arrives at a human rhythm.
+                self.pacer.wait(self.pacer.pacing.min_seconds)
+
+            result = self.send_image(to, url, caption if index == 0 else None)
+            if not result.ok:
+                return SendResult(ok=False, message_ids=ids, error=result.error)
+            ids.extend(result.message_ids)
+        return SendResult(ok=True, message_ids=ids)
+
+    def send_reaction(self, to: str, message_id: str, emoji: str) -> SendResult:
+        """React to one specific customer message.
+
+        An empty emoji removes an existing reaction, which is the Cloud API's
+        own convention — so a caller with nothing to say sends nothing at all
+        rather than an empty string that would silently clear a previous mark.
+        """
+        if not emoji:
+            return SendResult(ok=True)
+        return self._send(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": to,
+                "type": "reaction",
+                "reaction": {"message_id": message_id, "emoji": emoji},
+            }
         )
 
     def mark_read(self, message_id: str) -> SendResult:
@@ -166,6 +247,24 @@ class WhatsAppClient:
         """
         return self._send(
             {"messaging_product": "whatsapp", "status": "read", "message_id": message_id}
+        )
+
+    def send_typing(self, message_id: str) -> SendResult:
+        """Mark read *and* show the typing bubble, in one request.
+
+        The Cloud API attaches a typing indicator to the read receipt rather
+        than exposing it separately, so this replaces `mark_read` wherever a
+        reply is actually coming. It expires after roughly
+        `TYPING_TTL_SECONDS`, or the moment a message is sent — so a turn slower
+        than that needs it re-sent, which is why the paced send paths do.
+        """
+        return self._send(
+            {
+                "messaging_product": "whatsapp",
+                "status": "read",
+                "message_id": message_id,
+                "typing_indicator": {"type": "text"},
+            }
         )
 
     # -- media -----------------------------------------------------------

@@ -70,6 +70,14 @@ PROVIDER_BUSY_REPLY = (
 class AgentTurn:
     reply: str
     tool_calls: list[str] = field(default_factory=list)
+    #: Only the calls that came back without an error envelope. `tool_calls`
+    #: records what was *attempted*, which is the right signal for the evaluator
+    #: and the wrong one for anything that tells the customer something happened
+    #: — a failed booking must never earn a confirmation.
+    tools_succeeded: list[str] = field(default_factory=list)
+    #: Photos the agent chose to show, resolved to fleet image paths by the
+    #: engine. The model picks the moment; it never picks the file.
+    media: list[dict[str, Any]] = field(default_factory=list)
     duplicate: bool = False
     escalated: bool = False
     refusal: bool = False
@@ -238,6 +246,7 @@ class Agent:
         )
 
         called: list[str] = []
+        succeeded: list[str] = []
         iterations = 0
 
         while iterations < self.settings.max_tool_iterations:
@@ -261,6 +270,8 @@ class Agent:
                 return AgentTurn(
                     reply=SAFE_FALLBACK_REPLY,
                     tool_calls=called,
+                    tools_succeeded=succeeded,
+                    media=ctx.take_media(),
                     refusal=True,
                     escalated=True,
                     iterations=iterations,
@@ -272,6 +283,8 @@ class Agent:
                 return AgentTurn(
                     reply=self._text_of(response) or SAFE_FALLBACK_REPLY,
                     tool_calls=called,
+                    tools_succeeded=succeeded,
+                    media=ctx.take_media(),
                     escalated=ctx.load_state().escalated,
                     iterations=iterations,
                     stop_reason=stop_reason,
@@ -285,6 +298,8 @@ class Agent:
             for use in tool_uses:
                 called.append(use.name)
                 result = execute_tool(ctx, use.name, dict(use.input or {}))
+                if "error" not in result:
+                    succeeded.append(use.name)
                 self._absorb(ctx, use.name, result)
                 results.append(
                     {
@@ -306,6 +321,8 @@ class Agent:
         return AgentTurn(
             reply=SAFE_FALLBACK_REPLY,
             tool_calls=called,
+            tools_succeeded=succeeded,
+            media=ctx.take_media(),
             escalated=True,
             iterations=iterations,
         )

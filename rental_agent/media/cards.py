@@ -75,7 +75,12 @@ def _money(value: Any) -> str:
     return f"{number:,}"
 
 
-def render(vehicle: Vehicle, operator_name: str, currency: str = "AED") -> Image.Image:
+def _frame(vehicle: Vehicle, operator_name: str, eyebrow: str) -> tuple[Any, Any, Any, Any, Any]:
+    """The parts every card shares: ground, header rule, and the demo footer.
+
+    Returns the canvas plus the colours and geometry the card bodies draw with,
+    so three different cards cannot drift apart in margin or palette.
+    """
     background, ink = palette_for(vehicle.color)
     muted = tuple(
         int(i * 0.62 + b * 0.38) for i, b in zip(ink, background)
@@ -85,11 +90,32 @@ def render(vehicle: Vehicle, operator_name: str, currency: str = "AED") -> Image
     draw = ImageDraw.Draw(card)
     left, width = 80, CARD_SIZE[0] - 160
 
-    # Header
     draw.text((left, 64), operator_name.upper(), font=_font(30, bold=True), fill=muted)
+    if eyebrow:
+        label = eyebrow.upper()
+        draw.text(
+            (left + width - draw.textlength(label, font=_font(30, bold=True)), 64),
+            label,
+            font=_font(30, bold=True),
+            fill=_ACCENT,
+        )
     draw.line([(left, 124), (left + width, 124)], fill=_ACCENT, width=3)
 
-    # Vehicle
+    # The demonstration notice is not optional on any card.
+    draw.line([(left, 692), (left + width, 692)], fill=_ACCENT, width=2)
+    draw.text(
+        (left, 716),
+        "DEMONSTRATION VEHICLE · NOT A REAL BOOKING",
+        font=_font(26, bold=True),
+        fill=muted,
+    )
+    return card, draw, ink, muted, (left, width)
+
+
+def render(vehicle: Vehicle, operator_name: str, currency: str = "AED") -> Image.Image:
+    """The hero card — what the car is and what it costs."""
+    card, draw, ink, muted, (left, width) = _frame(vehicle, operator_name, "")
+
     draw.text((left, 190), f"{vehicle.make} {vehicle.model}", font=_font(74, bold=True), fill=ink)
     draw.text((left, 288), str(vehicle.year), font=_font(44), fill=muted)
     draw.text(
@@ -99,7 +125,6 @@ def render(vehicle: Vehicle, operator_name: str, currency: str = "AED") -> Image
         fill=muted,
     )
 
-    # Price
     draw.text(
         (left, 456),
         f"{currency} {_money(vehicle.daily_price)}",
@@ -119,26 +144,97 @@ def render(vehicle: Vehicle, operator_name: str, currency: str = "AED") -> Image
         text_width = draw.textlength(fact, font=small)
         draw.text((left + width - text_width, 456 + index * 46), fact, font=small, fill=muted)
 
-    # Footer — the demonstration notice is not optional
-    draw.line([(left, 700)], fill=_ACCENT, width=2)
-    draw.line([(left, 692), (left + width, 692)], fill=_ACCENT, width=2)
-    draw.text((left, 716), "DEMONSTRATION VEHICLE · NOT A REAL BOOKING",
-              font=_font(26, bold=True), fill=muted)
+    return card
+
+
+def render_specification(
+    vehicle: Vehicle, operator_name: str, currency: str = "AED"
+) -> Image.Image:
+    """The numbers a customer compares two cars on."""
+    card, draw, ink, muted, (left, width) = _frame(vehicle, operator_name, "specification")
+
+    draw.text((left, 176), f"{vehicle.make} {vehicle.model}", font=_font(52, bold=True), fill=ink)
+
+    rows = [
+        ("Seats", str(vehicle.passenger_capacity)),
+        ("Luggage", f"{vehicle.luggage_capacity} bags"),
+        ("Transmission", vehicle.transmission.title()),
+        ("Body", vehicle.body_type.title()),
+        ("Mileage included", f"{vehicle.included_km_per_day} km / day"),
+        ("Extra kilometres", f"{currency} {vehicle.extra_km_price} / km"),
+    ]
+    label_font, value_font = _font(32), _font(32, bold=True)
+    for index, (label, value) in enumerate(rows):
+        y = 276 + index * 66
+        draw.text((left, y), label, font=label_font, fill=muted)
+        draw.text(
+            (left + width - draw.textlength(value, font=value_font), y),
+            value,
+            font=value_font,
+            fill=ink,
+        )
+        if index < len(rows) - 1:
+            draw.line([(left, y + 50), (left + width, y + 50)], fill=muted, width=1)
 
     return card
 
 
+def render_features(vehicle: Vehicle, operator_name: str, currency: str = "AED") -> Image.Image:
+    """What is actually in the car. Falls back to the deposit terms when a
+    vehicle lists no features, so every car still has three cards."""
+    card, draw, ink, muted, (left, width) = _frame(vehicle, operator_name, "what's included")
+
+    draw.text((left, 176), f"{vehicle.make} {vehicle.model}", font=_font(52, bold=True), fill=ink)
+
+    lines = list(vehicle.features) or [
+        f"{vehicle.included_km_per_day} km included every day",
+        f"{currency} {_money(vehicle.deposit)} deposit, refunded on return",
+        "Comprehensive insurance included",
+    ]
+    body = _font(36)
+    for index, line in enumerate(lines[:7]):
+        y = 286 + index * 56
+        draw.text((left, y), "—", font=body, fill=_ACCENT)
+        draw.text((left + 46, y), line, font=body, fill=ink if index < 4 else muted)
+
+    return card
+
+
+#: Every card a vehicle gets, in the order a customer should receive them: what
+#: it is, what it measures, what comes with it.
+RENDERERS = [
+    ("", render),
+    ("spec", render_specification),
+    ("features", render_features),
+]
+
+
+def paths_for(vehicle_id: str) -> list[str]:
+    """The fleet-relative image paths for one vehicle.
+
+    The single place that knows the naming scheme, so `fleet.json` and the
+    renderer cannot disagree about which files exist.
+    """
+    return [
+        f"assets/vehicles/{vehicle_id}.png" if not suffix
+        else f"assets/vehicles/{vehicle_id}_{suffix}.png"
+        for suffix, _ in RENDERERS
+    ]
+
+
 def generate_all(output_dir: Path | None = None) -> list[Path]:
-    """Render a card for every vehicle. Returns the paths written."""
+    """Render every card for every vehicle. Returns the paths written."""
     operator, vehicles = load_fleet()
     target = output_dir or OUTPUT_DIR
     target.mkdir(parents=True, exist_ok=True)
 
     written = []
     for vehicle in vehicles:
-        path = target / f"{vehicle.id}.png"
-        render(vehicle, operator.demo_company_name, operator.currency).save(path, "PNG")
-        written.append(path)
+        for suffix, renderer in RENDERERS:
+            name = vehicle.id if not suffix else f"{vehicle.id}_{suffix}"
+            path = target / f"{name}.png"
+            renderer(vehicle, operator.demo_company_name, operator.currency).save(path, "PNG")
+            written.append(path)
     return written
 
 

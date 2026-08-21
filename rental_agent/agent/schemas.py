@@ -118,6 +118,28 @@ TOOLS: list[dict[str, Any]] = [
         [],
     ),
     _tool(
+        "show_vehicle_photos",
+        "Send the customer photographs of one specific car. Call this when they "
+        "ask to see a vehicle, when they are choosing between options and a look "
+        "would decide it, or right after they show real interest in one car — "
+        "seeing it is what turns an enquiry into a booking. Do not call it for "
+        "every car you mention; a customer who asked for three options wants "
+        "three descriptions and photos of the one they lean towards. The photos "
+        "are attached to your reply automatically, so write as if the customer "
+        "can already see them and never say 'attached' or 'above'.",
+        {
+            "vehicle_id": {"type": "string"},
+            "caption": {
+                "type": "string",
+                "description": (
+                    "One short line under the first photo. Optional. Never put a "
+                    "price here that a pricing tool has not returned."
+                ),
+            },
+        },
+        ["vehicle_id"],
+    ),
+    _tool(
         "get_vehicle_details",
         "Get full detail on one vehicle: features, capacity, mileage allowance, "
         "insurance excess, minimum driver age, photos. Call this when the customer "

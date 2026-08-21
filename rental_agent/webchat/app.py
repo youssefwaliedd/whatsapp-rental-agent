@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..context import ToolContext
+from ..formatting import photo_caption
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.parent
@@ -117,6 +118,20 @@ def create_app(
             body = {
                 "reply": result.reply,
                 "tools": result.tool_calls,
+                # Served off the mounted /assets directory rather than a public
+                # host: on WhatsApp Meta fetches these itself, here the browser
+                # does, and the agent's choice of which car to show is the same
+                # either way.
+                "media": [
+                    {
+                        "vehicle": item.get("display_name"),
+                        "caption": photo_caption(
+                            item.get("caption"), item.get("display_name", ""), result.reply
+                        ),
+                        "images": [f"/{path.lstrip('/')}" for path in item.get("images", [])],
+                    }
+                    for item in result.media
+                ],
                 "escalated": result.escalated,
                 "duplicate": result.duplicate,
                 "provider_error": result.provider_error,

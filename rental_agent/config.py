@@ -86,6 +86,12 @@ class Rules:
     def escalation_triggers(self) -> list[str]:
         return self._data["escalation_triggers"]
 
+    @property
+    def messaging(self) -> dict[str, Any]:
+        """How the agent behaves as a WhatsApp participant — typing, pacing,
+        reactions. Absent in older config, so it defaults rather than raising."""
+        return self._data.get("messaging", {})
+
     def minimum_age_for(self, category: str) -> int:
         return int(self._data["driver_requirements"]["minimum_age_by_category"][category])
 
