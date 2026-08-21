@@ -309,6 +309,8 @@ def create_app(
             # anything else, because they have been owed it since yesterday.
             owed = handover.decided_awaiting_relay(ctx, ctx.conversation_id or "")
             if owed is not None:
+                if _record_inbound(ctx, message):
+                    return
                 client.send_typing(message.message_id)
                 turn = agent_factory().relay(ctx, handover.relay_directive(owed))
                 session.commit()
@@ -322,9 +324,16 @@ def create_app(
                 # The agent already escalated this and is waiting on a person.
                 # Answering now would mean resuming exactly the guessing that
                 # the escalation existed to stop.
+                if _record_inbound(ctx, message):
+                    return
                 client.mark_read(message.message_id)
-                client.send_text(
-                    message.from_number, handover.customer_message(ctx, "already_waiting")
+                holding = handover.customer_message(ctx, "already_waiting")
+                client.send_text(message.from_number, holding)
+                ctx.messages.record(
+                    conversation_id=ctx.conversation_id or "",
+                    direction="outbound",
+                    content=holding,
+                    now=ctx.now(),
                 )
                 session.commit()
                 return
@@ -359,6 +368,28 @@ def create_app(
             log.exception("failed to handle %s", message.message_id)
         finally:
             session.close()
+
+    def _record_inbound(ctx: ToolContext, message: InboundMessage) -> bool:
+        """Write the customer's message to the transcript. Returns True on a
+        redelivery, which the caller must drop.
+
+        The agent normally does this itself, but the two paths that answer
+        *without* running a turn — relaying an owed decision, and holding a
+        customer while a case is open — would otherwise lose the message
+        entirely. Two things break when that happens: the transcript the
+        evaluator reads is missing a customer turn, and the 24-hour service
+        window is measured from exactly this record, so it would never reopen.
+        """
+        _, duplicate = ctx.messages.record(
+            conversation_id=ctx.conversation_id or "",
+            direction="inbound",
+            content=message.text,
+            now=ctx.now(),
+            provider_message_id=message.message_id,
+        )
+        if duplicate:
+            log.info("ignored a redelivery of %s", message.message_id)
+        return duplicate
 
     def _acknowledge(message: InboundMessage) -> None:
         """Blue ticks, and the typing bubble when the config asks for it.

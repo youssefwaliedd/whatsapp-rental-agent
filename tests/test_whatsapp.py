@@ -1056,3 +1056,47 @@ def test_a_timeout_nudge_is_not_sent_into_a_closed_window(session_factory):
     post(client, owner_payload("hmm let me think"))
 
     assert [t for to, t in outbound.texts if to == "971500000001"] == []
+
+
+def test_the_paths_that_skip_a_turn_still_record_the_customers_message(session_factory):
+    """Found by the simulator on its first real run. Relaying an owed decision
+    and holding a waiting customer both answer *without* running an agent turn,
+    and the agent is what normally writes the message to the transcript.
+
+    Two things break when it is lost: the transcript the evaluator reads is
+    missing a customer turn, and the 24-hour window is measured from exactly
+    that record — so it never reopens, and the next message would wrongly go out
+    as a template."""
+    from rental_agent.whatsapp import window as window_mod
+
+    client, outbound, agent = open_a_case(session_factory)
+
+    # Held while the case is open.
+    post(client, text_payload("any update?", message_id="wamid.HELD"))
+    # Answered after the window shut.
+    age_conversation(session_factory, 30)
+    post(client, owner_payload("approve"))
+    post(client, text_payload("hi, any news?", message_id="wamid.BACK"))
+
+    with session_factory() as session:
+        ctx = _ctx(session)
+        said = [
+            m.content
+            for m in ctx.messages.for_conversation(ctx.conversation_id or "")
+            if m.direction == "inbound"
+        ]
+        assert "any update?" in said, "the held message must reach the transcript"
+        assert "hi, any news?" in said, "so must the one that reopened the window"
+        assert window_mod.is_open(ctx, ctx.conversation_id or ""), "their reply reopened it"
+
+
+def test_a_redelivery_of_a_held_message_is_not_answered_twice(session_factory):
+    """Meta redelivers. The holding path records the message itself now, so it
+    needs its own dedup — the agent's is not in play."""
+    client, outbound, agent = open_a_case(session_factory)
+    post(client, text_payload("any update?", message_id="wamid.HELD"))
+    outbound.texts.clear()
+
+    post(client, text_payload("any update?", message_id="wamid.HELD"))
+
+    assert outbound.texts == []

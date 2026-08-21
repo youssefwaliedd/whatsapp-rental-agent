@@ -5,3 +5,4 @@ __pycache__/
 *.db
 .env
 .DS_Store
+whatsapp_sim.db*
