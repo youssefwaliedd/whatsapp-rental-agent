@@ -29,6 +29,7 @@ from ..formatting import photo_caption
 from ..services import handover
 from ..store.models import Escalation
 from . import reactions as reactions_mod
+from . import window as window_mod
 from .client import WhatsAppClient
 from .payloads import InboundMessage, parse_messages, parse_statuses, verify_signature
 from .settings import WhatsAppSettings
@@ -140,7 +141,11 @@ def create_app(
                 elif handover.has_timed_out(ctx, case):
                     handover.mark_timed_out(ctx, case)
                     customer = ctx.customers.get(case.customer_id or "")
-                    if customer is not None:
+                    # Only if we are still allowed to speak. Past 24 hours this
+                    # would be rejected, and there is no point burning a
+                    # template on "sorry, still waiting" when the decision
+                    # itself will need one.
+                    if customer is not None and window_mod.is_open(ctx, case.conversation_id):
                         client.send_text(
                             customer.whatsapp_id,
                             handover.customer_message(ctx, "timed_out"),
@@ -233,6 +238,12 @@ def create_app(
         The decision itself is settled and recorded; only the wording is the
         model's job. `mark_relayed` runs after the send, because a decision
         nobody managed to deliver has not resolved anything.
+
+        If the 24-hour service window has closed — an owner answering the next
+        morning is entirely normal — a free-form message would be rejected by
+        Meta and the customer would hear nothing at all. In that case a template
+        goes out instead to earn a reply, and the answer waits until it can
+        actually be delivered.
         """
         ctx = ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)
         ctx.customer_id = case.customer_id
@@ -243,12 +254,41 @@ def create_app(
             log.error("case %s has no customer to relay to", case.case_code)
             return
 
+        if not window_mod.is_open(ctx, case.conversation_id):
+            _request_reopen(ctx, case, record)
+            return
+
         turn = agent_factory().relay(ctx, handover.relay_directive(case))
         session.commit()
 
         client.send_text(record.whatsapp_id, turn.reply)
         handover.mark_relayed(ctx, case)
         session.commit()
+
+    def _request_reopen(ctx: ToolContext, case: Escalation, record: Any) -> None:
+        """Ask a customer we can no longer message freely to come back to us.
+
+        Deliberately does not mark the case relayed: the answer exists and they
+        have not heard it. It stays owed until they reply.
+        """
+        template = handover.reopen_template(ctx)
+        result = client.send_template(
+            record.whatsapp_id,
+            template["name"],
+            language=template["language"],
+            body_params=[record.name or "there"],
+        )
+        if not result.ok:
+            log.error(
+                "case %s: 24h window shut and the reopen template failed: %s",
+                case.case_code,
+                result.error,
+            )
+            return
+
+        handover.mark_reopen_requested(ctx, case)
+        ctx.session.commit()
+        log.info("case %s: window shut, asked the customer to reply", case.case_code)
 
     # -- the customer's side -----------------------------------------------
 
@@ -261,6 +301,19 @@ def create_app(
 
             if message.unsupported:
                 client.send_text(message.from_number, UNSUPPORTED_REPLY)
+                session.commit()
+                return
+
+            # A decision that was ready while we could not reach them. Their
+            # message has just reopened the window, so it goes out now — before
+            # anything else, because they have been owed it since yesterday.
+            owed = handover.decided_awaiting_relay(ctx, ctx.conversation_id or "")
+            if owed is not None:
+                client.send_typing(message.message_id)
+                turn = agent_factory().relay(ctx, handover.relay_directive(owed))
+                session.commit()
+                client.send_text(message.from_number, turn.reply, typing_for=message.message_id)
+                handover.mark_relayed(ctx, owed)
                 session.commit()
                 return
 

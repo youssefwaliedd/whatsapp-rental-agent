@@ -295,6 +295,7 @@ class RecordingClient(WhatsAppClient):
         self.reactions: list[tuple[str, str, str]] = []
         self.images: list[tuple[str, str, str | None]] = []
         self.buttons: list[tuple[str, str, list[dict]]] = []
+        self.templates: list[tuple[str, str, list[str] | None]] = []
         #: Incremented so each send returns a distinct id, the way Meta does —
         #: reply-threading depends on those ids being distinguishable.
         self._sent = 0
@@ -315,6 +316,10 @@ class RecordingClient(WhatsAppClient):
     def send_reaction(self, to, message_id, emoji):
         self.reactions.append((to, message_id, emoji))
         return SendResult(ok=True)
+
+    def send_template(self, to, name, *, language="en", body_params=None):
+        self.templates.append((to, name, body_params))
+        return SendResult(ok=True, message_ids=["wamid.TPL"])
 
     def mark_read(self, message_id):
         self.read.append(message_id)
@@ -342,6 +347,16 @@ class StubAgent:
 
     def respond(self, ctx, message, *, provider_message_id=None):
         self.calls.append((message, provider_message_id))
+        # The real agent records the inbound message. That record is what the
+        # 24-hour service window is measured from, so a double that skipped it
+        # would make every conversation look like one nobody may write to.
+        ctx.messages.record(
+            conversation_id=ctx.conversation_id or "",
+            direction="inbound",
+            content=message,
+            now=ctx.now(),
+            provider_message_id=provider_message_id,
+        )
         if self.turn.escalated and not self.turn.duplicate:
             execute_tool(
                 ctx, "escalate_conversation", {"reason": "other", "detail": message}
@@ -926,3 +941,118 @@ def test_the_owners_own_words_are_carried_not_paraphrased(session_factory):
     post(client, owner_payload("yes but only half of it, and only this once"))
 
     assert "only half of it, and only this once" in agent.relays[0]
+
+
+# --------------------------------------------------------------------------
+# The 24-hour service window
+#
+# WhatsApp only delivers free-form messages for 24 hours after a customer
+# writes. An owner answering an escalation the next morning is entirely normal,
+# and before this the reply was rejected by Meta, the case was marked resolved,
+# and the customer heard nothing — a silent failure with no error anywhere.
+# --------------------------------------------------------------------------
+
+
+def age_conversation(session_factory, hours):
+    """The clock is frozen, so age the conversation instead — push every
+    recorded message back in time until the window has closed."""
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from rental_agent.store.models import Message
+
+    with session_factory() as session:
+        for m in session.scalars(select(Message)):
+            m.created_at = m.created_at - timedelta(hours=hours)
+        session.commit()
+
+
+def _ctx(session):
+    """A context bound to the one demo conversation these tests create."""
+    from rental_agent.context import ToolContext
+
+    ctx = ToolContext(session=session, now_fn=lambda: FROZEN_NOW, reference_date=REFERENCE_DATE)
+    customer, _ = ctx.customers.get_or_create("971500000001", FROZEN_NOW)
+    conversation, _ = ctx.conversations.get_or_create(customer.customer_id, FROZEN_NOW)
+    ctx.customer_id = customer.customer_id
+    ctx.conversation_id = conversation.conversation_id
+    return ctx
+
+
+def test_a_decision_inside_the_window_goes_straight_to_the_customer(session_factory):
+    client, outbound, agent = open_a_case(session_factory)
+    outbound.texts.clear()
+
+    post(client, owner_payload("approve"))
+
+    assert agent.relays, "the agent wrote the reply"
+    assert "971500000001" in [to for to, _ in outbound.texts]
+    assert outbound.templates == [], "no template needed while the window is open"
+
+
+def test_a_decision_after_the_window_shuts_is_not_silently_lost(session_factory):
+    """The bug: Meta rejects the free-form reply, the case is marked resolved,
+    and nobody ever tells the customer."""
+    client, outbound, agent = open_a_case(session_factory)
+    age_conversation(session_factory, 30)
+    outbound.texts.clear()
+
+    post(client, owner_payload("approve"))
+
+    assert outbound.templates, "a template must go out to reopen the conversation"
+    to, name, params = outbound.templates[0]
+    assert to == "971500000001"
+    assert name == "case_update"
+
+
+def test_a_decision_owed_across_the_window_is_still_owed(session_factory):
+    """A template earns a reply; it does not deliver the answer. Until the
+    customer actually hears the decision, the case is not resolved."""
+    from rental_agent.services import handover
+
+    client, outbound, agent = open_a_case(session_factory)
+    age_conversation(session_factory, 30)
+    post(client, owner_payload("approve"))
+
+    with session_factory() as session:
+        ctx = _ctx(session)
+        case = handover.decided_awaiting_relay(ctx, ctx.conversation_id or "")
+        assert case is not None, "still owed"
+        assert case.relayed_at is None
+        assert case.reopen_requested_at is not None
+
+
+def test_the_answer_arrives_the_moment_the_customer_replies(session_factory):
+    """Their reply reopens the window, so the decision goes out before anything
+    else — they have been owed it since yesterday."""
+    from rental_agent.services import handover
+
+    client, outbound, agent = open_a_case(session_factory)
+    age_conversation(session_factory, 30)
+    post(client, owner_payload("approve"))
+    outbound.texts.clear()
+    agent.calls.clear()
+
+    post(client, text_payload("hi, any news?", message_id="wamid.BACK"))
+
+    assert agent.relays, "the decision is delivered"
+    assert "971500000001" in [to for to, _ in outbound.texts]
+    assert agent.calls == [], "the sales agent does not answer over the top of it"
+
+    with session_factory() as session:
+        ctx = _ctx(session)
+        assert handover.decided_awaiting_relay(ctx, ctx.conversation_id or "") is None
+
+
+def test_a_timeout_nudge_is_not_sent_into_a_closed_window(session_factory):
+    """No point burning a template on "sorry, still waiting" when the decision
+    itself will need one."""
+    client, outbound, agent = open_a_case(session_factory)
+    age_conversation(session_factory, 30)
+    outbound.texts.clear()
+
+    # Any inbound event triggers the overdue sweep.
+    post(client, owner_payload("hmm let me think"))
+
+    assert [t for to, t in outbound.texts if to == "971500000001"] == []

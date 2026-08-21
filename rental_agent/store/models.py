@@ -230,6 +230,10 @@ class Escalation(Base):
     #: When the customer was actually told. A decision nobody relayed has not
     #: resolved anything.
     relayed_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
+    #: Set when the answer was ready but the 24-hour window had closed, so a
+    #: template went out asking the customer to reply. The decision is still
+    #: owed; it is delivered the moment they do.
+    reopen_requested_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
 
 
 class Counter(Base):

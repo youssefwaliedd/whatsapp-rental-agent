@@ -287,6 +287,44 @@ class WhatsAppClient:
             }
         )
 
+    def send_template(
+        self,
+        to: str,
+        name: str,
+        *,
+        language: str = "en",
+        body_params: list[str] | None = None,
+    ) -> SendResult:
+        """Send a pre-approved template — the only thing that reaches a customer
+        once the 24-hour service window has closed.
+
+        A template's wording is fixed when Meta approves it, weeks before anyone
+        knows what a given case will need. So this is never used to carry an
+        answer; it is used to earn a reply, after which the window reopens and
+        the agent can say what actually happened in its own words.
+        """
+        components: list[dict[str, Any]] = []
+        if body_params:
+            components.append(
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": str(p)} for p in body_params],
+                }
+            )
+        return self._send(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": to,
+                "type": "template",
+                "template": {
+                    "name": name,
+                    "language": {"code": language},
+                    **({"components": components} if components else {}),
+                },
+            }
+        )
+
     def mark_read(self, message_id: str) -> SendResult:
         """Show the customer their message was seen while the agent thinks.
 

@@ -287,6 +287,26 @@ def mark_relayed(ctx: ToolContext, case: Escalation) -> None:
     ctx.save_state(state)
 
 
+def reopen_template(ctx: ToolContext) -> dict[str, str]:
+    """The template used to reopen a closed 24-hour window."""
+    configured = _config(ctx).get("reopen_template", {})
+    return {
+        "name": configured.get("name", "case_update"),
+        "language": configured.get("language", "en"),
+    }
+
+
+def mark_reopen_requested(ctx: ToolContext, case: Escalation) -> None:
+    """Record that the customer was asked to come back.
+
+    The case stays DECIDED rather than RELAYED, because it is not: the answer
+    exists and the customer has not heard it. It is delivered the moment they
+    reply and the window opens again.
+    """
+    case.reopen_requested_at = ctx.now()
+    ctx.session.flush()
+
+
 def pending_for_conversation(ctx: ToolContext, conversation_id: str) -> Escalation | None:
     """A case this customer is currently waiting on an answer for."""
     return ctx.session.scalars(

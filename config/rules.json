@@ -216,6 +216,13 @@
       "timed_out": "Sorry to keep you waiting on this. I haven't been able to reach a colleague yet, so I'm chasing it now and will come back to you as soon as I have an answer."
     },
 
+    "reopen_template": {
+      "_comment": "WhatsApp only delivers free-form messages for 24 hours after a customer writes. Past that, this pre-approved template is the only way to reach them. Its job is to earn a reply — once they answer, the window reopens and the agent delivers the real decision in its own words. The operator must have this approved in Meta Business Manager (category: UTILITY) before going live; the name here must match theirs exactly.",
+      "name": "case_update",
+      "language": "en",
+      "approved_body": "Hi {{1}}, I have an update on the issue you raised with us. Reply to this message and I'll go through it with you."
+    },
+
     "overrides": {
       "_comment": "An owner may exceed the rules for one case — it is their business. What must never happen is that decision becoming policy: it is recorded against this reservation only, kept out of the learning loop, and the next customer is quoted the standard rules.",
       "may_exceed_discount_ceiling": true,
