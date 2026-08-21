@@ -384,6 +384,18 @@ class Escalations:
         self.session.flush()
         return escalation
 
+    def latest_for_conversation(self, conversation_id: str) -> Escalation | None:
+        """The most recent escalation on a conversation.
+
+        A conversation can escalate more than once over its life, and the one
+        the owner is being asked about is always the newest.
+        """
+        return self.session.scalars(
+            select(Escalation)
+            .where(Escalation.conversation_id == conversation_id)
+            .order_by(Escalation.created_at.desc(), Escalation.id.desc())
+        ).first()
+
     def open_escalations(self) -> list[Escalation]:
         return list(
             self.session.scalars(select(Escalation).where(Escalation.status == "open"))

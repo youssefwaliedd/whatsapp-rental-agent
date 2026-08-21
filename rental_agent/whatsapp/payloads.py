@@ -32,6 +32,13 @@ class InboundMessage:
     message_type: str = "text"
     #: True for a message we can read but not act on — an image, a location.
     unsupported: bool = False
+    #: The message this one is a reply to. WhatsApp fills this in on a
+    #: swipe-to-reply, and it is how an owner's answer finds the case it belongs
+    #: to when several are open at once.
+    reply_to: str | None = None
+    #: The id of a tapped button, which carries our own routing information.
+    #: Unambiguous in a way a typed reply is not.
+    button_id: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -51,6 +58,24 @@ def verify_signature(body: bytes, header: str | None, app_secret: str) -> bool:
 
     expected = hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, header[len("sha256="):])
+
+
+def _button_id_of(message: dict[str, Any]) -> str | None:
+    """The id behind a tapped button, whichever shape it arrives in.
+
+    Template buttons carry a `payload`; interactive reply buttons carry an `id`.
+    Both are ours — we generated them — so both are trustworthy routing.
+    """
+    kind = message.get("type", "")
+    if kind == "button":
+        return (message.get("button") or {}).get("payload") or None
+    if kind == "interactive":
+        interactive = message.get("interactive") or {}
+        for key in ("button_reply", "list_reply"):
+            reply = interactive.get(key) or {}
+            if reply.get("id"):
+                return reply["id"]
+    return None
 
 
 def _text_of(message: dict[str, Any]) -> tuple[str, bool]:
@@ -106,6 +131,8 @@ def parse_messages(payload: dict[str, Any]) -> list[InboundMessage]:
                         contact_name=names.get(message.get("from")),
                         message_type=message.get("type", "unknown"),
                         unsupported=unsupported,
+                        reply_to=(message.get("context") or {}).get("id"),
+                        button_id=_button_id_of(message),
                         raw=message,
                     )
                 )

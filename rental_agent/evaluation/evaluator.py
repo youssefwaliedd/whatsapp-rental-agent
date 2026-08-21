@@ -45,6 +45,28 @@ class EvaluationResult:
         return None
 
 
+def owner_decisions(ctx: ToolContext, conversation_id: str) -> list[dict[str, Any]]:
+    """Decisions a person made on this conversation.
+
+    Read as evidence rather than as behaviour: an owner who authorised something
+    the rules do not permit has not made the agent wrong for saying so, and an
+    evaluator that reported it would generate a lesson teaching the agent to
+    overrule its own owner.
+    """
+    from ..store.models import Escalation
+
+    rows = ctx.session.scalars(
+        select(Escalation).where(
+            Escalation.conversation_id == conversation_id,
+            Escalation.decision.is_not(None),
+        )
+    ) if ctx.session is not None else []
+    return [
+        {"decision": row.decision, "note": row.decision_note, "question": row.question}
+        for row in rows
+    ]
+
+
 def evaluate_conversation(ctx: ToolContext, conversation_id: str) -> EvaluationResult:
     """Assess one conversation from its recorded events. Consults no model."""
     conversation = ctx.conversations.get(conversation_id)
@@ -67,6 +89,7 @@ def evaluate_conversation(ctx: ToolContext, conversation_id: str) -> EvaluationR
         tool_calls=tool_calls,
         state=state,
         escalated=bool(conversation.escalated),
+        owner_decisions=owner_decisions(ctx, conversation_id),
     )
 
     return EvaluationResult(

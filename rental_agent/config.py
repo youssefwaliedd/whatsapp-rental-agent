@@ -87,6 +87,11 @@ class Rules:
         return self._data["escalation_triggers"]
 
     @property
+    def human_in_the_loop(self) -> dict[str, Any]:
+        """What happens after a case is handed to a person."""
+        return self._data.get("human_in_the_loop", {})
+
+    @property
     def messaging(self) -> dict[str, Any]:
         """How the agent behaves as a WhatsApp participant — typing, pacing,
         reactions. Absent in older config, so it defaults rather than raising."""

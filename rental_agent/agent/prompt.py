@@ -164,6 +164,7 @@ def render_state(
     customer: dict[str, Any] | None = None,
     active_reservation: dict[str, Any] | None = None,
     lessons: list[str] | None = None,
+    directive: str | None = None,
 ) -> str:
     """The operator-channel message injected after the customer's turn.
 
@@ -267,5 +268,12 @@ def render_state(
         lines.append("")
         lines.append("Lessons from previous conversations — apply these:")
         lines.extend(f"  - {lesson}" for lesson in lessons)
+
+    if directive:
+        # Last, so it is the final thing read before replying. Used when the
+        # agent speaks without having been spoken to — relaying a decision a
+        # colleague has made, where the facts are settled and only the wording
+        # is the model's job.
+        lines += ["", "WHAT TO DO NOW:", directive]
 
     return "\n".join(lines)

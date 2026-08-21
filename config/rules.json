@@ -177,7 +177,11 @@
     "abusive_language",
     "explicit_request_for_human",
     "discount_above_approval_threshold",
-    "repeated_agent_failure"
+    "repeated_agent_failure",
+    "refund_request",
+    "fee_dispute",
+    "eligibility_exception",
+    "outside_knowledge_base"
   ],
 
   "payment": {
@@ -190,6 +194,35 @@
   "fuel_policy": {
     "type": "like_for_like",
     "refuelling_service_fee": 100
+  },
+
+  "human_in_the_loop": {
+    "_comment": "What happens after the agent hands a case to a person. The agent's job at this point is to stop guessing, ask a decidable question, and relay the answer accurately — never to soften it or fill the gap while waiting.",
+
+    "owner_decision": {
+      "_comment": "Three buttons is the Cloud API maximum and titles are capped at 20 characters. Ids are matched in code, so renaming a label is safe but renaming an id is not.",
+      "options": [
+        { "id": "approve", "label": "Approve", "outcome": "approved" },
+        { "id": "decline", "label": "Decline", "outcome": "declined" },
+        { "id": "call", "label": "I'll call them", "outcome": "owner_calling" }
+      ],
+      "reminder_after_minutes": 15,
+      "timeout_after_minutes": 45
+    },
+
+    "customer_messages": {
+      "_comment": "The only two messages sent without the model. Everything else the customer hears is written by the agent, including the resolution itself — these two exist for the moments when there is nothing to be clever about and no decision to relay yet.",
+      "already_waiting": "I'm still waiting to hear back on that one — I'll message you the moment I know.",
+      "timed_out": "Sorry to keep you waiting on this. I haven't been able to reach a colleague yet, so I'm chasing it now and will come back to you as soon as I have an answer."
+    },
+
+    "overrides": {
+      "_comment": "An owner may exceed the rules for one case — it is their business. What must never happen is that decision becoming policy: it is recorded against this reservation only, kept out of the learning loop, and the next customer is quoted the standard rules.",
+      "may_exceed_discount_ceiling": true,
+      "may_waive_fees": true,
+      "applies_to": "this_reservation_only",
+      "excluded_from_learning": true
+    }
   },
 
   "messaging": {

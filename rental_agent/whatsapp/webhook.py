@@ -26,6 +26,8 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 from ..config import load_rules
 from ..context import ToolContext
 from ..formatting import photo_caption
+from ..services import handover
+from ..store.models import Escalation
 from . import reactions as reactions_mod
 from .client import WhatsAppClient
 from .payloads import InboundMessage, parse_messages, parse_statuses, verify_signature
@@ -94,22 +96,183 @@ def create_app(
 
         messages = parse_messages(payload)
         for message in messages:
-            background.add_task(_handle, message)
+            background.add_task(_dispatch, message)
 
         # Acknowledge before doing the work. A turn takes far longer than Meta
         # waits, and a late 200 means a redelivery and a second reply.
         return Response(content="ok", status_code=200)
 
-    # -- the turn ---------------------------------------------------------
+    # -- routing ----------------------------------------------------------
+
+    def _dispatch(message: InboundMessage) -> None:
+        """Decide who is talking before deciding what to say.
+
+        A message from the owner is a decision about someone else's case, not an
+        enquiry about renting a car. Without this split the owner's reply to an
+        escalation would be treated as a new customer and answered by the sales
+        agent, which is both useless and faintly absurd.
+        """
+        if settings.staff_number and message.from_number == settings.staff_number:
+            _handle_owner(message)
+            return
+        _handle(message)
+
+    def _sweep_overdue(session: Any) -> None:
+        """Chase the owner, and stop leaving the customer on read.
+
+        There is no scheduler here by design — a prototype that needs one is
+        harder to hand over. Instead every inbound webhook is an opportunity to
+        notice that a case has run past its window, which is enough while
+        anything at all is happening and honest about what it is.
+        """
+        ctx = ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)
+        for case in handover.overdue_cases(ctx):
+            try:
+                if handover.needs_reminder(ctx, case):
+                    handover.mark_reminded(ctx, case)
+                    if settings.staff_number:
+                        client.send_text(
+                            settings.staff_number,
+                            f"⏰ Still waiting on case {case.case_code} — "
+                            f"{case.reason.replace('_', ' ')}. "
+                            "A customer is holding for this answer.",
+                        )
+                elif handover.has_timed_out(ctx, case):
+                    handover.mark_timed_out(ctx, case)
+                    customer = ctx.customers.get(case.customer_id or "")
+                    if customer is not None:
+                        client.send_text(
+                            customer.whatsapp_id,
+                            handover.customer_message(ctx, "timed_out"),
+                        )
+                session.commit()
+            except Exception:  # noqa: BLE001 - a stuck case must not block a live turn
+                session.rollback()
+                log.exception("failed to sweep case %s", case.case_code)
+
+    # -- the owner's side --------------------------------------------------
+
+    def _handle_owner(message: InboundMessage) -> None:
+        """Route a decision back to the one customer it belongs to."""
+        session = session_factory()
+        try:
+            ctx = ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)
+            client.mark_read(message.message_id)
+
+            case = handover.find_case(
+                ctx,
+                reply_to_message_id=message.reply_to,
+                text=message.text,
+                button_id=message.button_id,
+            )
+            if case is None:
+                _ask_owner_which_case(ctx, message)
+                session.commit()
+                return
+
+            outcome = handover.outcome_of(
+                ctx, button_id=message.button_id, text=message.text
+            )
+            if outcome is None:
+                # "No" and "no problem" mean opposite things. Rather than guess
+                # at a real customer's case, put the buttons back.
+                _ask_owner_again(ctx, case)
+                session.commit()
+                return
+
+            note = "" if message.button_id else message.text
+            handover.record_decision(ctx, case, outcome=outcome, note=note)
+            session.commit()
+
+            client.send_text(
+                settings.staff_number,
+                f"Got it — case {case.case_code} marked *{outcome.replace('_', ' ')}*. "
+                "Letting the customer know now.",
+            )
+            _relay_to_customer(session, case)
+        except Exception:  # noqa: BLE001 - one bad decision must not kill the worker
+            session.rollback()
+            log.exception("failed to handle owner reply %s", message.message_id)
+        finally:
+            session.close()
+
+    def _ask_owner_which_case(ctx: ToolContext, message: InboundMessage) -> None:
+        open_cases = handover.open_cases(ctx)
+        if not open_cases:
+            client.send_text(
+                settings.staff_number,
+                "Thanks — there are no open cases waiting on a decision right now.",
+            )
+            return
+        listed = "\n".join(
+            f"  {c.case_code} — {c.reason.replace('_', ' ')}" for c in open_cases
+        )
+        client.send_text(
+            settings.staff_number,
+            "I couldn't tell which case that was about. Reply to the original "
+            f"message, or include the code:\n\n{listed}",
+        )
+
+    def _ask_owner_again(ctx: ToolContext, case: Escalation) -> None:
+        client.send_buttons(
+            settings.staff_number,
+            f"Sorry — I couldn't read that as a yes or a no. Case {case.case_code}:\n\n"
+            f"{case.question or case.detail or ''}",
+            _decision_buttons(ctx, case),
+        )
+
+    def _decision_buttons(ctx: ToolContext, case: Escalation) -> list[dict[str, str]]:
+        return [
+            {"id": f"{option['id']}:{case.case_code}", "title": option["label"]}
+            for option in handover.decision_options(ctx)
+        ]
+
+    def _relay_to_customer(session: Any, case: Escalation) -> None:
+        """Tell the customer what was decided, in the agent's own voice.
+
+        The decision itself is settled and recorded; only the wording is the
+        model's job. `mark_relayed` runs after the send, because a decision
+        nobody managed to deliver has not resolved anything.
+        """
+        ctx = ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)
+        ctx.customer_id = case.customer_id
+        ctx.conversation_id = case.conversation_id
+
+        record = ctx.customers.get(case.customer_id or "")
+        if record is None:
+            log.error("case %s has no customer to relay to", case.case_code)
+            return
+
+        turn = agent_factory().relay(ctx, handover.relay_directive(case))
+        session.commit()
+
+        client.send_text(record.whatsapp_id, turn.reply)
+        handover.mark_relayed(ctx, case)
+        session.commit()
+
+    # -- the customer's side -----------------------------------------------
 
     def _handle(message: InboundMessage) -> None:
         """Answer one customer message. Runs after the 200 has gone back."""
         session = session_factory()
         try:
+            _sweep_overdue(session)
             ctx = _context_for(session, message)
 
             if message.unsupported:
                 client.send_text(message.from_number, UNSUPPORTED_REPLY)
+                session.commit()
+                return
+
+            waiting = handover.pending_for_conversation(ctx, ctx.conversation_id or "")
+            if waiting is not None:
+                # The agent already escalated this and is waiting on a person.
+                # Answering now would mean resuming exactly the guessing that
+                # the escalation existed to stop.
+                client.mark_read(message.message_id)
+                client.send_text(
+                    message.from_number, handover.customer_message(ctx, "already_waiting")
+                )
                 session.commit()
                 return
 
@@ -198,7 +361,13 @@ def create_app(
         return ctx
 
     def _notify_staff(ctx: ToolContext, message: InboundMessage, turn: Any) -> None:
-        """Hand a live incident to a human on WhatsApp.
+        """Put a decidable question to the owner and open a case on the answer.
+
+        The difference between this and a notification is the whole point of the
+        brief's section 3: a notice tells the owner something has gone wrong, and
+        leaves them to work out what to do about it in a different app. A case
+        asks one question, records the answer, and carries it back to the
+        customer who is waiting for it.
 
         Best effort by design: a failure here is logged but never raised, since
         the customer has already been told a colleague is taking over and
@@ -209,16 +378,36 @@ def create_app(
             return
 
         state = ctx.load_state()
+        escalation = ctx.escalations.latest_for_conversation(ctx.conversation_id or "")
+        if escalation is None:
+            log.error("escalated turn with no escalation record on %s", ctx.conversation_id)
+            return
+
+        reason = (state.escalation_reason or "unspecified").replace("_", " ")
+        question = f"{reason} — {message.text[:200]}"
+        handover.open_case(ctx, escalation, question)
+        ctx.session.commit()
+
+        customer = ctx.customers.get(ctx.customer_id or "")
         note = (
-            f"⚠️ Escalation — {state.escalation_reason or 'unspecified'}\n\n"
-            f"Customer: {message.from_number}\n"
+            f"⚠️ *{reason.title()}* — case {escalation.case_code}\n\n"
+            f"Customer: {customer.name or message.from_number}\n"
             f'They said: "{message.text[:300]}"\n\n'
-            f"Conversation: {ctx.conversation_id}\n"
-            f"(demonstration system)"
+            "What should I tell them?\n"
+            "_(demonstration system)_"
         )
-        result = client.send_text(settings.staff_number, note)
+        result = client.send_buttons(
+            settings.staff_number, note, _decision_buttons(ctx, escalation)
+        )
         if not result.ok:
             log.error("could not notify staff: %s", result.error)
+            return
+
+        # Remember which message the owner will be replying to. With several
+        # cases open at once this is the precise route back to this one.
+        if result.message_ids:
+            handover.record_notification(ctx, escalation, result.message_ids[0])
+            ctx.session.commit()
 
     # -- health -----------------------------------------------------------
 

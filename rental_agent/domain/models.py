@@ -270,6 +270,10 @@ class ConversationState(Base):
     redundant_asks: list[str] = Field(default_factory=list)
     escalated: bool = False
     escalation_reason: str | None = None
+    #: Where the conversation was before it escalated. Without this, resolving a
+    #: case leaves the agent stuck reassuring a customer whose problem has
+    #: already been answered.
+    stage_before_escalation: Stage | None = None
 
     strategy_version: str | None = None
     updated_at: datetime | None = None

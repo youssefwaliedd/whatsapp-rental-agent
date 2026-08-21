@@ -38,6 +38,12 @@ _MD_BULLET = re.compile(r"^\s{0,3}[-*+]\s+", re.MULTILINE)
 SPLIT_TARGET = 3500
 #: Cloud API caption limit for an image.
 MAX_CAPTION = 1024
+#: Cloud API limits on an interactive button message. Enforced when building
+#: the payload so an over-long label fails a test rather than a live escalation.
+MAX_BUTTONS = 3
+MAX_BUTTON_TITLE = 20
+MAX_BUTTON_ID = 256
+MAX_BUTTON_BODY = 1024
 #: A typing indicator lasts about 25 seconds, or until a message is sent. Worth
 #: knowing rather than assuming it holds for a slow turn.
 TYPING_TTL_SECONDS = 25
@@ -219,6 +225,48 @@ class WhatsAppClient:
                 return SendResult(ok=False, message_ids=ids, error=result.error)
             ids.extend(result.message_ids)
         return SendResult(ok=True, message_ids=ids)
+
+    def send_buttons(
+        self, to: str, body: str, buttons: list[dict[str, str]]
+    ) -> SendResult:
+        """Ask a question with tappable answers.
+
+        Used for owner decisions rather than customer conversation: "no" and "no
+        problem" mean opposite things, and misreading a busy owner's one-word
+        reply resolves a real customer's case wrongly. A button cannot be
+        misread.
+
+        The Cloud API allows at most three buttons with 20-character titles, so
+        both are enforced here rather than discovered as a 400 at the moment an
+        escalation needs to go out.
+        """
+        if not buttons:
+            return self.send_text(to, body)
+
+        return self._send(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": to,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {"text": to_whatsapp_markup(body)[:MAX_BUTTON_BODY]},
+                    "action": {
+                        "buttons": [
+                            {
+                                "type": "reply",
+                                "reply": {
+                                    "id": button["id"][:MAX_BUTTON_ID],
+                                    "title": button["title"][:MAX_BUTTON_TITLE],
+                                },
+                            }
+                            for button in buttons[:MAX_BUTTONS]
+                        ]
+                    },
+                },
+            }
+        )
 
     def send_reaction(self, to: str, message_id: str, emoji: str) -> SendResult:
         """React to one specific customer message.

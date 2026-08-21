@@ -21,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rental_agent.agent.loop import AgentTurn
+from rental_agent.tools.registry import execute_tool
 from rental_agent.whatsapp import payloads
 from rental_agent.whatsapp.client import SendResult, WhatsAppClient, split_message
 from rental_agent.whatsapp.settings import WhatsAppSettings
@@ -293,6 +294,10 @@ class RecordingClient(WhatsAppClient):
         self.typing: list[str] = []
         self.reactions: list[tuple[str, str, str]] = []
         self.images: list[tuple[str, str, str | None]] = []
+        self.buttons: list[tuple[str, str, list[dict]]] = []
+        #: Incremented so each send returns a distinct id, the way Meta does —
+        #: reply-threading depends on those ids being distinguishable.
+        self._sent = 0
 
     def send_text(self, to, text, typing_for=None):
         self.texts.append((to, text))
@@ -301,6 +306,11 @@ class RecordingClient(WhatsAppClient):
     def send_image(self, to, image_url, caption=None):
         self.images.append((to, image_url, caption))
         return SendResult(ok=True, message_ids=["wamid.IMG"])
+
+    def send_buttons(self, to, body, buttons):
+        self._sent += 1
+        self.buttons.append((to, body, buttons))
+        return SendResult(ok=True, message_ids=[f"wamid.ASK{self._sent}"])
 
     def send_reaction(self, to, message_id, emoji):
         self.reactions.append((to, message_id, emoji))
@@ -317,13 +327,30 @@ class RecordingClient(WhatsAppClient):
 
 
 class StubAgent:
+    """Stands in for the model, not for the machinery around it.
+
+    A turn that reports `escalated` also writes the escalation record, because
+    the real agent does — the tool call is what creates it. A double that
+    claimed escalation without the row would let the case machinery pass tests
+    against a state that cannot occur.
+    """
+
     def __init__(self, turn: AgentTurn):
         self.turn = turn
         self.calls: list[tuple[str, str | None]] = []
+        self.relays: list[str] = []
 
     def respond(self, ctx, message, *, provider_message_id=None):
         self.calls.append((message, provider_message_id))
+        if self.turn.escalated and not self.turn.duplicate:
+            execute_tool(
+                ctx, "escalate_conversation", {"reason": "other", "detail": message}
+            )
         return self.turn
+
+    def relay(self, ctx, directive):
+        self.relays.append(directive)
+        return AgentTurn(reply=f"[relayed] {directive.splitlines()[0]}")
 
 
 @pytest.fixture
@@ -431,11 +458,13 @@ def test_an_escalation_notifies_staff(session_factory):
     )
     post(TestClient(app), text_payload("I crashed the car"))
 
-    recipients = [to for to, _ in outbound.texts]
-    assert "971500000001" in recipients      # the customer
-    assert "971500009999" in recipients      # the colleague
-    staff_note = next(t for to, t in outbound.texts if to == "971500009999")
-    assert "Escalation" in staff_note and "I crashed the car" in staff_note
+    assert "971500000001" in [to for to, _ in outbound.texts]   # the customer
+    assert [to for to, _, _ in outbound.buttons] == ["971500009999"]  # the colleague
+
+    _, note, buttons = outbound.buttons[0]
+    assert "I crashed the car" in note
+    assert "What should I tell them?" in note, "a notice is not a question"
+    assert [b["title"] for b in buttons] == ["Approve", "Decline", "I'll call them"]
 
 
 def test_a_crashing_turn_still_returns_200(session_factory):
@@ -704,3 +733,196 @@ def test_escalation_silence_is_declared_in_config_not_left_to_omission():
 
     assert "on_escalation" in reactions
     assert reactions["on_escalation"] is None
+
+
+# --------------------------------------------------------------------------
+# Human in the loop — the owner's decision reaching the right customer
+#
+# The brief's section 3, and the part with the most ways to go quietly wrong.
+# The failures worth catching are: the owner being treated as a customer, a
+# decision landing on the wrong person's case, an ambiguous reply being guessed
+# at, and a decision that never reaches the customer being recorded as resolved.
+# --------------------------------------------------------------------------
+
+
+STAFF = "971500009999"
+
+
+def owner_payload(text="", message_id="wamid.OWNER1", reply_to=None, button_id=None):
+    message = {"from": STAFF, "id": message_id, "timestamp": "1756713600"}
+    if button_id:
+        message["type"] = "interactive"
+        message["interactive"] = {
+            "type": "button_reply",
+            "button_reply": {"id": button_id, "title": "Approve"},
+        }
+    else:
+        message["type"] = "text"
+        message["text"] = {"body": text}
+    if reply_to:
+        message["context"] = {"id": reply_to}
+
+    value = {
+        "messaging_product": "whatsapp",
+        "metadata": {"display_phone_number": "97144000000", "phone_number_id": "PID"},
+        "messages": [message],
+    }
+    return {
+        "object": "whatsapp_business_account",
+        "entry": [{"id": "WABA", "changes": [{"field": "messages", "value": value}]}],
+    }
+
+
+def escalating_harness(session_factory, reply="Let me check with a colleague."):
+    outbound = RecordingClient()
+    agent = StubAgent(AgentTurn(reply=reply, escalated=True))
+    client = webhook(session_factory, outbound, agent)
+    return client, outbound, agent
+
+
+def open_a_case(session_factory, said="the AED 400 late fee is unfair"):
+    client, outbound, agent = escalating_harness(session_factory)
+    post(client, text_payload(said))
+    return client, outbound, agent
+
+
+# -- routing ---------------------------------------------------------------
+
+
+def test_the_owner_is_never_treated_as_a_customer(session_factory):
+    """Before this split, an owner replying to an escalation got a customer
+    record and the sales agent tried to rent them a car."""
+    client, outbound, agent = open_a_case(session_factory)
+    agent.calls.clear()
+
+    post(client, owner_payload("approve"))
+
+    assert agent.calls == [], "the owner's reply must never reach the sales agent"
+
+
+def test_a_tapped_button_resolves_the_case(session_factory):
+    client, outbound, agent = open_a_case(session_factory)
+    code = outbound.buttons[0][2][0]["id"].split(":")[1]
+
+    post(client, owner_payload(button_id=f"approve:{code}"))
+
+    assert agent.relays, "the customer must be told"
+    assert "approved it" in agent.relays[0]
+
+
+def test_a_swipe_to_reply_resolves_the_case(session_factory):
+    """WhatsApp puts the quoted message id in `context.id`, which is the precise
+    route back to one case out of several."""
+    client, outbound, agent = open_a_case(session_factory)
+    asked = "wamid.ASK1"
+
+    post(client, owner_payload("yes go ahead", reply_to=asked))
+
+    assert agent.relays
+    assert "approved it" in agent.relays[0]
+
+
+def test_a_decision_reaches_the_customer_who_is_waiting(session_factory):
+    client, outbound, agent = open_a_case(session_factory)
+    outbound.texts.clear()
+
+    post(client, owner_payload("approve"))
+
+    recipients = [to for to, _ in outbound.texts]
+    assert "971500000001" in recipients, "the customer hears the outcome"
+    assert STAFF in recipients, "the owner gets an acknowledgement"
+
+
+# -- refusing to guess ------------------------------------------------------
+
+
+def test_an_ambiguous_owner_reply_is_asked_again_not_guessed(session_factory):
+    """'No' and 'no problem' mean opposite things. Guessing resolves a real
+    customer's case wrongly, so the buttons go back instead."""
+    client, outbound, agent = open_a_case(session_factory)
+    outbound.buttons.clear()
+
+    post(client, owner_payload("hmm, depends how long they've rented from us"))
+
+    assert agent.relays == [], "nothing may reach the customer"
+    assert outbound.buttons, "the owner is asked again"
+    assert "couldn't read that as a yes or a no" in outbound.buttons[0][1]
+
+
+def test_two_open_cases_with_no_route_are_not_guessed_between(session_factory):
+    """With one case open a bare 'approve' is unambiguous. With two it is not,
+    and resolving the wrong customer's case is worse than asking."""
+    outbound = RecordingClient()
+    agent = StubAgent(AgentTurn(reply="Checking.", escalated=True))
+    client = webhook(session_factory, outbound, agent)
+
+    post(client, text_payload("the fee is unfair", message_id="wamid.A", sender="971500000001"))
+    post(client, text_payload("i want a refund", message_id="wamid.B", sender="971500000002"))
+    assert len(outbound.buttons) == 2
+
+    post(client, owner_payload("approve"))
+
+    assert agent.relays == []
+    staff_texts = [t for to, t in outbound.texts if to == STAFF]
+    assert any("couldn't tell which case" in t for t in staff_texts)
+
+
+# -- the customer's experience while waiting --------------------------------
+
+
+def test_the_agent_does_not_resume_guessing_while_a_case_is_open(session_factory):
+    """The escalation existed to stop the agent answering this. Answering the
+    customer's next message would resume exactly that."""
+    client, outbound, agent = open_a_case(session_factory)
+    agent.calls.clear()
+    outbound.texts.clear()
+
+    post(client, text_payload("any update?", message_id="wamid.TEST2"))
+
+    assert agent.calls == [], "the agent must stay out of it until a person answers"
+    assert outbound.texts, "but the customer must not be left on read"
+    assert "still waiting to hear back" in outbound.texts[0][1]
+
+
+def test_the_conversation_resumes_once_the_case_is_relayed(session_factory):
+    client, outbound, agent = open_a_case(session_factory)
+    post(client, owner_payload("approve"))
+    agent.calls.clear()
+    agent.turn = AgentTurn(reply="Of course — when would you like it?")
+
+    post(client, text_payload("great, can i book another one", message_id="wamid.TEST3"))
+
+    assert agent.calls, "with the case closed the agent takes over again"
+
+
+# -- what the agent is told -------------------------------------------------
+
+
+def test_the_relay_forbids_generalising_the_decision(session_factory):
+    """One 'fine, waive it this once' must not become the standing policy the
+    next customer is quoted."""
+    client, outbound, agent = open_a_case(session_factory)
+
+    post(client, owner_payload("approve"))
+
+    directive = agent.relays[0]
+    assert "this customer only" in directive
+    assert "not a change to" in directive
+
+
+def test_a_decline_may_not_be_softened(session_factory):
+    client, outbound, agent = open_a_case(session_factory)
+
+    post(client, owner_payload("decline"))
+
+    directive = agent.relays[0]
+    assert "declined it" in directive
+    assert "do not soften a decline" in directive.lower()
+
+
+def test_the_owners_own_words_are_carried_not_paraphrased(session_factory):
+    client, outbound, agent = open_a_case(session_factory)
+
+    post(client, owner_payload("yes but only half of it, and only this once"))
+
+    assert "only half of it, and only this once" in agent.relays[0]

@@ -147,7 +147,33 @@ def has_usable_evidence(tool_calls) -> bool:
     return any(c.result for c in successful)
 
 
-def check_unsupported_claims(messages, tool_calls) -> list[Finding]:
+def owner_authorised_numbers(owner_decisions) -> set[Decimal]:
+    """Figures a person explicitly signed off on.
+
+    An owner who says *"give them 20% off"* has authorised a number the rules do
+    not permit, and that is legitimate — it is their business. The evaluator
+    must not then report the agent for repeating it, or the learning loop would
+    generate a lesson teaching the agent to overrule its own owner.
+
+    The authority is scoped to the conversation it was given in. Nothing here
+    licenses the same figure for the next customer, which is the difference
+    between an override and a policy change.
+    """
+    numbers: set[Decimal] = set()
+    for decision in owner_decisions or []:
+        if decision.get("decision") != "approved":
+            continue
+        for text in (decision.get("note") or "", decision.get("question") or ""):
+            numbers |= _decimals(text)
+            # `_decimals` deliberately ignores small bare numbers, because a
+            # price claim is what it exists to catch. A discount an owner
+            # authorised is exactly a small bare number, so percentages are
+            # picked up separately.
+            numbers |= {Decimal(p) for p in _PERCENT.findall(text)}
+    return numbers
+
+
+def check_unsupported_claims(messages, tool_calls, owner_decisions=None) -> list[Finding]:
     """A figure shown to the customer that no tool produced.
 
     This is the automated guard on the project's central promise. A miss here is
@@ -158,7 +184,7 @@ def check_unsupported_claims(messages, tool_calls) -> list[Finding]:
     if not has_usable_evidence(tool_calls):
         return []
 
-    supported = supported_numbers(tool_calls)
+    supported = supported_numbers(tool_calls) | owner_authorised_numbers(owner_decisions)
     findings: list[Finding] = []
 
     for message in messages:
@@ -264,9 +290,16 @@ def check_missed_escalation(messages, tool_calls, escalated: bool) -> list[Findi
     return []
 
 
-def check_discount_without_authority(messages, tool_calls) -> list[Finding]:
-    """A percentage offered without asking what was permitted."""
+def check_discount_without_authority(messages, tool_calls, owner_decisions=None) -> list[Finding]:
+    """A percentage offered without asking what was permitted.
+
+    An owner approving the case *is* the authority — a higher one than the rules
+    file, since they can change the rules file. So an approved decision licenses
+    the figure exactly as a `get_allowed_discount` call would.
+    """
     if any(call.tool_name == "get_allowed_discount" for call in tool_calls):
+        return []
+    if any(d.get("decision") == "approved" for d in owner_decisions or []):
         return []
 
     for message in messages:
@@ -313,12 +346,12 @@ def check_option_overload(messages) -> list[Finding]:
     return []
 
 
-def run_all(messages, tool_calls, state, escalated: bool) -> list[Finding]:
+def run_all(messages, tool_calls, state, escalated: bool, owner_decisions=None) -> list[Finding]:
     """Every deterministic check, most serious first."""
     findings = [
-        *check_unsupported_claims(messages, tool_calls),
+        *check_unsupported_claims(messages, tool_calls, owner_decisions),
         *check_missed_escalation(messages, tool_calls, escalated),
-        *check_discount_without_authority(messages, tool_calls),
+        *check_discount_without_authority(messages, tool_calls, owner_decisions),
         *check_repeated_questions(state),
         *check_unavailable_without_alternatives(messages, tool_calls),
         *check_option_overload(messages),

@@ -195,6 +195,40 @@ class Agent:
         self._record_asked_slots(ctx, turn.reply)
         return turn
 
+    def relay(self, ctx: ToolContext, directive: str) -> AgentTurn:
+        """Speak without having been spoken to.
+
+        Used when a colleague has made a decision and the customer is waiting to
+        hear it. No inbound message is recorded, because none was sent — the
+        transcript stays an honest record of who said what, which matters
+        because the evaluator reads it.
+
+        The facts are already settled by the time this runs. The directive says
+        what must be communicated; the model's only job is the wording.
+        """
+        now = ctx.now()
+        state = ctx.load_state()
+        active = execute_tool(ctx, "get_active_reservation", {})
+        active_reservation = (
+            active.get("reservation") if active.get("has_active_reservation") else None
+        )
+        customer = execute_tool(ctx, "get_customer", {})
+
+        try:
+            turn = self._run_tool_loop(
+                ctx, state, now, customer, active_reservation, directive=directive
+            )
+        except ProviderUnavailable as exc:
+            turn = AgentTurn(reply=PROVIDER_BUSY_REPLY, provider_error=str(exc)[:200])
+
+        ctx.messages.record(
+            conversation_id=ctx.conversation_id or "",
+            direction="outbound",
+            content=turn.reply,
+            now=ctx.now(),
+        )
+        return turn
+
     # -- internals ------------------------------------------------------
 
     def _lessons(self, ctx: ToolContext) -> list[str]:
@@ -229,6 +263,7 @@ class Agent:
         now: Any,
         customer: dict[str, Any],
         active_reservation: dict[str, Any] | None,
+        directive: str | None = None,
     ) -> AgentTurn:
         engine = ctx.engine
         working = self._history(ctx)
@@ -241,6 +276,7 @@ class Agent:
                     customer=customer if "error" not in customer else None,
                     active_reservation=active_reservation,
                     lessons=self._lessons(ctx),
+                    directive=directive,
                 ),
             }
         )

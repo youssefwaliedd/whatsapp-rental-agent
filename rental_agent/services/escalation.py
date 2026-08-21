@@ -59,6 +59,10 @@ def escalate_conversation(
         conversation.escalation_reason = classified
 
     state = ctx.load_state()
+    if not state.escalated:
+        # Only on the way in. Escalating twice must not overwrite this with
+        # ESCALATED and strand the conversation there permanently.
+        state.stage_before_escalation = state.stage
     state.escalated = True
     state.escalation_reason = classified
     state.stage = Stage.ESCALATED

@@ -200,8 +200,36 @@ class Escalation(Base):
     detail: Mapped[str | None] = mapped_column(Text, default=None)
     #: Populated once a staff notification is actually sent (Milestone 4).
     notified_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
+    #: open → awaiting_decision → decided → relayed. `timed_out` is a branch off
+    #: awaiting_decision that stays open: a late answer is still worth having.
     status: Mapped[str] = mapped_column(String, default="open")
     created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+
+    # -- the question put to the owner ------------------------------------
+
+    #: What the owner was actually asked. Stored so the decision is
+    #: interpretable months later, when "approve" on its own means nothing.
+    question: Mapped[str | None] = mapped_column(Text, default=None)
+    #: Short human code — "4A2". The fallback route when the owner types a new
+    #: message instead of replying to ours.
+    case_code: Mapped[str | None] = mapped_column(String, index=True, default=None)
+    #: The wamid of the message we sent the owner. WhatsApp puts this in
+    #: `context.id` when they swipe-to-reply, which is the precise route back to
+    #: this case even with several open at once.
+    notification_message_id: Mapped[str | None] = mapped_column(String, index=True, default=None)
+    reminded_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
+
+    # -- the answer --------------------------------------------------------
+
+    #: approved | declined | owner_calling. Null until the owner answers.
+    decision: Mapped[str | None] = mapped_column(String, default=None)
+    #: Anything the owner typed alongside the decision — a condition, an amount,
+    #: a reason. Authority, but recorded rather than interpreted.
+    decision_note: Mapped[str | None] = mapped_column(Text, default=None)
+    decided_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
+    #: When the customer was actually told. A decision nobody relayed has not
+    #: resolved anything.
+    relayed_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
 
 
 class Counter(Base):

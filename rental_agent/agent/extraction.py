@@ -50,6 +50,13 @@ EscalationSignal = Literal[
     "suspected_fraud",
     "abusive_language",
     "explicit_request_for_human",
+    # The four the client's brief names as the cases a person must decide.
+    # Not urgent in the safety sense, but the agent guessing at any of them is
+    # exactly what the human-in-the-loop exists to prevent.
+    "refund_request",
+    "fee_dispute",
+    "eligibility_exception",
+    "outside_knowledge_base",
 ]
 
 
@@ -102,6 +109,15 @@ Rules:
 - Set escalation_signal for accidents, injuries, police involvement, theft,
   breakdowns, medical emergencies, legal threats, payment disputes, suspected
   fraud, abuse, or an explicit request for a human. Otherwise "none".
+- Also set it for the four cases only a person may decide:
+    refund_request        they want money back
+    fee_dispute           they are contesting a charge — a late fee, a cleaning
+                          fee, a fuel charge — whether or not they are right
+    eligibility_exception they want a rule bent: too young, missing a document,
+                          an unlicensed driver, a longer rental than allowed
+    outside_knowledge_base a question the rules simply do not answer
+  These are not emergencies, but the agent guessing at any of them is exactly
+  what a human decision exists to prevent.
 - Budget is per day in AED.
 
 `categories` must use exactly these values, and nothing else:
