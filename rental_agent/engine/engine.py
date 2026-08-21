@@ -8,7 +8,7 @@ date: every demo scenario and every regression replay must be reproducible.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Callable
 from zoneinfo import ZoneInfo
@@ -45,6 +45,21 @@ class VehicleNotFound(Exception):
     def __init__(self, vehicle_id: str):
         self.vehicle_id = vehicle_id
         super().__init__(f"No vehicle with id {vehicle_id}")
+
+
+class InvalidWindow(Exception):
+    """The requested dates cannot be rented, whatever the fleet looks like.
+
+    Kept separate from `VehicleUnavailable` because the two need different
+    answers. "That car is booked" invites an alternative; "those dates have
+    already passed" invites a correction, and offering a different car for last
+    Tuesday would be worse than saying nothing.
+    """
+
+    def __init__(self, reason: str, message: str, hint: str):
+        self.reason = reason
+        self.hint = hint
+        super().__init__(message)
 
 
 class VehicleUnavailable(Exception):
@@ -105,9 +120,39 @@ class RentalEngine:
 
     # -- availability ----------------------------------------------------
 
+    def validate_window(self, pickup_at: datetime, return_at: datetime) -> None:
+        """Refuse a window nothing can be rented for.
+
+        Enforced in the engine rather than the tool wrapper, and before any
+        vehicle is considered, so no caller and no clever prompt can route
+        around it. A rental company that accepts a booking for last Tuesday has
+        a data-entry problem, not a sales opportunity.
+        """
+        if return_at <= pickup_at:
+            raise InvalidWindow(
+                "return_before_pickup",
+                "The return time must be after the pickup time.",
+                "Ask the customer to confirm the dates; they have them the wrong way round.",
+            )
+
+        tolerance = int(
+            self._rules.rental_period.get("past_pickup_tolerance_minutes", 60)
+        )
+        earliest = self.now() - timedelta(minutes=tolerance)
+        if pickup_at < earliest:
+            raise InvalidWindow(
+                "pickup_in_the_past",
+                f"Pickup {pickup_at:%-d %b %Y} has already passed — it is now "
+                f"{self.now():%-d %b %Y}.",
+                "Say plainly that the date has passed and ask which upcoming dates "
+                "they meant. Do not offer alternatives for a window in the past, and "
+                "do not accept a correction that is also in the past.",
+            )
+
     def check_availability(
         self, vehicle_id: str, pickup_at: datetime, return_at: datetime
     ) -> AvailabilityResult:
+        self.validate_window(pickup_at, return_at)
         vehicle = self.get_vehicle(vehicle_id)
         return check_availability(
             vehicle,
@@ -121,6 +166,7 @@ class RentalEngine:
     # -- search ----------------------------------------------------------
 
     def search(self, criteria: SearchCriteria) -> list[VehicleMatch]:
+        self.validate_window(criteria.pickup_at, criteria.return_at)
         matches: list[VehicleMatch] = []
         for vehicle in self._vehicles:
             minimum_age = self._rules.minimum_age_for(vehicle.category.value)
@@ -227,6 +273,9 @@ class RentalEngine:
         skip_availability_check: bool = False,
     ) -> Quote:
         vehicle = self.get_vehicle(vehicle_id)
+        # Also when the availability check is skipped: a booking being modified
+        # still cannot be moved into the past.
+        self.validate_window(pickup_at, return_at)
 
         if not skip_availability_check:
             result = self.check_availability(vehicle_id, pickup_at, return_at)

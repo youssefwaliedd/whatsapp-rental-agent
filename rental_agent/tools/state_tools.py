@@ -59,6 +59,26 @@ def cancel_demo_reservation(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
 
 
 def record_demo_documents(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Record paperwork the customer has actually sent.
+
+    Refused when nothing has arrived. A customer typing "here you go" is not a
+    licence, and an agent that files it as one has produced a compliance record
+    with nothing behind it — the same class of mistake as quoting a price no
+    tool returned, on a subject where being wrong is worse.
+    """
+    if ctx.documents_received() == 0:
+        return {
+            "error": "no_documents_received",
+            "message": (
+                "Nothing has been sent in this conversation. Documents are recorded "
+                "from what actually arrives, not from the customer saying they sent it."
+            ),
+            "hint": (
+                "Ask them to attach a photo of each document. Do not tell them "
+                "anything is on file until it is."
+            ),
+        }
+
     documents = args["documents"]
     if isinstance(documents, str):
         documents = [documents]

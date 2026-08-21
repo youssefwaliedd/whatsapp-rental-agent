@@ -8,6 +8,8 @@
   "rental_period": {
     "billing_unit_hours": 24,
     "grace_minutes": 59,
+    "_past_pickup_comment": "A rental cannot start before now. The tolerance covers a customer saying 'right now' while the clock ticks past, and ordinary clock skew — it is not a licence to book last week.",
+    "past_pickup_tolerance_minutes": 60,
     "minimum_rental_days": 1,
     "maximum_rental_days": 90,
     "weekly_rate_applies_from_days": 7,

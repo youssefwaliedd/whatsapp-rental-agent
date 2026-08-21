@@ -341,7 +341,13 @@ def create_app(
             _acknowledge(message)
 
             turn = agent_factory().respond(
-                ctx, message.text, provider_message_id=message.message_id
+                ctx,
+                message.text,
+                provider_message_id=message.message_id,
+                # Recorded on the message itself. The document check reads this:
+                # without it the agent has only the customer's word that
+                # anything was sent at all.
+                media=[message.media_kind] if message.media_kind else None,
             )
             session.commit()
 

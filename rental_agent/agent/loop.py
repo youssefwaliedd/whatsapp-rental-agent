@@ -178,6 +178,7 @@ class Agent:
         message: str,
         *,
         provider_message_id: str | None = None,
+        media: list[str] | None = None,
     ) -> AgentTurn:
         now = ctx.now()
 
@@ -187,6 +188,7 @@ class Agent:
             content=message,
             now=now,
             provider_message_id=provider_message_id,
+            media=media,
         )
         if is_duplicate:
             # A WhatsApp redelivery. Already answered — answering again would

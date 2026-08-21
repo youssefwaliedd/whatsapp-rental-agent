@@ -19,6 +19,15 @@ from typing import Any
 #: Message types a customer can send that we can act on as text.
 _TEXTUAL = {"text", "button", "interactive"}
 
+#: Media a customer sends *as* something — a licence, a passport page. We cannot
+#: read the contents, but the fact that a document arrived is itself a fact the
+#: agent needs, and previously it was thrown away.
+_DOCUMENTS = {"image", "document"}
+
+#: How a received document appears in the transcript. Bracketed so it reads as
+#: an annotation rather than as words the customer typed.
+DOCUMENT_MARKER = {"image": "[sent a photo]", "document": "[sent a document]"}
+
 
 @dataclass
 class InboundMessage:
@@ -30,8 +39,13 @@ class InboundMessage:
     timestamp: str | None = None
     contact_name: str | None = None
     message_type: str = "text"
-    #: True for a message we can read but not act on — an image, a location.
+    #: True for a message we can neither read nor act on — a voice note, a
+    #: location pin.
     unsupported: bool = False
+    #: "image" or "document" when the customer sent one. We cannot read it, but
+    #: knowing one arrived is what separates a real document check from the
+    #: agent taking "here you go" at its word.
+    media_kind: str | None = None
     #: The message this one is a reply to. WhatsApp fills this in on a
     #: swipe-to-reply, and it is how an owner's answer finds the case it belongs
     #: to when several are open at once.
@@ -96,7 +110,13 @@ def _text_of(message: dict[str, Any]) -> tuple[str, bool]:
                 return reply["title"], False
         return "", True
 
-    # An image, a voice note, a location. The customer said something we cannot
+    if kind in _DOCUMENTS:
+        # We cannot read it, but it arrived, and the arrival is the fact the
+        # document check depends on. A caption often carries what it is.
+        caption = (message.get(kind) or {}).get("caption") or ""
+        return f"{DOCUMENT_MARKER[kind]} {caption}".strip(), False
+
+    # A voice note, a location, a sticker. The customer said something we cannot
     # read — worth acknowledging rather than dropping silently.
     return "", True
 
@@ -131,6 +151,9 @@ def parse_messages(payload: dict[str, Any]) -> list[InboundMessage]:
                         contact_name=names.get(message.get("from")),
                         message_type=message.get("type", "unknown"),
                         unsupported=unsupported,
+                        media_kind=(
+                            message.get("type") if message.get("type") in _DOCUMENTS else None
+                        ),
                         reply_to=(message.get("context") or {}).get("id"),
                         button_id=_button_id_of(message),
                         raw=message,

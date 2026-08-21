@@ -108,6 +108,15 @@ def image_payload():
     return payload
 
 
+def voice_payload():
+    payload = text_payload()
+    message = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+    message.pop("text")
+    message["type"] = "audio"
+    message["audio"] = {"id": "MEDIA_ID", "voice": True}
+    return payload
+
+
 def sign(body: bytes, secret: str = APP_SECRET) -> str:
     return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
@@ -148,10 +157,22 @@ def test_a_button_reply_reads_as_its_label():
     assert parsed.unsupported is False
 
 
-def test_an_image_is_flagged_as_unreadable_rather_than_dropped():
+def test_an_image_is_treated_as_a_document_that_arrived():
+    """We cannot read it, but the arrival is itself a fact — it is what
+    separates a real document check from the agent taking "here you go" at its
+    word."""
     [message] = payloads.parse_messages(image_payload())
+    assert message.unsupported is False
+    assert message.media_kind == "image"
+    assert "[sent a photo]" in message.text
+
+
+def test_a_voice_note_is_still_unreadable():
+    """A photo of a licence is evidence. A voice note is not something this
+    agent can act on at all."""
+    [message] = payloads.parse_messages(voice_payload())
     assert message.unsupported is True
-    assert message.message_type == "image"
+    assert message.media_kind is None
 
 
 def test_several_messages_in_one_payload_are_all_returned():
@@ -344,9 +365,11 @@ class StubAgent:
         self.turn = turn
         self.calls: list[tuple[str, str | None]] = []
         self.relays: list[str] = []
+        self.recorded_media: list[list[str] | None] = []
 
-    def respond(self, ctx, message, *, provider_message_id=None):
+    def respond(self, ctx, message, *, provider_message_id=None, media=None):
         self.calls.append((message, provider_message_id))
+        self.recorded_media.append(media)
         # The real agent records the inbound message. That record is what the
         # 24-hour service window is measured from, so a double that skipped it
         # would make every conversation look like one nobody may write to.
@@ -356,6 +379,7 @@ class StubAgent:
             content=message,
             now=ctx.now(),
             provider_message_id=provider_message_id,
+            media=media,
         )
         if self.turn.escalated and not self.turn.duplicate:
             execute_tool(
@@ -439,11 +463,23 @@ def test_a_status_update_is_acknowledged_and_ignored(harness):
     assert outbound.texts == []
 
 
-def test_an_image_gets_an_explanation_not_silence(harness):
+def test_a_voice_note_gets_an_explanation_not_silence(harness):
     client, outbound, agent = harness
-    post(client, image_payload())
+    post(client, voice_payload())
     assert agent.calls == []
     assert outbound.texts == [("971500000001", UNSUPPORTED_REPLY)]
+
+
+def test_a_photo_reaches_the_agent_and_is_recorded_as_media(harness):
+    """Previously an image was answered with "I can only read text" and thrown
+    away — so a customer could not send a licence at all, and the agent recorded
+    documents anyway on the strength of "here you go"."""
+    client, outbound, agent = harness
+    post(client, image_payload())
+
+    assert agent.calls, "the agent must see it"
+    with_media = [m for m in agent.recorded_media if m]
+    assert with_media == [["image"]]
 
 
 def test_a_redelivery_is_not_answered_twice(session_factory):

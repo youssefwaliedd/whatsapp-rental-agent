@@ -14,7 +14,7 @@ import time
 from typing import Any
 
 from ..context import ToolContext
-from ..engine.engine import VehicleNotFound, VehicleUnavailable
+from ..engine.engine import InvalidWindow, VehicleNotFound, VehicleUnavailable
 from ..services.idempotency import audit_read, run_idempotent
 from .rental_tools import READ_HANDLERS, ToolError
 from .state_tools import PERSISTED_READ_HANDLERS, STATE_HANDLERS
@@ -29,6 +29,12 @@ NEEDS_SESSION = frozenset(STATE_HANDLERS) | frozenset(PERSISTED_READ_HANDLERS)
 
 def _envelope(exc: Exception) -> dict[str, Any] | None:
     """Map a known exception onto an envelope the agent can act on."""
+    if isinstance(exc, InvalidWindow):
+        return {
+            "error": exc.reason,
+            "message": str(exc),
+            "hint": exc.hint,
+        }
     if isinstance(exc, VehicleNotFound):
         return {"error": "vehicle_not_found", "message": str(exc), "vehicle_id": exc.vehicle_id}
     if isinstance(exc, VehicleUnavailable):

@@ -56,6 +56,21 @@ class ToolContext:
         queued, self._pending_media = list(self._pending_media), []
         return queued
 
+    def documents_received(self) -> int:
+        """How many messages in this conversation actually carried a document.
+
+        The document check rests on this. Without it the agent records a
+        customer's paperwork on the strength of them typing "here you go",
+        which is a compliance record built on nothing.
+        """
+        if self.session is None or not self.conversation_id:
+            return 0
+        return sum(
+            1
+            for m in self.messages.for_conversation(self.conversation_id)
+            if m.direction == "inbound" and m.media
+        )
+
     # -- clock -----------------------------------------------------------
 
     def set_now(self, moment: datetime) -> None:

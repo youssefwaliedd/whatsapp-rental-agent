@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+
+import pytest
 
 from rental_agent.domain.enums import UnavailabilityReason
+from rental_agent.engine.engine import InvalidWindow
 from rental_agent.engine.availability import Window
 from tests.conftest import REFERENCE_DATE, TZ, dt
 
@@ -63,3 +66,70 @@ def test_live_reservations_block_a_vehicle(engine_factory):
 
 def test_reference_date_anchors_the_seeded_calendar(engine):
     assert engine.reference_date == REFERENCE_DATE
+
+
+# --------------------------------------------------------------------------
+# Windows nothing can be rented for
+#
+# Found by playing: the agent quoted and booked a rental that had started a
+# week earlier, and when the customer pushed back on being told the dates had
+# passed, it apologised and invented a different year rather than holding its
+# ground. The engine had no opinion on the matter, so there was nothing to hold.
+# --------------------------------------------------------------------------
+
+
+def test_a_pickup_in_the_past_is_refused(engine):
+    """A rental company that accepts a booking for last Tuesday has a
+    data-entry problem, not a sales opportunity."""
+    with pytest.raises(InvalidWindow) as caught:
+        engine.validate_window(dt(25, 10, month=8), dt(30, 10, month=8))
+    assert caught.value.reason == "pickup_in_the_past"
+
+
+def test_the_refusal_says_not_to_offer_alternatives(engine):
+    """"That car is booked" invites a substitute. "Those dates have passed"
+    does not — offering a different car for last Tuesday is worse than saying
+    nothing."""
+    with pytest.raises(InvalidWindow) as caught:
+        engine.validate_window(dt(25, 10, month=8), dt(30, 10, month=8))
+    assert "not offer alternatives" in caught.value.hint
+
+
+def test_a_return_before_its_pickup_is_refused(engine):
+    with pytest.raises(InvalidWindow) as caught:
+        engine.validate_window(dt(7, 19), dt(4, 19))
+    assert caught.value.reason == "return_before_pickup"
+
+
+def test_a_pickup_a_few_minutes_ago_is_allowed(engine):
+    """The tolerance covers a customer saying "right now" while the clock ticks
+    past, and ordinary skew. It is not a licence to book last week."""
+    engine.validate_window(engine.now() - timedelta(minutes=30), dt(4, 19))
+
+
+def test_search_refuses_a_dead_window_rather_than_returning_nothing(engine):
+    """Returning an empty list would read as "no cars available", and the agent
+    would go looking for alternatives to a window that cannot exist."""
+    from rental_agent.domain.models import SearchCriteria
+
+    with pytest.raises(InvalidWindow):
+        engine.search(SearchCriteria(pickup_at=dt(25, 10, month=8), return_at=dt(30, 10, month=8)))
+
+
+def test_a_quote_cannot_be_calculated_for_a_dead_window(engine):
+    with pytest.raises(InvalidWindow):
+        engine.calculate_quote(
+            vehicle_id="veh_01", pickup_at=dt(25, 10, month=8), return_at=dt(30, 10, month=8)
+        )
+
+
+def test_a_booking_cannot_be_moved_into_the_past(engine):
+    """`skip_availability_check` exists so a booking does not conflict with
+    itself when being modified. It must not become a way around the clock."""
+    with pytest.raises(InvalidWindow):
+        engine.calculate_quote(
+            vehicle_id="veh_01",
+            pickup_at=dt(25, 10, month=8),
+            return_at=dt(30, 10, month=8),
+            skip_availability_check=True,
+        )

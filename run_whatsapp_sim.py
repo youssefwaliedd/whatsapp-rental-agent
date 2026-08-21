@@ -30,7 +30,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import sys
+import traceback
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -283,7 +285,28 @@ BANNER = f"""
 """
 
 
+class LoudFailures(logging.Handler):
+    """Put failed turns on screen.
+
+    The webhook catches per-turn exceptions on purpose — one bad turn must not
+    kill the worker — and logs them. Without a handler that goes nowhere, so a
+    turn that died looked exactly like a turn that worked: `typing…` and then
+    silence. That is the worst possible failure mode for a test harness.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        print(f"\n{RED}{BOLD}  ✗ the turn failed{OFF}")
+        print(f"{RED}  {record.getMessage()}{OFF}")
+        if record.exc_info:
+            trimmed = "".join(traceback.format_exception(*record.exc_info)).strip()
+            for line in trimmed.splitlines()[-4:]:
+                print(f"{RED}  {line}{OFF}")
+        print(f"{DIM}  (the customer got nothing — on a real number this is silence){OFF}")
+
+
 def main() -> None:
+    logging.getLogger("rental_agent").setLevel(logging.ERROR)
+    logging.getLogger("rental_agent").addHandler(LoudFailures())
     clock = Clock()
     phone = Phone(clock)
     session_factory = init_db(create_db_engine("whatsapp_sim.db"))

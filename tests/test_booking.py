@@ -331,8 +331,34 @@ def test_not_showing_up_costs_the_full_amount(booking_ctx):
 # --------------------------------------------------------------------------
 
 
+def sends_a_document(ctx, kind="image"):
+    """A customer actually sending something. The document check rests on this
+    record, so a test that skips it is testing a state that cannot occur."""
+    ctx.messages.record(
+        conversation_id=ctx.conversation_id or "",
+        direction="inbound",
+        content="[sent a photo]",
+        now=ctx.now(),
+        media=[kind],
+    )
+    ctx.session.flush()
+
+
+def test_documents_are_refused_when_nothing_was_actually_sent(booking_ctx):
+    """"Here you go" is not a licence. Filing it as one produces a compliance
+    record with nothing behind it."""
+    reservation = book(booking_ctx)
+    result = execute_tool(
+        booking_ctx,
+        "record_demo_documents",
+        {"reservation_id": reservation["reservation_id"], "documents": ["passport"]},
+    )
+    assert result["error"] == "no_documents_received"
+
+
 def test_documents_report_what_is_still_missing(booking_ctx):
     reservation = book(booking_ctx)
+    sends_a_document(booking_ctx)
     result = execute_tool(
         booking_ctx,
         "record_demo_documents",
@@ -345,6 +371,7 @@ def test_documents_report_what_is_still_missing(booking_ctx):
 
 def test_complete_documents_move_the_stage_on(booking_ctx):
     reservation = book(booking_ctx)
+    sends_a_document(booking_ctx)
     result = execute_tool(
         booking_ctx,
         "record_demo_documents",
