@@ -449,7 +449,12 @@ def create_app(
         conversation, _ = ctx.conversations.get_or_create(customer.customer_id, ctx.now())
         ctx.customer_id = customer.customer_id
         ctx.conversation_id = conversation.conversation_id
-        session.flush()
+        # Commit, not just flush. On SQLite a flush opens the write transaction
+        # and holds it until commit — which would be after the model call, so
+        # one customer's turn would block every other customer for its whole
+        # duration. Landing these two rows immediately keeps the lock held for
+        # milliseconds instead of seconds.
+        session.commit()
         return ctx
 
     def _notify_staff(ctx: ToolContext, message: InboundMessage, turn: Any) -> None:

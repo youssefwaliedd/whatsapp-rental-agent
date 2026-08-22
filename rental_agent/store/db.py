@@ -31,6 +31,11 @@ def database_url(path: str | Path | None = None) -> str:
     return f"sqlite+pysqlite:///{Path(path or os.getenv('DEMO_DB_PATH') or DEFAULT_DB_PATH)}"
 
 
+#: How long a blocked writer waits before giving up, in milliseconds. Generous
+#: on purpose — losing a customer's message is far worse than a slow reply.
+BUSY_TIMEOUT_MS = 10_000
+
+
 def create_db_engine(path: str | Path | None = None, echo: bool = False) -> Engine:
     url = database_url(path)
     engine = create_engine(
@@ -49,6 +54,18 @@ def create_db_engine(path: str | Path | None = None, echo: bool = False) -> Engi
         # declarations in models.py would be documentation only.
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")
+        # SQLite allows one writer at a time. Without a busy timeout the second
+        # writer does not queue — it fails immediately with "database is
+        # locked", and on this system that means a customer's turn dies and
+        # they get nothing.
+        #
+        # Measured before this line: 10 customers messaging simultaneously
+        # produced 5 replies. A rental company's WhatsApp on a Friday evening
+        # is exactly that shape of traffic.
+        #
+        # Waiting is the right behaviour: a turn already takes seconds, so a few
+        # hundred milliseconds queueing for the write is invisible next to it.
+        cursor.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
         cursor.close()
 
     return engine
