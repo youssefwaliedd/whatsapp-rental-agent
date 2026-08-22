@@ -61,7 +61,8 @@
     "refundable": true,
     "hold_method": "card_verification_at_handover",
     "release_days_after_return": 30,
-    "notes": "Terms describe AED 5,000-20,000 by vehicle and a non-refundable no-deposit option. Confirm before quoting a figure."
+    "notes": "Numbered agreement 3.1 gives a range of AED 5,000-20,000 subject to vehicle, driver and duration, so no single figure can be quoted. 3.2 holds it for 30 days. A paid, non-refundable no-deposit option exists (4.1) whose fee is published nowhere.",
+    "pre_authorisation_at_delivery": 100
   },
   "mileage": {
     "source": "250 km per day, per the vehicle listings.",
@@ -83,20 +84,20 @@
       "Dubai International Airport (DXB)": 0
     },
     "collection_fee_equals_delivery_fee": true,
-    "out_of_hours_fee": 100,
+    "out_of_hours_fee": 200,
     "out_of_hours_window": {
       "from": "22:00",
-      "to": "07:00"
+      "to": "09:00"
     },
     "operating_hours": {
-      "from": "08:00",
+      "from": "09:00",
       "to": "22:00"
     },
     "hours": {
       "from": "09:00",
-      "to": "23:00"
+      "to": "22:00"
     },
-    "notes": "Free pick-up and drop-off within Dubai, 9 AM to 11 PM, per the website. Outside Dubai and outside those hours is not published."
+    "notes": "Free delivery and collection within Dubai between 09:00 and 22:00 (numbered agreement 6.1); outside those hours a fee applies (6.2). Delivery outside Dubai or beyond 30 km of the business location is charged by agreement and is NOT a published figure — see _pending_confirmation."
   },
   "discount_policy": {
     "max_percent_by_category": {
@@ -326,7 +327,7 @@
       "extension_confirmation"
     ]
   },
-  "_source": "https://deltarentalsdubai.com/terms — imported 22 Aug 2026",
+  "_source": "deltarentalsdubai.com/terms-conditions/, numbered Vehicle Rental Agreement sections 1-26. That page also carries an older, superseded agreement which disagrees on roughly twelve figures; the numbered one is treated as current.",
   "_assumed": {
     "_comment": "Their terms give ranges where the engine needs one value. Confirm each.",
     "deposit": "Listings say 'no deposit required'; the terms say AED 5,000-20,000 varying by vehicle, driver and duration, plus a non-refundable no-deposit option. Encoded as 0 to match the listings. Needs a per-category answer.",
@@ -337,5 +338,20 @@
     "lost_key": "AED 10,000-35,000 by vehicle. Not encoded.",
     "smoking_penalty": "AED 2,500-5,000. Not encoded as a computed fee.",
     "minimum_age_supercar": "Terms say 23-25 for supercars. Set to 25, the conservative end."
+  },
+  "_pending_confirmation": {
+    "_comment": "Published as ranges or not published at all. The agent must not state any of these — it says the team confirms it for the specific vehicle. Each becomes a real value the moment the operator answers.",
+    "deposit_by_category": "3.1: AED 5,000-20,000, subject to vehicle, driver profile and duration.",
+    "no_deposit_option_fee": "4.1: exists and is non-refundable. Amount published nowhere.",
+    "extra_km_price": "8.2: AED 25-150 per km depending on vehicle. Superseded doc says 25-50.",
+    "weekly_monthly_mileage": "8.1: 1,200-1,500 km/week and 4,500-5,000 km/month, by model.",
+    "insurance_excess": "17.2: from AED 5,000 upward, set by the insurer per vehicle.",
+    "damage_liability_share": "17.3 and 17.6: minimum 20% of damage cost, and 30-100% of car value.",
+    "lost_key_cost": "20.1: AED 10,000-35,000.",
+    "smoking_penalty": "11.2: AED 2,500-5,000.",
+    "prohibited_use_penalty": "9.2: up to AED 10,000 plus damages.",
+    "delivery_outside_dubai": "6.5: charged by agreement depending on location.",
+    "minimum_age_sports": "5.1: 23-25 for sports and supercars, vehicle dependent. Held at 25 because turning away an eligible customer costs less than refusing one at handover.",
+    "weekly_monthly_rates": "Listed publicly as 'on request'; the engine bills daily x days."
   }
 }

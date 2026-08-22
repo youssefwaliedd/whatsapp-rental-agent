@@ -1,206 +1,250 @@
-# Rental Terms — Sandline Rentals (DEMONSTRATION)
+# Rental Terms — Delta Rentals Dubai (TRIPLE D RENTALS L.L.C.)
 
-Fictional policy for a fictional operator, written to stand in for the twenty
-pages of prose a real rental company has. When a real operator adopts this
-system, their own documents replace this file and nothing else changes.
+Delta Rentals Dubai is the commercial brand of TRIPLE D RENTALS L.L.C. This
+document is their published Vehicle Rental Agreement, restated for retrieval
+from https://deltarentalsdubai.com/terms-conditions/.
 
-**No amounts appear anywhere in this document, and the indexer refuses to load
-one.** Every figure — rates, deposits, mileage, fees, excess, discount ceilings —
-lives in `config/rules.json`, where the engine computes with it. A number
-written here could be quoted to a customer without any pricing tool having
-produced it, which is the one thing this system is built to prevent.
+**No amount, percentage or threshold appears anywhere in this document, and the
+indexer refuses to load one.** Every figure — rates, deposits, mileage limits,
+fees, excess, admin charges, cancellation windows, minimum ages — lives in
+`config/rules.json`, where the engine computes with it. A number written here
+could be quoted to a customer without any pricing tool having produced it, which
+is the one thing this system is built to prevent.
+
+Where their published terms state a figure as a range subject to the vehicle,
+the driver or the rental duration, the agent must not pick a value from it. Ask,
+or hand the question to a person.
 
 ## Who may drive
 
-The person who books the car must be the person who collects it, and must
-present the same identity document used to book. We cannot release a vehicle to
-a friend, a colleague or a family member on someone else's reservation.
+The person who books must be the person who collects the vehicle, and only
+drivers named on the agreement may operate it. Minimum ages differ between
+standard, luxury and sports vehicles and are held in the rate system — ask and
+we will check for the specific car.
 
-Minimum ages vary by vehicle class and are held in our rate system — ask and we
-will check for the specific car.
+A valid national or international driving licence is required. Not every licence
+is accepted in the UAE, so the sales team verifies a licence before the rental is
+confirmed. It is ultimately the driver's responsibility to be legally eligible to
+drive in the UAE.
 
-## Additional drivers
+Nobody may drive under the influence of alcohol or drugs. Doing so voids
+insurance entirely and leaves the hirer responsible for all resulting damage and
+for the rental until the vehicle is repaired or replaced.
 
-Any second driver must be registered before they drive. They must attend the
-handover in person with the same documents as the main driver, or be added
-afterwards at one of our offices. An unregistered driver voids the insurance
-entirely, so a claim would fall to the renter personally.
+The vehicle may not be given to an unlicensed person, or to anyone below the
+minimum age.
 
-There is no limit on how many additional drivers may be registered.
+## Documents required
 
-## Driving licences by nationality
+A passport or Emirates ID, a valid driving licence, contact details and delivery
+information. Original documents must be presented at handover, not copies.
 
-**UAE residents** must present a valid UAE driving licence. A licence from
-another country is not sufficient for a resident, regardless of how recently the
-residency was issued.
+Tourists must also provide a valid entry stamp before driving. A tourist who
+begins a rental on a home-country or international licence and then becomes a UAE
+resident must supply their resident licence and Emirates ID, as UAE law requires.
 
-**GCC nationals** — Saudi Arabia, Kuwait, Bahrain, Oman, Qatar — may drive on
-their home licence.
+## Booking, invoicing and payment
 
-**Visitors from countries with a reciprocal agreement**, which includes most of
-Europe, the UK, the USA, Canada, Australia, Japan, Singapore, South Korea, and
-Turkey, may drive on their home licence alongside their passport and entry
-stamp.
+Invoices are issued in advance of the rental term and must be settled in full
+before the vehicle is delivered. For monthly and lease agreements the invoice is
+issued in advance of each term.
 
-**Everyone else, including visitors holding Egyptian, Indian, Pakistani,
-Filipino, Jordanian, Lebanese and Sri Lankan licences**, requires an
-International Driving Permit issued in the same country as the licence, and must
-present both together. An IDP alone is never sufficient.
+Online payments must be made with the customer's own personal credit or debit
+card. A payment made on someone else's card may mean the rental is not awarded.
+Accepted methods include cash, credit and debit cards, bank transfer, cheque and
+cryptocurrency. Customers are asked to keep a valid card on file for the duration
+of the rental; failure to do so can terminate the contract.
 
-Digital or photographed licences are not accepted at handover. We need the
-physical document.
+VAT is added to rental and service fees as required by UAE law. Prices published
+on the website are exclusive of VAT.
 
-## Cross-border travel
+## How a rental period is counted
 
-Travel to Oman is permitted on request and requires road insurance arranged
-before departure, which takes one working day. Tell us at least two days before
-collection.
+Rentals run on a strict twenty-four-hour basis from the time the vehicle is
+delivered. A one-day rental collected in the morning is due back at the same hour
+the following day. A week and a month are counted the same way, from the day and
+hour of collection.
 
-Travel to Saudi Arabia and the other GCC states is not permitted in any of our
-vehicles.
+Returning late is charged as a further full rental day, and charges continue to
+accrue until the vehicle is physically back with the company.
 
-Taking a vehicle out of the UAE without written approval voids all insurance and
-is treated as unauthorised use of the vehicle.
+## Security deposit
 
-## Fuel
+A refundable security deposit is required. The amount depends on the vehicle, the
+driver's profile and the length of the rental, so it is confirmed for the specific
+booking rather than quoted from a list.
 
-Vehicles are supplied full and must be returned full. If a car comes back short
-we refuel it and charge the fuel at cost plus a refuelling service fee, both set
-out in our rate schedule.
+The deposit is held after the vehicle is returned, to cover any outstanding Salik,
+fines, fuel or damage, and released once those are cleared. Refunds are made by
+bank transfer, Western Union or cash; a deposit paid by card may attract bank
+charges on refund. The refund must go to an account in the main hirer's own name.
 
-Putting the wrong fuel in a vehicle is not covered by any insurance product we
-offer. If it happens, stop immediately, do not start the engine, and call us.
+A no-deposit option is offered. It carries a service fee, that fee is
+non-refundable, and unpaid dues under it are pursued through the company's legal
+department. A small pre-authorisation may also be taken at delivery for
+verification and released after clearance.
 
-## Salik tolls, parking and traffic fines
-
-Salik toll gates are billed to us automatically and passed on to the renter
-after the rental, at the rate charged to us with an administration fee per
-transaction.
-
-Traffic fines and parking fines remain the renter's responsibility for the
-entire rental period. Fines often reach us weeks after a rental ends, and we
-charge them to the card on file when they do, with an administration fee. We
-notify the renter each time.
-
-Contesting a fine is possible through the issuing authority. We will supply the
-rental agreement and handover record needed to do it, but we cannot contest a
-fine on a renter's behalf.
-
-## Parking, towing and impound
-
-If a vehicle is towed or impounded, the renter is responsible for the release
-fee, any storage charges and the cost of recovering the car, as well as the
-rental days lost while it is held.
-
-Call us as soon as it happens. A vehicle sitting in an impound accrues charges
-daily and we can usually release it faster than a renter can.
-
-## Where the car may be driven
-
-All our vehicles are for sealed public roads only. Beach driving, dune bashing,
-wadi crossings and unsealed desert tracks are not permitted in any vehicle,
-including four-wheel drives and the luxury SUV class.
-
-Sand and salt-water damage is never covered by insurance, and recovery from soft
-sand is charged at cost.
-
-Vehicles may not be used for racing, track days, driving tuition, ride-hailing,
-food delivery, or to tow anything.
-
-## Smoking, pets and cleaning
-
-Smoking and vaping are not permitted in any vehicle. A car returned smelling of
-smoke requires ozone treatment and is charged a deep-cleaning fee.
-
-Pets are welcome in a secured carrier or with seat covers fitted. Loose animals
-are not permitted for safety reasons. Pet hair requiring specialist cleaning is
-chargeable.
-
-Ordinary dirt from ordinary use is expected and never charged for. Sand
-throughout the cabin, spilled food, or staining is not ordinary use.
-
-## Child seats
-
-Child seats are available for all classes and must be requested when booking, as
-stock is limited. UAE law requires a child restraint for children under four
-years old, and children under thirteen may not travel in the front seat.
-
-We fit the seat at handover. We cannot fit a customer's own seat, as we cannot
-take responsibility for equipment we have not inspected.
-
-## Breakdown
-
-Call us first, not a private recovery service. We arrange recovery and a
-replacement vehicle where the fault is mechanical and not caused by misuse.
-
-A replacement is normally with the renter within a few hours inside the city,
-and by the following morning elsewhere in the UAE.
-
-Recovery arranged privately without our approval is not reimbursed.
-
-## Accidents
-
-Safety first. If anyone is injured, call 999 before calling us.
-
-A police report is required for every accident in the UAE, however minor, and
-insurance will not process a claim without one. Do not move the vehicles before
-the police attend unless they are obstructing traffic and an officer instructs
-you to.
-
-Photograph the scene, the other vehicle, its plate, and the damage before
-anything is moved. Then call us with the police report number.
-
-Leaving the scene of an accident is a criminal matter in the UAE and voids all
-insurance cover.
+**The published listings advertise "no deposit required" with the qualifier that
+terms apply; the terms themselves require a deposit unless the paid no-deposit
+option is taken. The agent must never tell a customer there is no deposit.** Say
+that a deposit applies and that a no-deposit option exists, and let a person
+confirm the figures.
 
 ## Delivery and collection
 
-We deliver and collect across the emirates. Delivery zones and any out-of-hours
-charges are held in our rate system.
+Delivery and collection within Dubai are free during published hours. Outside
+those hours a fee applies. Delivery outside Dubai, or beyond a set distance from
+the business location, is charged according to the location and agreed in advance.
 
-At handover we walk around the vehicle with the renter and record its condition
-with photographs and a signed form. That record is what any later damage
-assessment is compared against, so raise anything you notice at the time.
+Original documents must be presented at delivery. Customers are encouraged to
+photograph or film the vehicle's condition before signing, and any pre-existing
+damage should be recorded at that point.
 
-If nobody is present at the delivery address at the agreed time we wait a short
-while, then return the vehicle to base and treat it as a no-show.
+## Fuel
 
-## Extending a rental
+Vehicles run on Super 98 petrol only. The vehicle must come back with the fuel
+level it was delivered with; a shortfall is charged at the cost of the fuel plus
+an administrative fee. Letting the tank fall below a quarter may prompt the
+company to check the vehicle for engine problems.
 
-Call or message before the rental ends. Extensions depend on whether the
-vehicle is already booked to someone else, and we will offer an alternative if
-it is.
+## Mileage
 
-A vehicle kept beyond its return time without an agreed extension is treated as
-overdue. If we cannot reach the renter it may be reported to the police as an
-unreturned vehicle.
+Each rental includes a daily allowance, with weekly and monthly equivalents,
+stated on the front of the agreement and dependent on the vehicle. Mileage is
+recorded at pickup and at return, and those readings are not negotiable. Distance
+driven beyond the allowance is charged per kilometre at a rate that depends on
+the car.
 
-## Returning the car
+## What the vehicle may not be used for
 
-Return to the agreed place at the agreed time, with the fuel level it left with
-and all of its documents and keys. A lost key is charged at replacement cost,
-which for the luxury and supercar classes is substantial.
+Off-road driving, desert or safari, racetracks, drifting, rallying, racing,
+flooded or otherwise hazardous areas, and towing, recovering or jump-starting
+another vehicle.
 
-Personal belongings left in a vehicle are held for thirty days. We cannot post
-them.
+Cross-border travel is not permitted: the vehicle may not leave the UAE, whether
+to Oman, Saudi Arabia or anywhere else. Nor may it be sub-rented to any person or company,
+or have paper, foil or wrapping applied to it, as that damages the protective
+layer.
 
-## Deposits and refunds
+Damage arising from any of these is not covered by insurance, and penalties apply
+on top of the damage itself.
 
-The deposit is held as a pre-authorisation on the renter's own credit card and
-released after the vehicle is returned and inspected. Release timing depends on
-the issuing bank rather than on us — some release within days, others take
-longer.
+## Speed
 
-Debit cards and cash are not accepted for the deposit. The card must be in the
-main driver's name and physically present at handover.
+UAE traffic law governs, and the agreement sets a maximum permitted speed. Exceeding
+it brings a warning first, then a charge, and on a third occasion the vehicle can be
+immobilised with no refund of the remaining rental. Vehicles carry telematics and
+excessive speeding may trigger an automatic shutdown.
 
-## Privacy
+## Smoking, cleanliness and pets
 
-We keep rental records, identity documents and correspondence for the period
-required by UAE law, and share them only with the authorities when required —
-for example when a fine or an accident report is involved.
+Every vehicle is strictly non-smoking. Smoking incurs a charge for deep cleaning,
+air-conditioning treatment and sanitisation.
 
-## This is a demonstration
+The vehicle must come back in the condition it went out. Dirt, sand, stains,
+odours, food residue and pet hair are all chargeable, as is interior damage caused
+by wet clothing, oils, creams or jewellery. Pets may be permitted, but cleaning and
+damage charges apply without exception.
 
-Sandline Rentals is not a real company. This document describes invented policy
-for a fictional operator and creates no obligation of any kind.
+## Damage, and damage that insurance will not cover
+
+Cosmetic damage is not covered by insurance. Minor damage left unsettled attracts
+an administrative fee, and pre-existing damage that has been made worse is charged
+in full.
+
+Insurance does not cover tyres, wheels, rims, glass, the windscreen, upholstery,
+stone chips, cosmetic damage, or the days the vehicle spends off the road.
+
+Repairs must never be arranged with an outside garage or mechanic. Doing so
+breaches the agreement.
+
+## Accidents
+
+A police report is mandatory for any accident or damage. Without one the hirer
+carries full liability for the incident. Report the accident to Delta Rentals and
+call the police to attend the scene.
+
+Damage where no third party can be identified, or where the insurance claim is
+refused, is charged to the hirer in full. Engine and gearbox damage is not covered.
+
+Daily rental charges continue for the days the vehicle is being repaired, and
+until the insurance settlement completes.
+
+## Insurance and liability
+
+Vehicles are comprehensively insured, covering driver, passenger and third-party
+liability, subject to the exclusions above.
+
+In a fault accident the hirer pays an insurance excess that depends on the vehicle
+and is set by the insurer, together with a share of the repair cost and the daily
+rental for the repair period. In a total loss — beyond repair, or theft — the hirer
+pays a share of the insured value and continues paying the daily rental until the
+insurer settles. **All of these are ranges in the published terms, subject to the
+vehicle. The agent must not state any of them; a person confirms the figure for
+the specific car.**
+
+## Salik, traffic fines and parking
+
+Salik and Darb toll charges are billed to the main hirer, with a service fee.
+Traffic fines are billed at their actual value plus government and administrative
+fees. Mall and airport parking is chargeable with an administrative fee. Customers
+are told as soon as the authorities notify the company, and payment is due
+immediately on notification.
+
+If a fine causes the vehicle to be impounded, the customer is responsible: a
+release fee applies, and rental charges continue for the whole impound period.
+Black points must be removed from the company's traffic file and each one is
+chargeable.
+
+## Extensions and recall
+
+An extension must be requested in writing before the vehicle is due back, and
+approved and paid for in advance, subject to availability. An extension taken
+without approval is charged at a higher daily rate than the original.
+
+The company may recall a vehicle during a rental for servicing or documentation.
+
+## Cancellations
+
+A booking may be cancelled up to a cut-off before the rental starts; the exact
+window is held in the rate system. Cancelling a booking later than that, including
+on the day of collection, is non-refundable, as are service fees and any cancellation arising from a breach of
+the agreement.
+
+**The published terms are inconsistent on this point — one section gives a
+cancellation window, another states that services are non-refundable and cannot be
+cancelled.** The agent must not promise a refund. Hand a cancellation request to a
+person.
+
+## Keys, valet and belongings
+
+Lost or damaged keys are charged at replacement cost, which is substantial on the
+luxury and supercar classes.
+
+Handing the vehicle to valet, car wash or hotel staff is at the customer's own
+risk, and any damage they cause is the hirer's. The vehicle should be parked
+somewhere safe and secure when not in use; damage from acts of nature is the
+hirer's responsibility too. The company is not responsible for personal belongings
+left in a vehicle.
+
+## Unpaid amounts and enforcement
+
+Unpaid balances accrue interest, and all legal, court and recovery costs fall to
+the customer. Failing to return a vehicle or to settle what is owed can lead to
+legal action and to a travel ban. The company may pursue unpaid amounts for a
+period after the rental has ended.
+
+## Media consent and privacy
+
+Customers consent to the company's use of photographs, video, CCTV, dashcam and
+telematics footage for training, marketing, legal, insurance and regulatory
+purposes.
+
+Personal data is collected for operational and legal compliance, including
+registration with the RTA and provider portals. Payment data is handled by the
+payment gateway and the bank, and is not stored by the company.
+
+## Governing law
+
+The agreement is governed by the law of the United Arab Emirates and the local
+laws of the Emirate where it is executed. Disputes go to the competent UAE court.
