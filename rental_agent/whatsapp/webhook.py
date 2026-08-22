@@ -27,6 +27,7 @@ from ..config import load_rules
 from ..context import ToolContext
 from ..formatting import photo_caption
 from ..services import handover
+from ..sources import refresh as refresh_mod
 from ..store.models import Escalation
 from . import reactions as reactions_mod
 from . import window as window_mod
@@ -536,6 +537,7 @@ def create_app(
             "whatsapp_configured": settings.configured,
             "signature_verification": settings.can_verify_signatures,
             "missing_settings": settings.missing(),
+            "fleet_refresh": refresh_mod.STATE.as_dict(),
         }
 
     return app

@@ -57,6 +57,14 @@ if __name__ == "__main__":
     # The first provider call of a process is far slower than the rest. On a
     # live number that cost would land on a real customer's first message, so
     # it is paid here instead.
+    # Nightly fleet refresh, off unless FLEET_REFRESH=1. Prices and fleet
+    # composition move on the order of weeks; the operator's site publishes no
+    # availability at any speed, so refreshing faster buys nothing.
+    from rental_agent.sources import refresh
+
+    if refresh.start():
+        print("  Fleet refresh scheduled\n")
+
     took = agent_factory().warm_up()
     print(f"  Model warm ({took:.1f}s)\n" if took else "  Model unreachable — will retry live\n")
 
