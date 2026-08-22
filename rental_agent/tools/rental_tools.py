@@ -78,6 +78,23 @@ def _parse_categories(value: Any) -> list[Category] | None:
 # --------------------------------------------------------------------------
 
 
+def _figure(value: Any) -> str | None:
+    """A figure the operator has confirmed, or null.
+
+    Never `str(None)`: "None" reaching the model as a tool result is a string it
+    may well try to read as a value, and the whole point of this field being
+    empty is that no number exists to say.
+    """
+    return str(value) if value is not None else None
+
+
+def _unconfirmed(*named: tuple[str, Any]) -> list[str]:
+    """Which figures in this result are absent because nobody has confirmed
+    them. Named explicitly so the model can say so rather than infer it from a
+    missing key — an absent field reads as "nothing to pay"."""
+    return [name for name, value in named if value is None]
+
+
 def _vehicle_summary(vehicle: Vehicle) -> dict[str, Any]:
     return {
         "vehicle_id": vehicle.id,
@@ -86,9 +103,10 @@ def _vehicle_summary(vehicle: Vehicle) -> dict[str, Any]:
         "color": vehicle.color,
         "interior_color": vehicle.interior_color,
         "daily_price": str(vehicle.daily_price),
-        "deposit": str(vehicle.deposit),
+        "deposit": _figure(vehicle.deposit),
         "included_km_per_day": vehicle.included_km_per_day,
         "passenger_capacity": vehicle.passenger_capacity,
+        "unconfirmed": _unconfirmed(("deposit", vehicle.deposit)),
     }
 
 
@@ -101,9 +119,9 @@ def _vehicle_detail(vehicle: Vehicle, engine: RentalEngine) -> dict[str, Any]:
             "year": vehicle.year,
             "body_type": vehicle.body_type,
             "transmission": vehicle.transmission,
-            "weekly_price": str(vehicle.weekly_price) if vehicle.weekly_price else None,
-            "monthly_price": str(vehicle.monthly_price) if vehicle.monthly_price else None,
-            "extra_km_price": str(vehicle.extra_km_price),
+            "weekly_price": _figure(vehicle.weekly_price),
+            "monthly_price": _figure(vehicle.monthly_price),
+            "extra_km_price": _figure(vehicle.extra_km_price),
             "luggage_capacity": vehicle.luggage_capacity,
             "features": vehicle.features,
             "images": vehicle.images,
@@ -111,6 +129,12 @@ def _vehicle_detail(vehicle: Vehicle, engine: RentalEngine) -> dict[str, Any]:
             "minimum_driver_age": engine.minimum_age_for(vehicle.category),
             "insurance_excess": str(engine.rules.insurance_excess_for(vehicle.category.value)),
         }
+    )
+    data["unconfirmed"] = _unconfirmed(
+        ("deposit", vehicle.deposit),
+        ("extra_km_price", vehicle.extra_km_price),
+        ("weekly_price", vehicle.weekly_price),
+        ("monthly_price", vehicle.monthly_price),
     )
     return data
 
@@ -155,12 +179,17 @@ def _quote(quote: Quote) -> dict[str, Any]:
         "out_of_hours_fee": str(quote.out_of_hours_fee),
         "vat_amount": str(quote.vat_amount),
         "total_charge": str(quote.total_charge),
-        "deposit": str(quote.deposit),
-        "total_due_at_delivery": str(quote.total_due_at_delivery),
+        "deposit": _figure(quote.deposit),
+        "total_due_at_delivery": _figure(quote.total_due_at_delivery),
         "included_km_total": quote.included_km_total,
-        "extra_km_price": str(quote.extra_km_price),
+        "extra_km_price": _figure(quote.extra_km_price),
         "insurance_excess": str(quote.insurance_excess),
         "expires_at": quote.expires_at.isoformat(),
+        "unconfirmed": _unconfirmed(
+            ("deposit", quote.deposit),
+            ("total_due_at_delivery", quote.total_due_at_delivery),
+            ("extra_km_price", quote.extra_km_price),
+        ),
     }
 
 

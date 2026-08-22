@@ -66,7 +66,7 @@ def _reservation_dict(reservation: Reservation, ctx: ToolContext) -> dict[str, A
         "return_at": reservation.return_at.isoformat(),
         "delivery_location": reservation.delivery_location,
         "total_charge": str(reservation.total_charge),
-        "deposit": str(reservation.deposit),
+        "deposit": str(reservation.deposit) if reservation.deposit is not None else None,
         "currency": reservation.currency,
         "payment_status": reservation.payment_status,
         "documents_recorded": list(reservation.documents or []),
@@ -183,7 +183,7 @@ def create_demo_quote(
         "vehicle_display_name": quote.vehicle_display_name,
         "billable_days": quote.billable_days,
         "total_charge": str(quote.total_charge),
-        "deposit": str(quote.deposit),
+        "deposit": str(quote.deposit) if quote.deposit is not None else None,
         "total_due_at_delivery": str(quote.total_due_at_delivery),
         "currency": quote.currency,
         "expires_at": quote.expires_at.isoformat(),
@@ -640,7 +640,9 @@ def simulate_payment(
         {
             "payment_reference": reference,
             "payment_method": method,
-            "amount_authorised": str(reservation.deposit),
+            "amount_authorised": (
+                str(reservation.deposit) if reservation.deposit is not None else None
+            ),
             "simulated": True,
             "demo_notice": "SIMULATED PAYMENT — no card was charged and no money moved.",
         }

@@ -1,0 +1,177 @@
+"""A figure nobody has confirmed is not zero.
+
+Delta's listings advertise "no deposit required (T&Cs apply)" while their terms
+require AED 5,000-20,000 subject to the vehicle — a range no engine can quote.
+Encoding that as `0` made the agent state the marketing as policy: *"AED 0
+refundable deposit"* on a Ferrari. The customer plans around it, arrives, and is
+asked for thousands at handover.
+
+So the unknown is now genuinely unknown all the way through — the model, the
+quote, the tool result and the rendered message each have to say so rather than
+resolve it to a comfortable number. The same applies to the per-kilometre rate,
+where zero promises free kilometres past the allowance.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
+
+import pytest
+
+from rental_agent.config import load_rules
+from rental_agent.evaluation.checks import run_all
+from rental_agent.formatting import UNCONFIRMED, quote_message, vehicle_card
+from rental_agent.tools.rental_tools import _quote, _vehicle_detail, _vehicle_summary
+
+from .conftest import FROZEN_NOW, dt
+
+
+@dataclass
+class Msg:
+    direction: str
+    content: str
+    id: int = 1
+
+
+@dataclass
+class Call:
+    tool_name: str
+    result: dict[str, Any]
+    arguments: dict[str, Any] | None = None
+
+
+@dataclass
+class State:
+    asked_slots: list[str]
+    redundant_asks: list[str]
+
+
+@pytest.fixture
+def unconfirmed_car(engine):
+    """A real car from the fixture fleet, with the figures the operator has not
+    confirmed removed — which is exactly the shape Delta's own data arrives in."""
+    vehicle = engine.list_fleet()[0]
+    return vehicle.model_copy(update={"deposit": None, "extra_km_price": None})
+
+
+# --- what the customer sees -------------------------------------------------
+
+
+def test_a_card_says_the_deposit_is_confirmed_rather_than_showing_zero(unconfirmed_car):
+    card = vehicle_card(unconfirmed_car)
+    assert UNCONFIRMED in card
+    assert "AED 0" not in card
+
+
+def test_a_confirmed_deposit_still_prints_as_a_figure(engine):
+    card = vehicle_card(engine.list_fleet()[0])
+    assert "refundable deposit" in card
+    assert UNCONFIRMED not in card
+
+
+def test_the_quote_never_shows_a_due_at_delivery_that_omits_the_deposit(engine, unconfirmed_car):
+    quote = quote_for(engine, unconfirmed_car)
+    assert quote.deposit is None
+    # The dangerous version: a total that looks complete and is not.
+    assert quote.total_due_at_delivery is None
+
+    rendered = quote_message(quote, load_rules())
+    assert "plus the deposit once confirmed" in rendered
+    assert "AED 0" not in rendered
+
+
+def test_no_zero_deposit_line_appears_among_the_quote_lines(engine, unconfirmed_car):
+    quote = quote_for(engine, unconfirmed_car)
+    assert not [line for line in quote.lines if line.code == "deposit"]
+
+
+def test_an_unknown_per_km_rate_does_not_read_as_free_kilometres(engine, unconfirmed_car):
+    rendered = quote_message(quote_for(engine, unconfirmed_car), load_rules())
+    assert "km included" in rendered
+    assert "0/km" not in rendered
+
+
+# --- what the model is told -------------------------------------------------
+
+
+def test_the_tool_result_names_what_is_unconfirmed_rather_than_omitting_it(unconfirmed_car, engine):
+    summary = _vehicle_summary(unconfirmed_car)
+    assert summary["deposit"] is None
+    # Named, not merely absent: a missing key reads as "nothing to pay".
+    assert "deposit" in summary["unconfirmed"]
+
+    detail = _vehicle_detail(unconfirmed_car, engine)
+    assert set(detail["unconfirmed"]) >= {"deposit", "extra_km_price"}
+
+
+def test_a_null_figure_never_reaches_the_model_as_the_string_none(unconfirmed_car, engine):
+    payload = _quote(quote_for(engine, unconfirmed_car))
+    assert payload["deposit"] is None
+    assert payload["total_due_at_delivery"] is None
+    assert "None" not in [payload["deposit"], payload["extra_km_price"]]
+
+
+def test_a_confirmed_vehicle_reports_nothing_unconfirmed(engine):
+    assert _vehicle_summary(engine.list_fleet()[0])["unconfirmed"] == []
+
+
+# --- what the evaluator catches ---------------------------------------------
+
+
+def test_saying_there_is_no_deposit_is_caught_even_though_it_has_no_number():
+    calls = [Call("get_vehicle_details", {"deposit": None, "unconfirmed": ["deposit"]})]
+    findings = run_all(
+        [Msg("outbound", "Great news — no deposit needed on this one!")],
+        calls, State([], []), escalated=False,
+    )
+    assert "absence_claimed_for_unconfirmed_figure" in [f.type for f in findings]
+    assert findings[0].severity == "high"
+
+
+@pytest.mark.parametrize("phrasing", [
+    "there is no security deposit",
+    "you can take it without a deposit",
+    "it's deposit-free",
+    "the deposit is waived for you",
+    "zero deposit on this car",
+])
+def test_the_marketing_phrasings_are_all_caught(phrasing):
+    calls = [Call("get_vehicle_details", {"deposit": None, "unconfirmed": ["deposit"]})]
+    findings = run_all([Msg("outbound", phrasing)], calls, State([], []), escalated=False)
+    assert "absence_claimed_for_unconfirmed_figure" in [f.type for f in findings]
+
+
+def test_a_confirmed_zero_deposit_is_not_a_finding():
+    # An operator who genuinely charges no deposit must still be able to say so.
+    calls = [Call("get_vehicle_details", {"deposit": "0", "unconfirmed": []})]
+    findings = run_all(
+        [Msg("outbound", "No deposit needed on this one.")],
+        calls, State([], []), escalated=False,
+    )
+    assert "absence_claimed_for_unconfirmed_figure" not in [f.type for f in findings]
+
+
+def test_stating_a_deposit_figure_no_tool_produced_is_still_caught():
+    calls = [Call("get_vehicle_details", {"deposit": None, "unconfirmed": ["deposit"]})]
+    findings = run_all(
+        [Msg("outbound", "The deposit is AED 5000.")],
+        calls, State([], []), escalated=False,
+    )
+    assert "unsupported_claim" in [f.type for f in findings]
+
+
+def quote_for(engine, vehicle):
+    """Put the unconfirmed vehicle into the engine's fleet and quote it."""
+    engine._vehicles = tuple(
+        vehicle if v.id == vehicle.id else v for v in engine.list_fleet()
+    )
+    engine._by_id[vehicle.id] = vehicle
+    return engine.calculate_quote(
+        vehicle_id=vehicle.id,
+        pickup_at=dt(10, 11),
+        return_at=dt(13, 11),
+        skip_availability_check=True,
+    )

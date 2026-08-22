@@ -194,10 +194,10 @@ def collect() -> tuple[dict, list[str]]:
             "monthly_price": None,
             # Listings state no deposit; the terms describe a range varying by
             # vehicle. Zero matches the listings.
-            "deposit": 0,
+            "deposit": None,
             "included_km_per_day": mileage(page),
             # AED 25-150/km by vehicle in the terms. Not published per car.
-            "extra_km_price": 0,
+            "extra_km_price": None,
             "features": [],
             "passenger_capacity": seats,
             "luggage_capacity": bags,
@@ -235,9 +235,9 @@ def collect() -> tuple[dict, list[str]]:
                     "rather than a model year nobody stated.",
             "category_seats_luggage": "Classified from the model name against manufacturer "
                                       "specification, not Delta's data. Worth a glance.",
-            "deposit": "Listings say no deposit; the terms say AED 5,000-20,000 varying by "
-                       "vehicle, driver and duration. Encoded as 0 to match the listings.",
-            "extra_km_price": "AED 25-150/km by vehicle in the terms. Left at 0 rather than guessed.",
+            "deposit": "Listings say no deposit (T&Cs apply); the terms require AED 5,000-20,000 varying by "
+                       "vehicle, driver and duration. Left null — zero would tell a customer this car needs none.",
+            "extra_km_price": "AED 25-150/km by vehicle in the terms. Left null; zero promises free kilometres.",
             "weekly_and_monthly": "Listed as 'on request'. Null, so the engine bills daily x days.",
             "availability": "Delta publishes none. A handful of seeded blocks are added so the "
                             "alternatives flow is demonstrable; everything else reads as free.",

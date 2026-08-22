@@ -60,9 +60,16 @@ class Vehicle(Base):
     daily_price: Decimal
     weekly_price: Decimal | None = None
     monthly_price: Decimal | None = None
-    deposit: Decimal
+    #: None when the operator has not confirmed it. **Zero is a claim** — it
+    #: tells a customer this car needs no deposit — so an unknown deposit must
+    #: not be encoded as one. Delta's listings advertise "no deposit required
+    #: (T&Cs apply)" while their terms require AED 5,000-20,000 subject to the
+    #: vehicle, and a range is not something an engine can quote.
+    deposit: Decimal | None = None
     included_km_per_day: int
-    extra_km_price: Decimal
+    #: None for the same reason: zero here promises free kilometres past the
+    #: allowance. Their terms give a per-vehicle range, not a rate.
+    extra_km_price: Decimal | None = None
     features: list[str] = Field(default_factory=list)
     passenger_capacity: int
     luggage_capacity: int
@@ -173,11 +180,14 @@ class Quote(Base):
     vat_percent: Decimal
     vat_amount: Decimal
     total_charge: Decimal
-    deposit: Decimal
-    total_due_at_delivery: Decimal
+    #: None when the vehicle's deposit is unconfirmed. The total due at delivery
+    #: goes with it — a figure that quietly omits an unknown deposit is worse
+    #: than no figure, because the customer plans around it.
+    deposit: Decimal | None = None
+    total_due_at_delivery: Decimal | None = None
 
     included_km_total: int
-    extra_km_price: Decimal
+    extra_km_price: Decimal | None = None
     insurance_excess: Decimal
 
     created_at: datetime
@@ -226,7 +236,7 @@ class Reservation(Base):
     return_at: datetime
     delivery_location: str | None = None
     total_charge: Decimal
-    deposit: Decimal
+    deposit: Decimal | None = None
     currency: str = "AED"
     created_at: datetime
     updated_at: datetime

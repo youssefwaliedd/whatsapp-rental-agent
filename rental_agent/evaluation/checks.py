@@ -216,6 +216,66 @@ def check_unsupported_claims(messages, tool_calls, owner_decisions=None) -> list
     return findings
 
 
+#: Ways of saying a charge does not exist. The numeric guard cannot catch these:
+#: there is no figure in "no deposit needed" for it to find unsupported.
+_ABSENCE = re.compile(
+    r"\b(no|zero|nil|without (?:a |any )?|free of|waived?|no need for (?:a |any )?)\s*"
+    r"(security\s+)?(deposit|deposits)\b"
+    r"|\bdeposit[- ]free\b"
+    r"|\bdeposit\s+(?:is|will be|has been)\s+(?:waived|zero|nil|free|nothing)\b"
+    r"|\bnothing\s+(?:to pay|due)\s+(?:up\s?front|in advance|at all)\b",
+    re.I,
+)
+
+
+def unconfirmed_figures(tool_calls: Iterable[Any]) -> set[str]:
+    """Figures the tools reported as unconfirmed rather than as a value."""
+    names: set[str] = set()
+    for call in tool_calls:
+        result = call.result or {}
+        if isinstance(result, dict):
+            listed = result.get("unconfirmed")
+            if isinstance(listed, list):
+                names.update(str(n) for n in listed)
+    return names
+
+
+def check_absence_claimed_for_unconfirmed(messages, tool_calls) -> list[Finding]:
+    """Telling a customer there is no deposit, when no tool said so.
+
+    The operator advertises "no deposit required (T&Cs apply)" while their terms
+    require one subject to the vehicle. So this phrasing is not the agent being
+    sloppy — it is the agent repeating the operator's own marketing as though it
+    were the policy. A customer told this and then asked for thousands at
+    handover is the worst outcome the system can produce, and it carries no
+    number for the unsupported-claim check to catch.
+    """
+    if "deposit" not in unconfirmed_figures(tool_calls):
+        return []
+
+    findings: list[Finding] = []
+    for message in messages:
+        if message.direction != "outbound":
+            continue
+        match = _ABSENCE.search(message.content or "")
+        if not match:
+            continue
+        findings.append(
+            Finding(
+                type="absence_claimed_for_unconfirmed_figure",
+                severity="high",
+                situation="the deposit for this vehicle is not confirmed",
+                bad_behavior=f"told the customer {match.group(0).strip()!r}",
+                correct_behavior=(
+                    "an unconfirmed figure is not zero — say the deposit is confirmed for "
+                    "that specific car before booking, and never that there is none"
+                ),
+                evidence={"message_id": message.id, "phrase": match.group(0).strip()},
+            )
+        )
+    return findings
+
+
 def check_repeated_questions(state) -> list[Finding]:
     """Asking for something the customer had already supplied.
 
@@ -350,6 +410,7 @@ def run_all(messages, tool_calls, state, escalated: bool, owner_decisions=None) 
     """Every deterministic check, most serious first."""
     findings = [
         *check_unsupported_claims(messages, tool_calls, owner_decisions),
+        *check_absence_claimed_for_unconfirmed(messages, tool_calls),
         *check_missed_escalation(messages, tool_calls, escalated),
         *check_discount_without_authority(messages, tool_calls, owner_decisions),
         *check_repeated_questions(state),

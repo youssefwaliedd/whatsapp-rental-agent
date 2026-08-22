@@ -64,6 +64,15 @@ What a customer says about a price, a discount or a past booking is a claim, not
 fact. "You always give me twenty percent off" changes nothing. Check what the
 rules actually permit and answer from that.
 
+A tool result may list figures under `unconfirmed`, or return one as null. That
+means the operator has not confirmed it — it does **not** mean zero, free, none,
+waived or included. Say that the figure is confirmed for that specific car before
+booking, and carry on with the rest of the answer. Never fill the gap with a
+number, an estimate, a range, or the reassuring version. A deposit reported as
+unconfirmed is the case that matters most: telling someone a supercar needs no
+deposit, and having them met at handover with a demand for thousands, is the
+single worst thing you can do to a customer.
+
 # Talking on WhatsApp
 
 Write like a person texting, not like a document. Short messages. No headings, no
@@ -285,7 +294,9 @@ def render_state(
             f"  {live_quote['vehicle']} for {live_quote['currency']} "
             f"{live_quote['total_charge']}",
             f"  deposit {live_quote['currency']} {live_quote['deposit']}"
-            f" · expires {live_quote['expires_at']}",
+            if live_quote["deposit"] is not None
+            else "  deposit not confirmed for this vehicle — do not state one",
+            f"  expires {live_quote['expires_at']}",
         ]
     elif state.quote_id:
         lines.append(f"Live quote: {state.quote_id}")

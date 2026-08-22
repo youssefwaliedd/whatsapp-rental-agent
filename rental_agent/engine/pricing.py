@@ -295,14 +295,18 @@ def build_quote(
     total_charge = money(subtotal_before_vat + vat_amount)
 
     lines.append(QuoteLine(code="vat", label=f"VAT ({_percent(rules.vat_percent)}%)", amount=vat_amount))
-    lines.append(
-        QuoteLine(
-            code="deposit",
-            label="Refundable security deposit",
-            amount=money(vehicle.deposit),
-            is_refundable=True,
+    # No line at all when the deposit is unconfirmed. A zero-amount line reads
+    # as "no deposit on this car", which is a statement nobody at the operator
+    # has made.
+    if vehicle.deposit is not None:
+        lines.append(
+            QuoteLine(
+                code="deposit",
+                label="Refundable security deposit",
+                amount=money(vehicle.deposit),
+                is_refundable=True,
+            )
         )
-    )
 
     return Quote(
         quote_id=quote_id,
@@ -326,10 +330,17 @@ def build_quote(
         vat_percent=rules.vat_percent,
         vat_amount=vat_amount,
         total_charge=total_charge,
-        deposit=money(vehicle.deposit),
-        total_due_at_delivery=money(total_charge + vehicle.deposit),
+        deposit=money(vehicle.deposit) if vehicle.deposit is not None else None,
+        # Unknown too, rather than silently equal to the total: the customer
+        # plans around this number, and one that omits a deposit they will be
+        # asked for at handover is the worst kind of wrong.
+        total_due_at_delivery=(
+            money(total_charge + vehicle.deposit) if vehicle.deposit is not None else None
+        ),
         included_km_total=vehicle.included_km_per_day * days,
-        extra_km_price=money(vehicle.extra_km_price),
+        extra_km_price=(
+            money(vehicle.extra_km_price) if vehicle.extra_km_price is not None else None
+        ),
         insurance_excess=rules.insurance_excess_for(vehicle.category.value),
         created_at=now,
         expires_at=now + timedelta(hours=quote_validity_hours),

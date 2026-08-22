@@ -43,14 +43,25 @@ def when(moment: datetime) -> str:
     return f"{moment.strftime('%A')} {moment.day} {moment.strftime('%b')}, {hour}:{moment.strftime('%M %p')}"
 
 
+#: What the customer sees where a figure the operator has not confirmed would
+#: otherwise be printed. Deliberately not a number and deliberately not silence:
+#: silence lets the customer assume there is nothing to pay.
+UNCONFIRMED = "confirmed for this car before booking"
+
+
 def vehicle_card(vehicle: Vehicle, currency: str = "AED") -> str:
+    deposit = (
+        f"{amount(vehicle.deposit, currency)} refundable deposit"
+        if vehicle.deposit is not None
+        else f"Refundable deposit — {UNCONFIRMED}"
+    )
     return "\n".join(
         [
             f"*{vehicle.display_name}*",
             f"{vehicle.color.title()} with {vehicle.interior_color} interior",
             f"{amount(vehicle.daily_price, currency)} per day",
             f"{vehicle.included_km_per_day} km included per day",
-            f"{amount(vehicle.deposit, currency)} refundable deposit",
+            deposit,
         ]
     )
 
@@ -82,14 +93,28 @@ def quote_message(quote: Quote, rules: Rules) -> str:
             continue
         lines.append(f"{line_label(line)} — {amount(line.amount, quote.currency)}")
 
+    lines += ["", f"*Total: {amount(quote.total_charge, quote.currency)}*"]
+
+    if quote.deposit is not None:
+        lines.append(f"Refundable deposit: {amount(quote.deposit, quote.currency)}")
+    else:
+        lines.append(f"Refundable deposit: {UNCONFIRMED}")
+
+    if quote.total_due_at_delivery is not None:
+        lines.append(f"Due at delivery: {amount(quote.total_due_at_delivery, quote.currency)}")
+    else:
+        # Stating the rental total here would read as the whole amount due, with
+        # a deposit the customer has not been told about arriving at handover.
+        lines.append("Due at delivery: the total above, plus the deposit once confirmed")
+
+    per_km = (
+        f"{amount(quote.extra_km_price, quote.currency)}/km after"
+        if quote.extra_km_price is not None
+        else f"the rate beyond that is {UNCONFIRMED}"
+    )
     lines += [
         "",
-        f"*Total: {amount(quote.total_charge, quote.currency)}*",
-        f"Refundable deposit: {amount(quote.deposit, quote.currency)}",
-        f"Due at delivery: {amount(quote.total_due_at_delivery, quote.currency)}",
-        "",
-        f"{quote.included_km_total} km included · "
-        f"{amount(quote.extra_km_price, quote.currency)}/km after",
+        f"{quote.included_km_total} km included · {per_km}",
         f"Insurance excess: {amount(quote.insurance_excess, quote.currency)}",
         "",
         demo_footer(rules),
