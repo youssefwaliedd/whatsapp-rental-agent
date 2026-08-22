@@ -3,151 +3,219 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sandline Rentals — test chat</title>
+<title>Delta Rentals — WhatsApp preview</title>
 <style>
-  /* Self-contained: no CDNs, no build step, works offline. */
+  /* Self-contained: no CDNs, no build step, works offline.
+
+     This is a preview of the phone, not a product surface. What it shows is
+     replayed from the transport's own logic — the same message splitting, the
+     same pause before each following message, the same reaction rules — so the
+     rhythm here is the rhythm a customer gets, not an impression of it. */
   :root {
-    --bg: #0b141a;
-    --panel: #111b21;
-    --chat-bg: #0b141a;
-    --bubble-in: #202c33;
-    --bubble-out: #005c4b;
-    --ink: #e9edef;
-    --muted: #8696a0;
-    --line: #222d34;
-    --accent: #c69a4e;
-    --warn: #f2b23e;
-    --bad: #e8564a;
+    --chat-bg:     #0B141A;
+    --panel:       #202C33;
+    --header:      #202C33;
+    --bubble-in:   #202C33;
+    --bubble-out:  #005C4B;
+    --ink:         #E9EDEF;
+    --muted:       #8696A0;
+    --faint:       #667781;
+    --line:        #222D34;
+    --tick:        #53BDEB;
+    --accent:      #00A884;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; height: 100vh; display: flex;
-    background: var(--bg); color: var(--ink);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    margin: 0; background: #111B21; color: var(--ink);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center; padding: 20px; gap: 20px;
   }
 
-  /* ---- chat column ---- */
-  .chat { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+  /* ── the phone ─────────────────────────────────────────────────── */
+  .phone {
+    width: 400px; height: min(860px, calc(100vh - 40px));
+    background: var(--chat-bg); border-radius: 30px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.35), 0 0 0 10px #000, 0 0 0 11px #2A3942;
+    display: flex; flex-direction: column; overflow: hidden; position: relative;
+  }
+  .notch {
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    width: 130px; height: 26px; background: #000; border-radius: 0 0 16px 16px; z-index: 5;
+  }
   header {
-    padding: 14px 20px; background: var(--panel);
-    border-bottom: 1px solid var(--line);
-    display: flex; align-items: center; gap: 12px;
+    background: var(--header); padding: 34px 12px 10px;
+    display: flex; align-items: center; gap: 11px;
+    border-bottom: 1px solid var(--line); flex: none;
   }
   .avatar {
-    width: 38px; height: 38px; border-radius: 50%;
-    background: var(--accent); color: #1a1a1a;
-    display: grid; place-items: center; font-weight: 700; font-size: 15px;
+    width: 38px; height: 38px; border-radius: 50%; flex: none;
+    background: linear-gradient(140deg, #00A884, #005C4B);
+    display: grid; place-items: center; font-weight: 700; font-size: 14px; color: #0B141A;
   }
-  header h1 { margin: 0; font-size: 15px; font-weight: 600; }
-  header p { margin: 1px 0 0; font-size: 12px; color: var(--muted); }
-  header .spacer { flex: 1; }
-  button {
-    font: inherit; font-size: 13px; cursor: pointer;
-    background: transparent; color: var(--muted);
-    border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px;
+  .who { min-width: 0; flex: 1; }
+  .who h1 {
+    margin: 0; font-size: 15.5px; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  button:hover { color: var(--ink); border-color: var(--muted); }
+  .who p { margin: 1px 0 0; font-size: 12.5px; color: var(--muted); height: 16px; }
+  .who p.live { color: var(--accent); }
+  .hdr-btn {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 12px; padding: 6px 8px; border-radius: 6px; font-family: inherit;
+  }
+  .hdr-btn:hover { background: #2A3942; color: var(--ink); }
+  .hdr-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-  #log { flex: 1; overflow-y: auto; padding: 22px 20px; display: flex; flex-direction: column; gap: 4px; }
-  .row { display: flex; margin-bottom: 6px; }
+  /* ── the conversation ──────────────────────────────────────────── */
+  #log {
+    flex: 1; overflow-y: auto; padding: 12px 8px 8px;
+    display: flex; flex-direction: column;
+    background-color: #0B141A;
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(255,255,255,.014) 0 2px, transparent 2px),
+      radial-gradient(circle at 70% 70%, rgba(255,255,255,.014) 0 2px, transparent 2px);
+    background-size: 48px 48px, 64px 64px;
+  }
+  .day {
+    align-self: center; background: #182229; color: var(--muted);
+    font-size: 12px; padding: 5px 12px; border-radius: 8px; margin: 6px 0 12px;
+  }
+  .row { display: flex; margin-bottom: 3px; }
   .row.out { justify-content: flex-end; }
+  .row.spaced { margin-top: 9px; }
   .bubble {
-    max-width: min(560px, 78%); padding: 8px 12px; border-radius: 8px;
-    white-space: pre-wrap; word-wrap: break-word;
+    max-width: 82%; padding: 6px 9px 8px; border-radius: 8px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.2);
+    white-space: pre-wrap; word-wrap: break-word; font-size: 14.6px; line-height: 1.42;
   }
   .in  .bubble { background: var(--bubble-in);  border-top-left-radius: 2px; }
   .out .bubble { background: var(--bubble-out); border-top-right-radius: 2px; }
   .bubble b { font-weight: 600; }
+  .bubble i { font-style: italic; }
   .meta {
-    font-size: 11px; color: var(--muted); margin: 2px 0 12px 2px;
-    display: flex; gap: 10px; flex-wrap: wrap;
+    float: right; margin: 6px 0 -4px 8px; font-size: 11px;
+    color: var(--faint); display: inline-flex; align-items: center; gap: 3px;
   }
-  .meta .tool {
-    background: #182229; border: 1px solid var(--line);
-    border-radius: 4px; padding: 1px 6px; font-family: ui-monospace, Menlo, monospace;
+  .out .meta { color: rgba(233,237,239,.6); }
+  .tick { font-size: 12px; letter-spacing: -3px; }
+  .tick.read { color: var(--tick); }
+
+  .bubble.photo { padding: 3px; max-width: 74%; }
+  .bubble.photo img {
+    width: 100%; display: block; border-radius: 6px; background: #182229;
+    min-height: 110px; object-fit: cover;
   }
-  .flag { color: var(--warn); }
-  .err  { color: var(--bad); }
+  .bubble.photo .cap { padding: 6px 6px 2px; font-size: 14px; }
 
-  .photo { padding: 3px; max-width: min(320px, 70%); }
-  .photo img { width: 100%; display: block; border-radius: 6px; }
-  .photo .cap { font-size: 13px; padding: 6px 6px 2px; color: var(--ink); }
+  .reaction {
+    align-self: flex-end; background: var(--bubble-in);
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 1px 7px 2px; font-size: 13px; margin: -6px 4px 8px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.2);
+  }
 
-  .typing { color: var(--muted); font-size: 13px; padding: 4px 2px; }
-  .typing span { animation: blink 1.2s infinite; }
-  .typing span:nth-child(2) { animation-delay: .2s; }
-  .typing span:nth-child(3) { animation-delay: .4s; }
-  @keyframes blink { 0%, 60%, 100% { opacity: .25 } 30% { opacity: 1 } }
+  .typing { display: flex; gap: 3px; padding: 10px 12px; }
+  .typing span {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--muted);
+    animation: bounce 1.3s infinite;
+  }
+  .typing span:nth-child(2) { animation-delay: .18s; }
+  .typing span:nth-child(3) { animation-delay: .36s; }
+  @keyframes bounce {
+    0%,60%,100% { opacity: .3; transform: translateY(0) }
+    30% { opacity: 1; transform: translateY(-3px) }
+  }
 
-  form { display: flex; gap: 10px; padding: 14px 20px; background: var(--panel); border-top: 1px solid var(--line); }
+  /* ── composer ──────────────────────────────────────────────────── */
+  form {
+    display: flex; gap: 8px; padding: 8px 10px 14px;
+    background: var(--header); align-items: center; flex: none;
+  }
   input[type=text] {
-    flex: 1; font: inherit; color: var(--ink); background: var(--bubble-in);
-    border: 1px solid var(--line); border-radius: 20px; padding: 10px 16px;
+    flex: 1; font: inherit; font-size: 15px; color: var(--ink);
+    background: var(--panel); border: none; border-radius: 20px; padding: 10px 15px;
   }
-  input[type=text]:focus { outline: none; border-color: var(--accent); }
-  form button { border-radius: 20px; padding: 8px 18px; color: var(--ink); border-color: var(--accent); }
+  input[type=text]:focus { outline: none; }
+  input[type=text]::placeholder { color: var(--faint); }
+  .send {
+    width: 40px; height: 40px; border-radius: 50%; border: none; flex: none;
+    background: var(--accent); color: #0B141A; font-size: 17px; cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .send:disabled { opacity: .45; cursor: default; }
+  .send:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-  /* ---- inspector ---- */
+  /* ── inspector, off to the side and out of the way ─────────────── */
   aside {
-    width: 320px; flex: 0 0 320px; background: var(--panel);
-    border-left: 1px solid var(--line); overflow-y: auto; padding: 18px;
+    width: 300px; align-self: stretch; max-height: calc(100vh - 40px);
+    background: #111B21; border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px; overflow-y: auto; font-size: 13px;
   }
+  aside.hidden { display: none; }
   aside h2 {
-    font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
-    color: var(--muted); margin: 22px 0 10px; font-weight: 600;
+    font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--faint); margin: 18px 0 8px; font-weight: 600;
   }
   aside h2:first-child { margin-top: 0; }
-  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 13px; }
-  .kv span:first-child { color: var(--muted); }
-  .kv span:last-child { text-align: right; }
+  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+  .kv span:first-child { color: var(--muted); flex: none; }
+  .kv span:last-child { text-align: right; word-break: break-word; }
   .pill {
     display: inline-block; background: #182229; border: 1px solid var(--line);
-    border-radius: 4px; padding: 2px 8px; font-size: 12px; margin: 0 4px 4px 0;
+    border-radius: 4px; padding: 2px 7px; font-size: 12px; margin: 0 4px 4px 0;
   }
-  .pill.missing { border-color: var(--warn); color: var(--warn); }
-  .booking {
-    border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin-bottom: 8px; font-size: 13px;
+  .pill.want { border-color: #B8860B; color: #E0A800; }
+  .tool {
+    display: inline-block; background: #182229; border: 1px solid var(--line);
+    border-radius: 4px; padding: 1px 6px; margin: 0 4px 4px 0;
+    font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--accent);
   }
+  .booking { border: 1px solid var(--line); border-radius: 6px; padding: 9px; margin-bottom: 7px; }
   .booking .ref { color: var(--accent); font-family: ui-monospace, Menlo, monospace; }
-  .demo-note {
-    margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--line);
-    font-size: 11px; color: var(--muted); line-height: 1.5;
+  .foot {
+    margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--line);
+    color: var(--faint); font-size: 11.5px; line-height: 1.5;
   }
-  @media (max-width: 860px) { aside { display: none; } }
+  @media (max-width: 780px) { aside { display: none; } body { padding: 8px; } }
+  @media (prefers-reduced-motion: reduce) { .typing span { animation: none; } }
 </style>
 </head>
 <body>
 
-<div class="chat">
+<div class="phone">
+  <div class="notch"></div>
   <header>
-    <div class="avatar">SR</div>
-    <div>
-      <h1>Sandline Rentals</h1>
-      <p id="status">demonstration · not a real company</p>
+    <div class="avatar" id="initials">DR</div>
+    <div class="who">
+      <h1 id="operator">Delta Rentals</h1>
+      <p id="status">online</p>
     </div>
-    <div class="spacer"></div>
-    <button id="reset">New conversation</button>
+    <button class="hdr-btn" id="inspect" title="Show what the agent is doing">inspect</button>
+    <button class="hdr-btn" id="reset" title="Start a new conversation">new</button>
   </header>
 
   <div id="log"></div>
 
   <form id="composer" autocomplete="off">
-    <input type="text" id="input" placeholder="Type a message…" autofocus>
-    <button type="submit" id="send">Send</button>
+    <input type="text" id="input" placeholder="Message" autofocus>
+    <button class="send" type="submit" id="send" aria-label="Send">➤</button>
   </form>
 </div>
 
-<aside>
+<aside id="panel" class="hidden">
+  <h2>Tools this turn</h2>
+  <div id="tools"></div>
   <h2>What the agent knows</h2>
   <div id="state"></div>
   <h2>Still needed</h2>
   <div id="missing"></div>
-  <h2>Demo bookings</h2>
+  <h2>Bookings</h2>
   <div id="bookings"></div>
-  <div class="demo-note">
-    Local test harness. Every vehicle, price and booking is fictional, and no
-    payment is ever taken. Customers reach this agent through WhatsApp — this
-    window exists so you can watch what it is doing.
+  <div class="foot">
+    A preview of the phone. Typing, pauses, ticks, reactions and photo order are
+    replayed from the transport's own logic, so the rhythm here is the rhythm a
+    customer gets. Every booking is simulated and no payment is taken.
   </div>
 </aside>
 
@@ -157,75 +225,79 @@ const input = document.getElementById('input');
 const form = document.getElementById('composer');
 const sendBtn = document.getElementById('send');
 const statusEl = document.getElementById('status');
+const panel = document.getElementById('panel');
 
-function esc(s) {
-  return (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-}
-// WhatsApp markup: *bold* and _italic_.
-function fmt(s) {
-  // Render what WhatsApp would: **bold** is normalised server-side, but the
-  // harness handles it too so what you see here matches the phone.
-  return esc(s)
-    .replace(/\*\*(\S(?:.*?\S)?)\*\*/gs, '<b>$1</b>')
-    .replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
-    .replace(/_([^_\n]+)_/g, '<i>$1</i>');
-}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
-function bubble(text, direction) {
+// WhatsApp renders *bold* and _italic_. The server already normalises markdown
+// into that, so this only has to render what a phone would.
+const fmt = s => esc(s)
+  .replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
+  .replace(/_([^_\n]+)_/g, '<i>$1</i>');
+
+const clock = () => new Date().toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+
+function bubble(text, side) {
   const row = document.createElement('div');
-  row.className = 'row ' + (direction === 'inbound' ? 'out' : 'in');
-  row.innerHTML = `<div class="bubble">${fmt(text)}</div>`;
+  row.className = `row ${side} spaced`;
+  const ticks = side === 'out' ? '<span class="tick">✓✓</span>' : '';
+  row.innerHTML = `<div class="bubble">${fmt(text)}<span class="meta">${clock()}${ticks}</span></div>`;
   log.appendChild(row);
   log.scrollTop = log.scrollHeight;
   return row;
 }
 
-// Photos arrive one at a time, the way the transport paces them, so the
-// window shows what a phone would rather than a grid appearing at once.
-async function photos(media) {
-  for (const item of media || []) {
-    for (let i = 0; i < item.images.length; i++) {
-      const row = document.createElement('div');
-      row.className = 'row in';
-      const caption = (i === 0 && (item.caption || item.vehicle))
-        ? `<div class="cap">${esc(item.caption || item.vehicle)}</div>` : '';
-      row.innerHTML = `<div class="bubble photo">
-          <img src="${esc(item.images[i])}" alt="">${caption}
-        </div>`;
-      log.appendChild(row);
-      log.scrollTop = log.scrollHeight;
-      await new Promise(r => setTimeout(r, 450));
-    }
-  }
+function photoBubble(url, caption) {
+  const row = document.createElement('div');
+  row.className = 'row in spaced';
+  const cap = caption
+    ? `<div class="cap">${fmt(caption)}<span class="meta">${clock()}</span></div>` : '';
+  row.innerHTML = `<div class="bubble photo"><img src="${esc(url)}" alt="" loading="lazy">${cap}</div>`;
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
 }
 
-function meta(data) {
-  const bits = [];
-  if (data.tools && data.tools.length) {
-    bits.push(data.tools.map(t => `<span class="tool">${esc(t)}</span>`).join(' → '));
+function markRead() {
+  // Blue ticks on everything the customer sent — the business has read it.
+  log.querySelectorAll('.row.out .tick').forEach(t => t.classList.add('read'));
+}
+
+function typing(on) {
+  let el = document.getElementById('typing');
+  if (on && !el) {
+    el = document.createElement('div');
+    el.id = 'typing';
+    el.className = 'row in spaced';
+    el.innerHTML = '<div class="bubble typing"><span></span><span></span><span></span></div>';
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+  } else if (!on && el) {
+    el.remove();
   }
-  if (data.seconds) bits.push(`${data.seconds}s`);
-  if (data.media && data.media.length) {
-    const count = data.media.reduce((n, m) => n + m.images.length, 0);
-    bits.push(`${count} photo${count === 1 ? '' : 's'}`);
-  }
-  if (data.escalated) bits.push('<span class="flag">escalated to a colleague</span>');
-  if (data.provider_error) bits.push('<span class="err">model unavailable</span>');
-  if (data.extraction_error) bits.push('<span class="err">extraction failed</span>');
-  if (!bits.length) return;
+  statusEl.textContent = on ? 'typing…' : 'online';
+  statusEl.className = on ? 'live' : '';
+}
+
+function reaction(emoji) {
   const el = document.createElement('div');
-  el.className = 'meta';
-  el.innerHTML = bits.join('');
+  el.className = 'reaction';
+  el.textContent = emoji;
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
 }
 
-function renderState(s) {
-  if (!s) return;
+function renderPanel(data) {
+  const s = data.state || {};
+  document.getElementById('tools').innerHTML =
+    (data.tools && data.tools.length)
+      ? data.tools.map(t => `<span class="tool">${esc(t)}</span>`).join('')
+      : '<div class="kv"><span>none</span></div>';
+
   const rows = [];
   const add = (k, v) => { if (v) rows.push(`<div class="kv"><span>${k}</span><span>${esc(String(v))}</span></div>`); };
   add('stage', s.stage);
-  add('delivery', s.pickup_at);
+  add('pickup', s.pickup_at);
   add('return', s.return_at);
   add('location', s.location);
   add('colour', s.color);
@@ -234,33 +306,71 @@ function renderState(s) {
     rows.push(`<div class="kv"><span>wants</span><span>${s.wants.map(esc).join(', ')}</span></div>`);
   }
   if (s.escalated) {
-    rows.push(`<div class="kv"><span>escalated</span><span class="flag">${esc(s.escalation_reason || 'yes')}</span></div>`);
+    rows.push(`<div class="kv"><span>escalated</span><span>${esc(s.escalation_reason || 'yes')}</span></div>`);
   }
-  document.getElementById('state').innerHTML = rows.join('') || '<div class="kv"><span>nothing yet</span><span></span></div>';
+  if (data.seconds) rows.push(`<div class="kv"><span>turn took</span><span>${data.seconds}s</span></div>`);
+  document.getElementById('state').innerHTML = rows.join('') || '<div class="kv"><span>nothing yet</span></div>';
 
   document.getElementById('missing').innerHTML =
     (s.still_missing && s.still_missing.length)
-      ? s.still_missing.map(m => `<span class="pill missing">${esc(m)}</span>`).join('')
-      : '<span class="pill">ready to search</span>';
+      ? s.still_missing.map(m => `<span class="pill want">${esc(m)}</span>`).join('')
+      : '<span class="pill">enough to search</span>';
 
   document.getElementById('bookings').innerHTML =
     (s.bookings && s.bookings.length)
-      ? s.bookings.map(b => `<div class="booking">
-           <div class="ref">${esc(b.reference)}</div>
-           <div>${esc(b.vehicle)}</div>
-           <div style="color:var(--muted)">${esc(b.pickup)} · ${esc(b.total)} · ${esc(b.status)}</div>
-         </div>`).join('')
-      : '<div class="kv"><span>none yet</span><span></span></div>';
+      ? s.bookings.map(b => `<div class="booking"><div class="ref">${esc(b.reference)}</div>
+          <div>${esc(b.vehicle)}</div>
+          <div style="color:var(--muted)">${esc(b.pickup)} · ${esc(b.total)} · ${esc(b.status)}</div></div>`).join('')
+      : '<div class="kv"><span>none yet</span></div>';
+}
+
+async function play(data) {
+  markRead();
+  typing(true);
+
+  const parts = (data.parts && data.parts.length) ? data.parts : [{text: data.reply, pause: 0}];
+  for (let i = 0; i < parts.length; i++) {
+    // The first message is never delayed; the pause before each following one
+    // is what the transport would actually wait.
+    if (i > 0) { typing(true); await sleep(parts[i].pause * 1000); }
+    typing(false);
+    bubble(parts[i].text, 'in');
+    if (i < parts.length - 1) await sleep(150);
+  }
+
+  for (const item of data.media || []) {
+    for (let i = 0; i < item.images.length; i++) {
+      typing(true); await sleep(700); typing(false);
+      photoBubble(item.images[i], i === 0 ? (item.caption || item.vehicle) : null);
+    }
+  }
+
+  if (data.reaction) reaction(data.reaction);
+  typing(false);
 }
 
 async function load() {
-  const r = await fetch('/api/state');
-  const data = await r.json();
+  try {
+    const who = await (await fetch('/api/operator')).json();
+    const name = who.name.replace(/\s*\(DEMO\)\s*$/, '');
+    document.getElementById('operator').textContent = name;
+    document.getElementById('initials').textContent =
+      name.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+    document.title = `${name} — WhatsApp preview`;
+  } catch (e) { /* keep the defaults in the markup */ }
+
+  const data = await (await fetch('/api/state')).json();
   log.innerHTML = '';
-  data.history.forEach(m => bubble(m.text, m.direction));
-  renderState(data.state);
+  const day = document.createElement('div');
+  day.className = 'day';
+  day.textContent = 'TODAY';
+  log.appendChild(day);
+
+  data.history.forEach(m => bubble(m.text, m.direction === 'inbound' ? 'out' : 'in'));
+  if (data.history.length) markRead();
+  renderPanel(data);
   if (!data.history.length) {
-    bubble('Send a message to start. Try: "I need a black G63 this weekend"', 'outbound');
+    bubble('Try “how much is the ferrari purosangue?” or “urus mansory available”', 'in');
   }
 }
 
@@ -269,15 +379,8 @@ form.addEventListener('submit', async (e) => {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
-  bubble(text, 'inbound');
-
+  bubble(text, 'out');
   sendBtn.disabled = true;
-  statusEl.textContent = 'typing…';
-  const typing = document.createElement('div');
-  typing.className = 'typing';
-  typing.innerHTML = '<span>●</span><span>●</span><span>●</span>';
-  log.appendChild(typing);
-  log.scrollTop = log.scrollHeight;
 
   try {
     const r = await fetch('/api/message', {
@@ -286,25 +389,20 @@ form.addEventListener('submit', async (e) => {
       body: JSON.stringify({message: text}),
     });
     const data = await r.json();
-    typing.remove();
-
+    typing(false);
     if (data.error) {
-      const row = bubble(data.error, 'outbound');
-      row.querySelector('.bubble').classList.add('err');
+      bubble('⚠️ ' + data.error, 'in');
     } else if (data.duplicate) {
-      bubble('(duplicate — already answered)', 'outbound');
+      bubble('(duplicate — already answered)', 'in');
     } else {
-      bubble(data.reply, 'outbound');
-      meta(data);
-      renderState(data.state);
-      await photos(data.media);
+      await play(data);
+      renderPanel(data);
     }
   } catch (err) {
-    typing.remove();
-    bubble('Could not reach the agent: ' + err, 'outbound');
+    typing(false);
+    bubble('Could not reach the agent: ' + err, 'in');
   } finally {
     sendBtn.disabled = false;
-    statusEl.textContent = 'demonstration · not a real company';
     input.focus();
   }
 });
@@ -313,6 +411,9 @@ document.getElementById('reset').addEventListener('click', async () => {
   await fetch('/api/reset', {method: 'POST'});
   await load();
   input.focus();
+});
+document.getElementById('inspect').addEventListener('click', () => {
+  panel.classList.toggle('hidden');
 });
 
 load();

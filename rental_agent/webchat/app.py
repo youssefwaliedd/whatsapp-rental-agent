@@ -22,6 +22,9 @@ from pydantic import BaseModel
 
 from ..context import ToolContext
 from ..formatting import photo_caption
+from ..whatsapp import reactions as reactions_mod
+from ..whatsapp.client import split_message, to_whatsapp_markup
+from ..whatsapp.pacing import Pacing
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.parent
@@ -89,6 +92,17 @@ def create_app(
     def index() -> FileResponse:
         return FileResponse(HERE / "index.html")
 
+    @app.get("/api/operator")
+    def operator() -> JSONResponse:
+        """Who the customer thinks they are messaging."""
+        from ..config import load_fleet
+
+        who, _ = load_fleet()
+        return JSONResponse({
+            "name": who.demo_company_name,
+            "is_demonstration": who.is_demonstration,
+        })
+
     @app.get("/api/state")
     def read_state(handle: str = DEFAULT_HANDLE) -> JSONResponse:
         with session_factory() as session:
@@ -115,8 +129,19 @@ def create_app(
                     {"error": f"{type(exc).__name__}: {str(exc)[:300]}"}, status_code=200
                 )
 
+            # Replay what WhatsApp would actually show, not just the text. The
+            # splitting, the markup conversion, the pause before each following
+            # message and the reaction are all computed by the same code the
+            # transport uses — so what this window shows is what a phone gets.
+            pacing = Pacing.from_rules(ctx.engine.rules)
+            parts = split_message(to_whatsapp_markup(result.reply))
             body = {
                 "reply": result.reply,
+                "parts": [
+                    {"text": part, "pause": pacing.compose_seconds(part) if i else 0.0}
+                    for i, part in enumerate(parts)
+                ],
+                "reaction": reactions_mod.for_turn(result, ctx.engine.rules),
                 "tools": result.tool_calls,
                 # Served off the mounted /assets directory rather than a public
                 # host: on WhatsApp Meta fetches these itself, here the browser

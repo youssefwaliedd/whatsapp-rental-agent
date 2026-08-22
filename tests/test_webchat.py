@@ -56,9 +56,44 @@ def test_the_page_loads(chat):
     client, _ = chat
     response = client.get("/")
     assert response.status_code == 200
-    assert "Sandline Rentals" in response.text
     # Self-contained: a CDN reference would break the harness offline.
     assert "http://" not in response.text.replace("http://localhost", "")
+    assert "https://" not in response.text, "no external stylesheets or fonts"
+
+
+def test_the_header_names_the_configured_operator(chat):
+    """The page must not hardcode a company. It used to say Sandline while the
+    fleet belonged to somebody else — the same bug the system prompt had."""
+    client, _ = chat
+    body = client.get("/api/operator").json()
+
+    from rental_agent.config import load_fleet
+
+    operator, _vehicles = load_fleet()
+    assert body["name"] == operator.demo_company_name
+    assert body["is_demonstration"] is True
+
+
+def test_a_reply_is_returned_as_the_parts_a_phone_would_show(chat):
+    """The preview replays the transport's own splitting and pacing rather than
+    approximating it, so the rhythm shown is the rhythm a customer gets."""
+    client, agent = chat
+    agent.turn = AgentTurn(reply="First line.\n\n" + ("word " * 900).strip())
+    body = client.post("/api/message", json={"message": "hi"}).json()
+
+    assert len(body["parts"]) > 1, "a long reply splits, as it would on WhatsApp"
+    assert body["parts"][0]["pause"] == 0, "the first message is never delayed"
+    assert all(p["pause"] > 0 for p in body["parts"][1:])
+
+
+def test_a_confirmed_booking_comes_back_with_its_reaction(chat):
+    client, agent = chat
+    agent.turn = AgentTurn(
+        reply="Booked.",
+        tool_calls=["create_demo_reservation"],
+        tools_succeeded=["create_demo_reservation"],
+    )
+    assert client.post("/api/message", json={"message": "book it"}).json()["reaction"] == "✅"
 
 
 def test_a_message_gets_a_reply_and_the_tools_that_produced_it(chat):
