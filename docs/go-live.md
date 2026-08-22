@@ -79,21 +79,57 @@ not being read — check you are in the repo root.
 
 ---
 
-## 3. Give Meta a public URL — 2 minutes
+## 3. Choose how Meta reaches you — the fork
 
-Meta must reach your machine over HTTPS. In a second terminal:
+Meta needs an HTTPS address to POST to. There are two ways to have one, and they
+are for different purposes. Both produce a URL you paste into step 4; everything
+after this point is identical.
+
+### Path A — a tunnel from your laptop · development only
+
+A tunnel exposes `localhost:8000` to the internet temporarily.
+
+**This is not how the bot runs.** It dies when you close the terminal, and the
+URL changes every restart, which means re-pasting it into Meta each time. It
+exists so you can watch a real phone talk to code you are editing, and find
+problems before paying for anything.
 
 ```bash
+brew install cloudflared          # once
 cloudflared tunnel --url http://localhost:8000
 ```
 
-It prints a URL like `https://something-random.trycloudflare.com`. Free, no
-account, and it changes every time you restart it — fine for testing, and step 8
-covers production.
+It prints `https://something-random.trycloudflare.com`. That is your URL for
+step 4. Leave it and `run_webhook.py` both running.
 
-Leave both terminals running.
+### Path B — deployed · how it actually runs
 
----
+The app runs on a machine that is always on, at an address that never changes.
+Same code, same `run_webhook.py` — only the location differs.
+
+Railway or Render are the least friction: connect the repo, set the environment
+variables, and both hand you a Postgres on the same network, which closes the
+`DATABASE_URL` item at the same time. Roughly $5–20/month.
+
+```
+Customer → WhatsApp → Meta → https://your-app.up.railway.app/webhook
+                                          │
+                             always on · your code + Postgres
+```
+
+You get a permanent URL. Paste it into step 4 once and never touch it again.
+
+### Which one
+
+**Going live? Path B, and skip the tunnel entirely** — you need hosting anyway,
+and this way you are production-shaped from the first message.
+
+**Just proving it works, or iterating on code against a real phone?** Path A.
+Fast, free, and throwaway.
+
+Doing A first and B later is fine and costs nothing but re-pasting the URL once.
+What is not fine is doing A and thinking you are live: **a tunnel is not
+hosting**, and the bot stops the moment your laptop sleeps.
 
 ## 4. Point Meta at it — 5 minutes
 
@@ -173,8 +209,9 @@ in `rules.json` to match.
 Everything above gets you a working bot on a test number. These are the things
 that separate that from something a company can rely on.
 
-- [ ] **A permanent URL.** The tunnel dies with the terminal. Deploy the app
-      somewhere with a fixed hostname and update the webhook URL once.
+- [ ] **Path B, if you took Path A to get here.** The tunnel dies with the
+      terminal — the bot is only up while your laptop is. Deploy, then update the
+      webhook URL in Meta once.
 - [ ] **`DATABASE_URL` on a hosted Postgres.** SQLite serves customers one at a
       time — measured at 10.7s for ten simultaneous customers against 1.1s on
       Postgres. Re-run `tests/concurrency_check.py` against the real database.
