@@ -33,6 +33,7 @@ import json
 import logging
 import sys
 import traceback
+import uuid
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -300,6 +301,11 @@ class LoudFailures(logging.Handler):
     """
 
     def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < logging.ERROR:
+            # Not a failure — a redelivery being correctly ignored, say. Worth
+            # showing, because a message with no reply otherwise looks broken.
+            print(f"{DIM}  · {record.getMessage()}{OFF}")
+            return
         print(f"\n{RED}{BOLD}  ✗ the turn failed{OFF}")
         print(f"{RED}  {record.getMessage()}{OFF}")
         if record.exc_info:
@@ -310,7 +316,7 @@ class LoudFailures(logging.Handler):
 
 
 def main() -> None:
-    logging.getLogger("rental_agent").setLevel(logging.ERROR)
+    logging.getLogger("rental_agent").setLevel(logging.INFO)
     logging.getLogger("rental_agent").addHandler(LoudFailures())
     clock = Clock()
     phone = Phone(clock)
@@ -332,10 +338,15 @@ def main() -> None:
     )
     http = TestClient(app)
     counter = {"n": 0}
+    # Unique per run. The database outlives the process, and a counter that
+    # restarts at 1 hands the agent a message id it has already answered — which
+    # its redelivery dedup correctly drops, silently, leaving you staring at a
+    # prompt wondering why the bot stopped talking.
+    run = uuid.uuid4().hex[:6]
 
     def message_id(prefix: str) -> str:
         counter["n"] += 1
-        return f"wamid.{prefix}{counter['n']}"
+        return f"wamid.{prefix}{run}{counter['n']}"
 
     while True:
         try:

@@ -354,6 +354,10 @@ def create_app(
             session.commit()
 
             if turn.duplicate:
+                # Correct — Meta redelivers, and answering twice would double
+                # up the reply and re-run the turn's tool calls. Logged at info
+                # rather than debug because a message vanishing without a reply
+                # is otherwise indistinguishable from a bug.
                 log.info("ignored a redelivery of %s", message.message_id)
                 return
 

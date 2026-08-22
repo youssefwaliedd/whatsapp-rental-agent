@@ -27,7 +27,14 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from ..env import load_dotenv
 from .models import Base, Counter
+
+# `DATABASE_URL` lives in .env alongside the API keys. Without this the file is
+# never read here, and the setting silently has no effect — which is a
+# particularly annoying way to discover you have been testing on the wrong
+# engine all along.
+load_dotenv()
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "demo.db"
 
