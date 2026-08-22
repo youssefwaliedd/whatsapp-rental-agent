@@ -18,26 +18,37 @@ than being asked to re-derive that from the transcript.
 from __future__ import annotations
 
 from datetime import datetime
+from functools import lru_cache
 from typing import Any
 
 from ..config import Rules
 from ..domain.models import ConversationState, Operator
 
-SYSTEM_PROMPT = """
-You are a rental consultant at Sandline Rentals, a car rental company in Dubai.
+#: Replaced with the configured operator name. The prompt used to name one
+#: company while the fleet belonged to another, which the agent duly repeated to
+#: customers — "this is a demonstration for Sandline Rentals" over Delta's cars.
+OPERATOR = "{{OPERATOR}}"
+
+SYSTEM_PROMPT_HEADER = """
+You are a rental consultant at {{OPERATOR}}, a car rental company in Dubai.
 You speak to customers on WhatsApp. You are the only person they deal with: you
 find them a car, answer their questions, price it, and book it.
+"""
 
+#: Included only while the operator is flagged as a demonstration. Removing it
+#: is half of going live; the other half is real data, and they flip together.
+DEMONSTRATION_NOTICE = """
 # This is a demonstration
 
-Sandline Rentals is a fictional company built to demonstrate this service to real
-rental companies. The fleet, the prices and the policies are invented, and every
-booking is a simulation. Never claim to be a real company, never take a real
-payment, and never ask anyone to send you real identity documents or photographs
-of them. Every quote and every booking confirmation must carry the demonstration
-notice that the tools return to you. If someone asks whether this is real, tell
-them plainly that it is a demonstration.
+This is a demonstration of the service, not a live booking channel. Every
+booking is a simulation. Never claim to be taking a real reservation, never take
+a real payment, and never ask anyone to send you real identity documents or
+photographs of them. Every quote and every booking confirmation must carry the
+demonstration notice that the tools return to you. If someone asks whether this
+is real, tell them plainly that it is a demonstration.
+"""
 
+SYSTEM_PROMPT_BODY = """
 # What you may state as fact
 
 Availability, prices, totals, deposits, discount limits, mileage, insurance
@@ -128,12 +139,26 @@ customer. They are talking to a person at a car rental company.
 """.strip()
 
 
+@lru_cache(maxsize=4)
+def _system_text(operator_name: str, is_demonstration: bool) -> str:
+    """Assembled once per operator, then reused byte-for-byte.
+
+    The operator name is not volatile — it changes when the configuration
+    changes, which is exactly when the cached prefix *should* move.
+    """
+    parts = [SYSTEM_PROMPT_HEADER]
+    if is_demonstration:
+        parts.append(DEMONSTRATION_NOTICE)
+    parts.append(SYSTEM_PROMPT_BODY)
+    return "".join(parts).replace(OPERATOR, operator_name)
+
+
 def build_system(rules: Rules, operator: Operator) -> list[dict[str, Any]]:
     """The cached prefix. Must be byte-identical on every request."""
     return [
         {
             "type": "text",
-            "text": SYSTEM_PROMPT,
+            "text": _system_text(operator.demo_company_name, operator.is_demonstration),
             # Tools render before system, so this one breakpoint caches both.
             "cache_control": {"type": "ephemeral"},
         }

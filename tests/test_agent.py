@@ -638,3 +638,26 @@ def test_a_turn_that_gets_through_clears_the_count(booking_ctx, settings):
 
     bot.respond(booking_ctx, "hello again")
     assert booking_ctx.load_state().consecutive_provider_failures == 0
+
+
+def test_the_prompt_names_the_operator_from_config(engine):
+    """It used to hardcode one company while the fleet belonged to another, and
+    the agent repeated it: "this is a demonstration for Sandline Rentals" over a
+    different company's cars, in front of that company."""
+    text = prompt_mod.build_system(engine.rules, engine.operator)[0]["text"]
+    assert engine.operator.demo_company_name in text
+
+
+def test_a_live_operator_gets_no_demonstration_notice(engine):
+    """Half of going live. The other half is real data, and they flip together:
+    a real fleet still carrying the notice looks broken, and a fictional one
+    without it is a fake booking presented as real."""
+    live = engine.operator.model_copy(
+        update={"is_demonstration": False, "demo_company_name": "Real Rentals"}
+    )
+    text = prompt_mod.build_system(engine.rules, live)[0]["text"]
+
+    assert "This is a demonstration" not in text
+    assert "Real Rentals" in text
+    # The fact boundary is not part of the demo framing and must survive it.
+    assert "never produce one" in text
