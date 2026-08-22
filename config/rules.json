@@ -242,7 +242,8 @@
       "fee_dispute",
       "eligibility_exception",
       "discount_above_approval_threshold",
-      "outside_knowledge_base"
+      "outside_knowledge_base",
+      "unconfirmed_figure"
     ],
     "owner_handover": {
       "_comment": "Everything not listed as a decision. The owner is told to take over rather than asked to choose, and one button releases the conversation once they have.",
@@ -293,7 +294,8 @@
       "may_waive_fees": true,
       "applies_to": "this_reservation_only",
       "excluded_from_learning": true
-    }
+    },
+    "_unconfirmed_figure_comment": "A customer asking for a figure the operator has not confirmed — the deposit, the no-deposit service fee, a per-km rate. The agent has no way to reach it, so without somewhere to send the question it invents a future in which the figure appears: 'the system calculates it at the final stage', 'we lock it in at the reservation stage'. There is no such stage. Ask a person once, and tell the customer that is what you did."
   },
   "messaging": {
     "_comment": "How the agent behaves as a WhatsApp participant rather than as a text generator. Pacing and reactions are configuration, not code, so an operator can retune the feel without a deploy.",

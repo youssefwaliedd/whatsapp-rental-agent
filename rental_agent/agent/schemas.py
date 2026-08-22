@@ -277,7 +277,12 @@ TOOLS: list[dict[str, Any]] = [
         "anything else, for: an accident, injury, police involvement, theft, a "
         "breakdown, a medical emergency, a legal threat, a payment dispute, suspected "
         "fraud, abuse, or any explicit request to speak to a person. Escalating "
-        "unnecessarily is cheap; failing to escalate a real incident is not.",
+        "unnecessarily is cheap; failing to escalate a real incident is not. Also call "
+        "it when the customer asks for a figure a tool reported as `unconfirmed` and "
+        "will not let go — the deposit, a service fee, a per-km rate. You have no way "
+        "to reach that number, so promising it later ('at the final stage', 'once we "
+        "book', 'the system calculates it') describes a process that does not exist. "
+        "Ask a person instead, and say that is what you have done.",
         {
             "reason": {
                 "type": "string",

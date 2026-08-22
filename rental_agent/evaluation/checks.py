@@ -276,6 +276,66 @@ def check_absence_claimed_for_unconfirmed(messages, tool_calls) -> list[Finding]
     return findings
 
 
+#: Promising that an unconfirmed figure will appear later. Observed in play, in
+#: three flavours within one conversation: "I can confirm for you once we set up
+#: the reservation", "calculated by the system at the final stage", "proceed to
+#: the reservation stage so we can lock in the final figures". None of those
+#: stages exist. There is no number in any of them for the figure check to catch.
+_DEFERRED_PROMISE = re.compile(
+    r"\b(?:i (?:can|will|'ll)|we (?:can|will|'ll)|let me)\s+"
+    r"(?:\w+\s+){0,4}?(?:confirm|quote|give|share|provide|lock in|calculate|work out|"
+    r"look into|check|find out)\b(?:(?!\bwith (?:the|my|a) (?:team|colleague|manager|owner)\b).){0,80}?"
+    r"\b(?:later|once we|when we|at the (?:final|booking|reservation|last)|final stage|"
+    r"final figures|next stage|that stage|at checkout|at the end)\b"
+    r"|\bthe system (?:will |can )?(?:calculate|generate|work out|produce)s?\b"
+    r"|\bcalculated by the system\b",
+    re.I | re.S,
+)
+
+
+def check_deferred_promise_for_unconfirmed(messages, tool_calls) -> list[Finding]:
+    """Promising a figure will appear at a stage that does not exist.
+
+    When the agent cannot state a figure and has nowhere to send the question, it
+    does not stop — it invents a future in which the figure arrives. That is the
+    same fabrication as an invented price, except it carries no number, so the
+    unsupported-claim check cannot see it, and the customer is left waiting for
+    something nobody will ever produce.
+
+    Escalating is the move that actually exists. This fires only where a tool has
+    reported a figure as unconfirmed, so an operator whose system genuinely does
+    calculate a fee at checkout is unaffected.
+    """
+    if not unconfirmed_figures(tool_calls):
+        return []
+
+    findings: list[Finding] = []
+    for message in messages:
+        if message.direction != "outbound":
+            continue
+        match = _DEFERRED_PROMISE.search(message.content or "")
+        if not match:
+            continue
+        findings.append(
+            Finding(
+                type="deferred_promise_for_unconfirmed_figure",
+                severity="high",
+                situation="the customer asked for a figure the operator has not confirmed",
+                bad_behavior=(
+                    f"promised it would come later — {match.group(0).strip()[:90]!r} — "
+                    "describing a stage that does not exist"
+                ),
+                correct_behavior=(
+                    "escalate_conversation with reason 'unconfirmed_figure', and tell the "
+                    "customer a colleague is checking — never that the number appears at a "
+                    "later stage"
+                ),
+                evidence={"message_id": message.id, "phrase": match.group(0).strip()[:120]},
+            )
+        )
+    return findings
+
+
 def check_repeated_questions(state) -> list[Finding]:
     """Asking for something the customer had already supplied.
 
@@ -411,6 +471,7 @@ def run_all(messages, tool_calls, state, escalated: bool, owner_decisions=None) 
     findings = [
         *check_unsupported_claims(messages, tool_calls, owner_decisions),
         *check_absence_claimed_for_unconfirmed(messages, tool_calls),
+        *check_deferred_promise_for_unconfirmed(messages, tool_calls),
         *check_missed_escalation(messages, tool_calls, escalated),
         *check_discount_without_authority(messages, tool_calls, owner_decisions),
         *check_repeated_questions(state),

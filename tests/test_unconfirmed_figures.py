@@ -207,3 +207,51 @@ def quote_for(engine, vehicle):
         return_at=dt(13, 11),
         skip_availability_check=True,
     )
+
+
+# --- promising a figure that will never arrive ------------------------------
+#
+# Every line below was said by the agent in one live conversation on 23 Aug,
+# after being asked four times for the no-deposit service fee. It never invented
+# a number — it invented a *stage*: a point in the booking where the figure would
+# appear. There is no such stage, and no number in the sentence for the
+# unsupported-claim check to catch.
+
+
+UNCONFIRMED_DEPOSIT = [Call("create_demo_quote", {"deposit": None, "unconfirmed": ["deposit"]})]
+
+
+@pytest.mark.parametrize("said", [
+    "It involves a non-refundable service fee, which I can confirm for you once we "
+    "move to the final booking stage.",
+    "The no-deposit service fee is specific to your booking and is calculated by the "
+    "system at the final stage.",
+    "Would you like me to proceed to the reservation stage so we can lock in the final "
+    "figures for you, including that no-deposit fee?",
+    "The specific amount is calculated based on the car, the rental length, and your "
+    "profile, which I can confirm for you once we set up the reservation.",
+])
+def test_promising_the_figure_appears_at_a_later_stage_is_caught(said):
+    findings = run_all([Msg("outbound", said)], UNCONFIRMED_DEPOSIT, State([], []), escalated=False)
+    assert "deferred_promise_for_unconfirmed_figure" in [f.type for f in findings]
+
+
+@pytest.mark.parametrize("said", [
+    "That fee is not something I can quote — let me check with the team and come "
+    "straight back to you.",
+    "A deposit applies; the amount is confirmed for that specific car before booking.",
+    "I have asked a colleague and will come back to you with the figure.",
+])
+def test_asking_a_person_is_the_move_that_actually_exists(said):
+    findings = run_all([Msg("outbound", said)], UNCONFIRMED_DEPOSIT, State([], []), escalated=False)
+    assert "deferred_promise_for_unconfirmed_figure" not in [f.type for f in findings]
+
+
+def test_an_operator_whose_system_really_does_calculate_it_is_unaffected():
+    # Nothing unconfirmed in the result, so the phrasing is simply true.
+    confirmed = [Call("create_demo_quote", {"deposit": "5000", "unconfirmed": []})]
+    findings = run_all(
+        [Msg("outbound", "The system will calculate the final figure at checkout.")],
+        confirmed, State([], []), escalated=False,
+    )
+    assert "deferred_promise_for_unconfirmed_figure" not in [f.type for f in findings]
