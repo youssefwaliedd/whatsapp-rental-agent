@@ -661,3 +661,23 @@ def test_a_live_operator_gets_no_demonstration_notice(engine):
     assert "Real Rentals" in text
     # The fact boundary is not part of the demo framing and must survive it.
     assert "never produce one" in text
+
+
+def test_a_price_question_is_not_blocked_by_missing_dates(booking_ctx):
+    """"How much is the Purosangue?" is the most common opening question a
+    luxury rental gets. Answering it with "what dates?" loses the customer
+    before the conversation has started — and the daily rate is a fact about
+    the car that does not depend on when they want it."""
+    state = booking_ctx.load_state()
+    assert state.missing_requirements(), "no dates known yet"
+
+    block = prompt_mod.render_state(state, now=FROZEN_NOW)
+    assert "blocks availability and totals only" in block
+    assert "get_vehicle_details" in block
+
+
+def test_the_details_tool_says_it_answers_a_rate_without_dates():
+    from rental_agent.agent.schemas import TOOLS
+
+    [schema] = [t for t in TOOLS if t["name"] == "get_vehicle_details"]
+    assert "before you know their dates" in schema["description"]

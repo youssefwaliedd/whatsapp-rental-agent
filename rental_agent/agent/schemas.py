@@ -141,10 +141,13 @@ TOOLS: list[dict[str, Any]] = [
     ),
     _tool(
         "get_vehicle_details",
-        "Get full detail on one vehicle: features, capacity, mileage allowance, "
-        "insurance excess, minimum driver age, photos. Call this when the customer "
-        "asks about a specific car's specification, or before answering a question "
-        "you would otherwise guess at.",
+        "Get full detail on one vehicle: the daily rate, capacity, mileage "
+        "allowance, insurance excess, minimum driver age, photos. Call this when "
+        "the customer asks about a specific car's specification, or before "
+        "answering a question you would otherwise guess at. **This is also how "
+        "you answer 'how much is the X?' before you know their dates** — the "
+        "daily rate is a fact about the car and does not depend on when they "
+        "want it. Only availability and the total need dates.",
         {"vehicle_id": {"type": "string"}},
         ["vehicle_id"],
     ),

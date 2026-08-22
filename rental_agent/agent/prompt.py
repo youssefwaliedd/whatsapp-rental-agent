@@ -239,8 +239,19 @@ def render_state(
     lines.append("")
     if missing:
         readable = [_SLOT_LABELS.get(slot, slot) for slot in missing]
-        lines.append(f"Still needed before you can search: {', '.join(readable)}.")
+        lines.append(f"Still needed before you can check availability: {', '.join(readable)}.")
         lines.append(f"Ask for exactly one of these — start with {readable[0]}.")
+        # Missing dates block *availability*, not every question. A daily rate
+        # is a fact about the car and does not depend on when they want it, and
+        # "how much is it?" is the most common opening question there is —
+        # answering it with "what dates?" is how a salesperson loses someone
+        # before the conversation has started.
+        lines.append(
+            "This blocks availability and totals only. If they ask what a car "
+            "costs, get the daily rate from get_vehicle_details and tell them "
+            "now, then ask for the dates so you can check it is free and give "
+            "them a total."
+        )
     else:
         lines.append("You have everything you need to search for a car. Search now.")
         before_quote = [
