@@ -23,6 +23,9 @@ broken there too.
     /skip 30h           move the clock, e.g. to shut the 24-hour window
     /reset              start a fresh conversation
     /quit
+
+Runs on whatever `DATABASE_URL` points at — the same engine as the webhook —
+so what you test here is what will run. `--sqlite` forces a local file instead.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import sys
 import traceback
 import uuid
@@ -346,7 +350,12 @@ def main() -> None:
     logging.getLogger("rental_agent").addHandler(LoudFailures())
     clock = Clock()
     phone = Phone(clock)
-    session_factory = init_db(create_db_engine("whatsapp_sim.db"))
+    # Follows DATABASE_URL like the webhook does, so the harness meant to be
+    # faithful is not quietly running on a different database engine than the
+    # one that will serve customers. `--sqlite` forces a local file for a
+    # throwaway session or when Postgres is not running.
+    use_file = "--sqlite" in sys.argv or not os.getenv("DATABASE_URL")
+    session_factory = init_db(create_db_engine("whatsapp_sim.db" if use_file else None))
 
     agent = build_agent()
     print(BANNER)
