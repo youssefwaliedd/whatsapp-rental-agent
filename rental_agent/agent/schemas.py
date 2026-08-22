@@ -149,6 +149,26 @@ TOOLS: list[dict[str, Any]] = [
         ["vehicle_id"],
     ),
     _tool(
+        "search_company_policy",
+        "Search the company's own policy documents and get back the relevant "
+        "passages. Call this for ANY question about rules, procedure or "
+        "eligibility that the state block does not already answer — licences by "
+        "nationality, additional drivers, driving to Oman, fines and Salik, "
+        "smoking, pets, child seats, breakdowns, accidents, impounded cars, lost "
+        "keys, what the deposit is held against. Call it BEFORE saying you are "
+        "not sure and before escalating, because the answer is usually there. "
+        "Answer from the passages in your own words. They deliberately contain "
+        "no prices — every figure still comes from a pricing tool.",
+        {
+            "question": {
+                "type": "string",
+                "description": "The customer's question, in their own words",
+            },
+            "limit": {"type": "integer", "description": "Passages to return, default 3"},
+        },
+        ["question"],
+    ),
+    _tool(
         "search_available_vehicles",
         "Search the fleet for cars that are actually free for the requested dates. "
         "Call this as soon as you know pickup and return times — it is the only way "

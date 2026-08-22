@@ -336,7 +336,53 @@ def show_vehicle_photos(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
     }
 
 
+def search_company_policy(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Look up a policy question in the operator's own documents.
+
+    This is the answer to the long tail — fines, cross-border travel, licences
+    by nationality, what to do about a towed car. None of it is a calculation,
+    so none of it lives in `rules.json`, and without this every such question
+    would escalate to a human who then answers it for the fiftieth time.
+
+    Returns passages, not conclusions. The agent reads the operator's actual
+    wording and answers from it; nothing here decides anything.
+
+    The index refuses to load a document containing an amount or a percentage,
+    so a figure can never reach a customer through this path. Every number still
+    comes from a pricing tool, which is the property the whole system rests on.
+    """
+    question = (args.get("question") or "").strip()
+    if not question:
+        raise ToolError("question is required")
+
+    from ..knowledge.retrieval import load_retriever
+
+    hits = load_retriever().search(question, limit=int(args.get("limit", 3)))
+    if not hits:
+        return {
+            "found": 0,
+            "passages": [],
+            "message": "Nothing in the policy documents covers this.",
+            "hint": (
+                "Do not answer from general knowledge about car rental. Say you "
+                "will check, and escalate with reason 'outside_knowledge_base'."
+            ),
+        }
+
+    return {
+        "found": len(hits),
+        "passages": [
+            {"source": passage.reference, "text": passage.text} for passage, _ in hits
+        ],
+        "note": (
+            "Answer from these passages, in your own words. They contain no "
+            "prices by design — any figure must still come from a pricing tool."
+        ),
+    }
+
+
 READ_HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]] = {
+    "search_company_policy": search_company_policy,
     "search_available_vehicles": search_available_vehicles,
     "get_vehicle_details": get_vehicle_details,
     "calculate_quote": calculate_quote,
