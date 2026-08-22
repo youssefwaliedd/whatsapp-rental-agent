@@ -10,6 +10,7 @@ which tools ran, and what the agent currently believes.
 from __future__ import annotations
 
 import logging
+import sys
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -17,7 +18,7 @@ import uvicorn
 
 from rental_agent.agent.loop import build_agent
 from rental_agent.store.db import create_db_engine, init_db
-from rental_agent.webchat.app import create_app
+from rental_agent.webchat.app import DEFAULT_HANDLE, create_app
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -38,12 +39,40 @@ def agent_factory():
     return _agent
 
 
+session_factory = init_db(create_db_engine())
+
 app = create_app(
-    session_factory=init_db(create_db_engine()),
+    session_factory=session_factory,
     agent_factory=agent_factory,
     reference_date=REFERENCE_DATE,
     now_fn=lambda: FROZEN_NOW,
 )
+
+def close_open_conversation(session_factory) -> bool:
+    """Start each run of the harness on a clean conversation.
+
+    The database outlives the process, so without this a new test session opens
+    with the last one still in progress and the agent — correctly — carries it
+    on. Someone testing a fresh scenario is then asked about a car they never
+    mentioned, which reads as the bot hallucinating when it is remembering.
+
+    A browser reload still resumes, because that is a reload rather than a new
+    session. Closes rather than deletes: the transcript is what the evaluator
+    reads. `--continue` picks up where the last run left off.
+    """
+    from rental_agent.context import ToolContext
+
+    with session_factory() as session:
+        ctx = ToolContext(session=session, now_fn=lambda: FROZEN_NOW,
+                          reference_date=REFERENCE_DATE)
+        customer, _ = ctx.customers.get_or_create(DEFAULT_HANDLE, FROZEN_NOW)
+        conversation, _ = ctx.conversations.get_or_create(customer.customer_id, FROZEN_NOW)
+        if not ctx.messages.for_conversation(conversation.conversation_id):
+            return False
+        conversation.outcome = "chat_session_ended"
+        session.commit()
+        return True
+
 
 if __name__ == "__main__":
     print("\n  Sandline Rentals — test chat")
@@ -52,5 +81,9 @@ if __name__ == "__main__":
     print("  warming up the model…", end="", flush=True)
     took = agent_factory().warm_up()
     print(f" {took:.1f}s" if took else " unavailable (it will retry on your first message)")
+    if "--continue" in sys.argv:
+        print("  continuing the previous conversation")
+    elif close_open_conversation(session_factory):
+        print("  fresh conversation — the last one is kept; --continue resumes it")
     print("  http://localhost:8100\n")
     uvicorn.run(app, host="127.0.0.1", port=8100, log_level="warning")
