@@ -8,6 +8,7 @@ JSON (the `/demo-reset` admin command will use it).
 from __future__ import annotations
 
 import json
+import os
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -15,9 +16,21 @@ from typing import Any
 
 from .domain.models import Operator, Vehicle
 
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
-FLEET_PATH = CONFIG_DIR / "fleet.json"
-RULES_PATH = CONFIG_DIR / "rules.json"
+#: Where the approved configuration lives. Overridable so the test suite can run
+#: against a fixed, fictional fleet rather than whatever an operator's live
+#: pricing happens to be today — otherwise every rate change on their website
+#: breaks the tests, and the tests stop meaning anything.
+DEFAULT_CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
+
+
+def config_dir() -> Path:
+    """Resolved at call time, not import time, so a test can set it late."""
+    override = os.getenv("RENTAL_AGENT_CONFIG_DIR")
+    return Path(override) if override else DEFAULT_CONFIG_DIR
+
+
+#: Kept for callers that want the paths directly. Both follow the override.
+CONFIG_DIR = DEFAULT_CONFIG_DIR
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -109,12 +122,12 @@ class Rules:
 
 @lru_cache(maxsize=1)
 def load_rules() -> Rules:
-    return Rules(_load_json(RULES_PATH))
+    return Rules(_load_json(config_dir() / "rules.json"))
 
 
 @lru_cache(maxsize=1)
 def load_fleet() -> tuple[Operator, tuple[Vehicle, ...]]:
-    raw = _load_json(FLEET_PATH)
+    raw = _load_json(config_dir() / "fleet.json")
     operator = Operator.model_validate(raw["operator"])
     vehicles = tuple(Vehicle.model_validate(v) for v in raw["vehicles"])
     ids = [v.id for v in vehicles]

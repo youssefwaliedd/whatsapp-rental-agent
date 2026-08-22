@@ -1,0 +1,21 @@
+{
+  "_comment": "What customers say, mapped to what the policy document calls it. Lexical search matches words, and a customer asking 'can I bring my dog' shares no word with a section about pets — so without this the question retrieves nothing and escalates to a human for no reason. Left side is the document's word; right side is what people actually type. Cheap to extend: when a question retrieves nothing, add the words it used here.",
+
+  "pet": ["dog", "dogs", "cat", "cats", "puppy", "animal", "animals"],
+  "breakdown": ["broke", "broken", "breaks", "stalled", "conked", "stranded", "won't start", "wont start"],
+  "fine": ["fined", "ticket", "tickets", "speeding", "radar", "penalty", "penalties"],
+  "salik": ["toll", "tolls", "gate", "gates"],
+  "licence": ["license", "licenses", "licences", "permit", "idp"],
+  "accident": ["crash", "crashed", "collision", "bumped", "hit", "smashed", "dented"],
+  "deposit": ["hold", "preauthorisation", "preauthorization", "security"],
+  "fuel": ["petrol", "gas", "diesel", "tank", "refuel", "refill"],
+  "additional": ["second", "extra", "another", "wife", "husband", "friend", "partner", "colleague"],
+  "child": ["baby", "infant", "toddler", "kid", "kids", "children", "booster"],
+  "smoking": ["smoke", "smoked", "vape", "vaping", "cigarette", "cigarettes", "shisha"],
+  "impound": ["towed", "tow", "clamped", "confiscated", "seized"],
+  "cross": ["oman", "muscat", "saudi", "border", "abroad", "overseas"],
+  "delivery": ["deliver", "delivered", "dropoff", "drop", "bring"],
+  "extend": ["extension", "longer", "keep", "renew"],
+  "cleaning": ["clean", "dirty", "sand", "stain", "stained", "mess"],
+  "unsealed": ["desert", "dune", "dunes", "offroad", "beach", "wadi", "sand"]
+}

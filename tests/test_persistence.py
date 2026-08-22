@@ -89,14 +89,29 @@ def test_state_round_trips_without_loss(booking_ctx):
 
 def test_state_drives_what_is_still_missing(booking_ctx):
     state = booking_ctx.load_state()
-    assert state.missing_requirements() == ["pickup_at", "return_at", "delivery_location"]
+    assert state.missing_requirements() == ["pickup_at", "return_at"]
 
     state.pickup_at = dt(4, 19)
-    state.delivery_location = "Dubai Marina"
     booking_ctx.save_state(state)
 
     # The agent must ask for the return time and nothing else.
     assert booking_ctx.load_state().missing_requirements() == ["return_at"]
+
+
+def test_a_search_needs_dates_but_a_quote_needs_an_address(booking_ctx):
+    """A car is free for a window or it is not; where it gets dropped off does
+    not change that. Asking "where shall I deliver it?" in answer to "what
+    supercars do you have?" is how a salesperson loses someone who was ready to
+    buy — but the address is still needed before a total, because delivery may
+    carry a fee."""
+    state = booking_ctx.load_state()
+    state.pickup_at = dt(4, 19)
+    state.return_at = dt(7, 19)
+    booking_ctx.save_state(state)
+
+    state = booking_ctx.load_state()
+    assert state.missing_requirements() == [], "enough to search"
+    assert state.missing_for_quote() == ["delivery_location"], "not enough to quote"
 
 
 def test_stage_is_mirrored_onto_the_conversation_row(booking_ctx):

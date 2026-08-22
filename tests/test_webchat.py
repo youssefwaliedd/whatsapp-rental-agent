@@ -74,7 +74,7 @@ def test_a_message_gets_a_reply_and_the_tools_that_produced_it(chat):
 def test_the_inspector_reports_what_is_still_missing(chat):
     client, _ = chat
     body = client.post("/api/message", json={"message": "hello"}).json()
-    assert body["state"]["still_missing"] == ["pickup_at", "return_at", "delivery_location"]
+    assert body["state"]["still_missing"] == ["pickup_at", "return_at"]
     assert body["state"]["stage"] == "new_lead"
 
 

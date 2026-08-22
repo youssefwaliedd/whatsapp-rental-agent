@@ -217,7 +217,20 @@ def render_state(
         lines.append(f"Still needed before you can search: {', '.join(readable)}.")
         lines.append(f"Ask for exactly one of these — start with {readable[0]}.")
     else:
-        lines.append("You have everything you need to search for a car.")
+        lines.append("You have everything you need to search for a car. Search now.")
+        before_quote = [
+            _SLOT_LABELS.get(slot, slot) for slot in state.missing_for_quote()
+        ]
+        if before_quote:
+            # Deliberately after the search, not before it. Someone asking what
+            # is available on Friday wants to see cars, not be asked for their
+            # address — that question can wait until they are choosing between
+            # two of them.
+            lines.append(
+                f"Show them what is free first. You will need {', '.join(before_quote)} "
+                "before you can give a total, so ask once they are interested in a "
+                "particular car."
+            )
 
     if state.presented_vehicle_ids:
         lines.append("")

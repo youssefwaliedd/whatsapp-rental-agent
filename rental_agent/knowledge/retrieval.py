@@ -42,6 +42,12 @@ from typing import Iterable
 
 #: Where the operator's documents live. Markdown, one file per document, split
 #: on headings.
+def _docs_dir() -> Path:
+    from ..config import config_dir
+
+    return config_dir() / "policy"
+
+
 DEFAULT_DOCS_DIR = Path(__file__).resolve().parent.parent.parent / "config" / "policy"
 
 #: Words too common to discriminate between passages.
@@ -60,15 +66,17 @@ _WORD = re.compile(r"[a-z0-9']+")
 #: `config/policy/synonyms.json`. Lexical search matches words, and "can I bring
 #: my dog" shares none with a section about pets — so without this the question
 #: retrieves nothing and escalates to a human for no reason.
-SYNONYMS_PATH = DEFAULT_DOCS_DIR / "synonyms.json"
+def _synonyms_path() -> Path:
+    return _docs_dir() / "synonyms.json"
 
 
 @lru_cache(maxsize=1)
 def _synonyms() -> dict[str, str]:
     """variant -> canonical, flattened from the config's canonical -> variants."""
-    if not SYNONYMS_PATH.exists():
+    path = _synonyms_path()
+    if not path.exists():
         return {}
-    raw = json.loads(SYNONYMS_PATH.read_text(encoding="utf-8"))
+    raw = json.loads(path.read_text(encoding="utf-8"))
     flat: dict[str, str] = {}
     for canonical, variants in raw.items():
         if canonical.startswith("_"):
@@ -191,7 +199,7 @@ class Retriever:
 
     @classmethod
     def from_directory(cls, directory: Path | None = None) -> "Retriever":
-        directory = directory or DEFAULT_DOCS_DIR
+        directory = directory or _docs_dir()
         passages: list[Passage] = []
         if directory.exists():
             for path in sorted(directory.glob("*.md")):

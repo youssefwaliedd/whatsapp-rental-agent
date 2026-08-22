@@ -3,12 +3,22 @@
 Every test runs against a frozen clock and a fixed reference date so the seeded
 availability calendar resolves to the same concrete windows on any day the suite
 is run. This is also what makes the learning loop's replay harness meaningful.
+
+It also runs against a **fixed fictional fleet**, not whatever `config/` holds.
+Once a real operator's data lives there, a rate change on their website would
+otherwise break fifty tests that have nothing to do with pricing — and a suite
+that breaks for reasons unrelated to the code stops being believed.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
+
+# Set before anything imports rental_agent.config, which resolves this lazily.
+os.environ["RENTAL_AGENT_CONFIG_DIR"] = str(Path(__file__).parent / "fixtures" / "config")
 
 import pytest
 

@@ -282,20 +282,27 @@ class ConversationState(Base):
     strategy_version: str | None = None
     updated_at: datetime | None = None
 
-    #: Slots required before availability can be checked, in the order to ask them.
+    #: Needed before availability can be checked at all. A car is free for a
+    #: window or it is not; where it gets dropped off does not change that.
     REQUIRED_SLOTS: ClassVar[tuple[str, ...]] = (
         "pickup_at",
         "return_at",
-        "delivery_location",
     )
+
+    #: Needed before a total can be quoted, because delivery may carry a fee.
+    #: Deliberately not required to *search* — a customer who asks what is
+    #: available on Friday should be shown cars, not asked for their address.
+    #: Answering "where shall I deliver it?" to "what supercars do you have?" is
+    #: how a salesperson loses someone who was ready to buy.
+    QUOTE_SLOTS: ClassVar[tuple[str, ...]] = REQUIRED_SLOTS + ("delivery_location",)
 
     def missing_requirements(self) -> list[str]:
         """Slots still unknown, in ask-order. Empty means we can search."""
-        missing = []
-        for slot in self.REQUIRED_SLOTS:
-            if getattr(self, slot) is None:
-                missing.append(slot)
-        return missing
+        return [slot for slot in self.REQUIRED_SLOTS if getattr(self, slot) is None]
+
+    def missing_for_quote(self) -> list[str]:
+        """Slots still unknown before a total can be put in front of them."""
+        return [slot for slot in self.QUOTE_SLOTS if getattr(self, slot) is None]
 
     def has_active_booking(self) -> bool:
         return self.reservation_id is not None
