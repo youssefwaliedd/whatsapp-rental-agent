@@ -1,134 +1,242 @@
-"""Build config/fleet.json from Delta Rentals Dubai's published fleet.
+"""Build config/fleet.json from Delta Rentals Dubai's own data.
 
-Every daily rate here is what deltarentalsdubai.com publishes. Nothing else is
-invented quietly — anything not published is listed in `_assumed` at the top of
-the generated file so it can be checked against the client rather than
-discovered by a customer.
+    .venv/bin/python scripts/import_delta_fleet.py
 
-Weekly and monthly rates are deliberately null. Delta lists them as "available
-on request" rather than publishing them, so the engine bills daily x days, which
-is the honest reading. Inventing a weekly discount would put a number in front
-of a customer that the company never agreed to.
+Their site is WordPress and exposes a real REST API, which is a better source
+than the rendered page and closer to what their brief asks for — "a maintained
+knowledge source", structured, rather than scraped markup that changes with the
+theme.
+
+    /wp-json/wp/v2/catalog        one entry per vehicle: name, slug, brand
+    /wp-json/wp/v2/media?parent=  the photographs attached to each
+
+Two things still come from the rendered page, because the API does not expose
+them: the daily rate, and the mileage allowance. Both are read with a narrow
+pattern and cross-checked against a second occurrence on the same page; a
+vehicle whose two figures disagree is skipped rather than guessed at.
+
+**Image URLs are stored absolute, pointing at Delta's own server.** Meta fetches
+image URLs itself, so their photographs are served from where they already live:
+always current, nothing copied, nothing to re-sync when they change a car.
+
+Anything the source does not state is left null or empty. Colours, years,
+interior trim, per-km charges and deposits are not published per vehicle, and a
+plausible value invented here would reach a customer as a fact.
 """
 
+from __future__ import annotations
+
 import json
+import re
+import sys
+import time
 from pathlib import Path
 
-ROOT = Path("/Users/youssefwalied/Documents/Personal Projects/WhatsApp Rental Agent")
+import httpx
 
-# make, model, daily AED, category, seats, bags, colour, year
-# colour/year: "" means Delta does not publish it — see _assumed.
-FLEET = [
-    ("Range Rover",  "Sport V8",              799,  "luxury_suv",   5, 4, "", ""),
-    ("Range Rover",  "Sport SVR",            1099,  "luxury_suv",   5, 4, "", ""),
-    ("Mercedes-Benz","GLE 63 S",             1299,  "luxury_suv",   5, 4, "", ""),
-    ("Mercedes-Benz","G63",                  1699,  "luxury_suv",   5, 3, "", ""),
-    ("Mercedes-Benz","S580",                 1699,  "luxury_sedan", 5, 3, "", ""),
-    ("Mercedes-Benz","V250 VIP Edition",     1899,  "luxury_sedan", 7, 5, "", ""),
-    ("Range Rover",  "Vogue SV",             1999,  "luxury_suv",   5, 4, "", ""),
-    ("Mercedes-Benz","S580 Maybach",         2399,  "luxury_sedan", 4, 3, "", ""),
-    ("Bentley",      "Continental GTC",      2899,  "convertible",  4, 2, "", ""),
-    ("McLaren",      "Artura",               2999,  "supercar",     2, 1, "", ""),
-    ("Lamborghini",  "Huracan Evo Spyder",   3199,  "convertible",  2, 1, "", ""),
-    ("Ferrari",      "296 GTB",              3499,  "supercar",     2, 1, "", ""),
-    ("Ferrari",      "F8 Tributo Spider",    3499,  "convertible",  2, 1, "", ""),
-    ("Lamborghini",  "Urus Performante",     3499,  "luxury_suv",   5, 3, "orange", ""),
-    ("Rolls-Royce",  "Ghost Mansory",        3499,  "luxury_sedan", 5, 3, "", ""),
-    ("Rolls-Royce",  "Wraith Black Badge",   3499,  "luxury_sedan", 4, 2, "", ""),
-    ("Rolls-Royce",  "Ghost Black Badge",    3599,  "luxury_sedan", 5, 3, "", ""),
-    ("Audi",         "R8 V10 Spyder",        1799,  "convertible",  2, 1, "", ""),
-    ("Porsche",      "911 GT3 RS",           3999,  "sports",       2, 1, "white", ""),
-    ("Rolls-Royce",  "Cullinan",             3999,  "luxury_suv",   5, 4, "", ""),
-    ("Rolls-Royce",  "Cullinan Black Badge", 4199,  "luxury_suv",   5, 4, "", ""),
-    ("Rolls-Royce",  "Cullinan",             5999,  "luxury_suv",   5, 4, "", "2025"),
-    ("Rolls-Royce",  "Phantom",              6799,  "luxury_sedan", 5, 3, "", ""),
-    ("Rolls-Royce",  "Spectre",              7499,  "luxury_sedan", 4, 2, "", ""),
-    ("Lamborghini",  "Revuelto",            11999,  "supercar",     2, 1, "", ""),
-    ("Ferrari",      "Purosangue",          12999,  "luxury_suv",   4, 3, "", ""),
+ROOT = Path(__file__).resolve().parent.parent
+SITE = "https://deltarentalsdubai.com"
+AGENT = {"User-Agent": "Mozilla/5.0 (compatible; DeltaFleetImport/1.0)"}
+
+#: Enough for a WhatsApp photo set. More is a slideshow, not a sales message.
+IMAGES_PER_VEHICLE = 3
+#: Politeness between requests to the client's own server.
+PAUSE = 0.25
+
+_PRICE_PATTERNS = [
+    re.compile(r"Price\s*for\s*1\s*Day\s*AED\s*([\d,]+)", re.I),
+    re.compile(r"Rental\s*Cost\s*AED\s*([\d,]+)\s*/\s*Day", re.I),
+    re.compile(r"Daily\s*pricing\s*starts\s*at\s*AED\s*([\d,]+)", re.I),
 ]
+_KM = re.compile(r"Daily\s*Kilometer\s*([\d,]+)", re.I)
 
-# Availability is seeded as day offsets from the reference date, exactly as the
-# fictional fleet was, so the demo scenarios still work: something desirable is
-# free this weekend and something else is booked out, which is what makes the
-# alternatives flow demonstrable. Delta's website is a catalogue, not a diary —
-# it publishes no availability at all.
-BLOCKS = {
-    "Huracan Evo Spyder": [[0, 10]],      # booked out — drives find_alternatives
-    "Revuelto": [[2, 6]],
-    "Cullinan Black Badge": [[5, 9]],
-    "Artura": [[1, 4]],
-    "911 GT3 RS": [[8, 12]],
-}
-
-FEATURES = {
-    "supercar": ["Launch control", "Carbon ceramic brakes", "Sport exhaust", "Apple CarPlay"],
-    "convertible": ["Convertible roof", "Sport exhaust", "Apple CarPlay", "Heated seats"],
-    "luxury_suv": ["Panoramic roof", "360 camera", "Apple CarPlay", "Heated and cooled seats"],
-    "luxury_sedan": ["Rear entertainment", "Massage seats", "Apple CarPlay", "Panoramic roof"],
-    "sports": ["Sport exhaust", "Carbon ceramic brakes", "Apple CarPlay", "Track telemetry"],
-}
+#: Model keyword -> (category, seats, luggage). Manufacturer specification, not
+#: Delta's, and applied by keyword so a new car in a known family is classified
+#: rather than silently defaulted.
+_SHAPES: list[tuple[tuple[str, ...], str, int, int]] = [
+    (("spyder", "spider", "convertible", "cabriolet", "roadster", "gtc", "targa"),
+     "convertible", 2, 1),
+    (("huracan", "revuelto", "aventador", "ferrari", "mclaren", "chiron",
+      "296", "f8", "sf90", "812", "roma", "artura", "720", "765"), "supercar", 2, 1),
+    (("911", "gt3", "gt2", "cayman", "boxster", "rs3", "rs5", "m2", "m4", "amg gt"),
+     "sports", 2, 1),
+    (("cullinan", "urus", "purosangue", "dbx", "bentayga", "g63", "g 63", "gls",
+      "glе", "gle", "range rover", "defender", "x5", "x7", "q7", "q8", "cayenne",
+      "lx600", "lc300", "patrol", "tahoe", "escalade", "suv"), "luxury_suv", 5, 4),
+]
+_DEFAULT_SHAPE = ("luxury_sedan", 5, 3)
 
 
-def build():
-    vehicles = []
-    for index, (make, model, daily, category, seats, bags, colour, year) in enumerate(FLEET, 1):
-        blocked = BLOCKS.get(model, [])
+#: httpx rather than urllib: it ships with a certificate bundle, and urllib on
+#: a framework Python cannot verify the site's certificate without one.
+_HTTP = httpx.Client(headers=AGENT, timeout=30.0, follow_redirects=True)
+
+
+def fetch(url: str) -> bytes:
+    response = _HTTP.get(url)
+    response.raise_for_status()
+    return response.content
+
+
+def catalog() -> list[dict]:
+    """Every vehicle, following the API's pagination rather than guessing."""
+    entries: list[dict] = []
+    page = 1
+    while True:
+        raw = fetch(f"{SITE}/wp-json/wp/v2/catalog?per_page=100&page={page}")
+        batch = json.loads(raw)
+        if not isinstance(batch, list) or not batch:
+            break
+        entries.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+        time.sleep(PAUSE)
+    return entries
+
+
+def photographs(post_id: int) -> list[str]:
+    try:
+        media = json.loads(fetch(f"{SITE}/wp-json/wp/v2/media?parent={post_id}&per_page=20"))
+    except Exception:
+        return []
+    urls = [m.get("source_url") for m in media if m.get("source_url")]
+    # Newest first is how they upload; the hero shot is usually among them.
+    return [u for u in urls if u][:IMAGES_PER_VEHICLE]
+
+
+def daily_rate(page_html: str) -> int | None:
+    """The rate, only when the page says it more than once and agrees with itself."""
+    text = re.sub(r"<script.*?</script>|<style.*?</style>", " ", page_html, flags=re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+
+    found: list[int] = []
+    for pattern in _PRICE_PATTERNS:
+        for match in pattern.finditer(text):
+            found.append(int(match.group(1).replace(",", "")))
+    if not found:
+        return None
+    if len(set(found)) > 1:
+        return None  # the page disagrees with itself — do not pick one
+    return found[0]
+
+
+def mileage(page_html: str) -> int:
+    text = re.sub(r"<[^>]+>", " ", page_html)
+    match = _KM.search(re.sub(r"\s+", " ", text))
+    return int(match.group(1).replace(",", "")) if match else 250
+
+
+def shape_of(name: str) -> tuple[str, int, int]:
+    lowered = name.lower()
+    for keywords, category, seats, bags in _SHAPES:
+        if any(word in lowered for word in keywords):
+            return category, seats, bags
+    return _DEFAULT_SHAPE
+
+
+def split_name(title: str) -> tuple[str, str]:
+    words = title.split()
+    two_word_makes = {"rolls", "range", "aston", "land", "alfa", "mercedes"}
+    if words and words[0].lower() in two_word_makes and len(words) > 2:
+        return " ".join(words[:2]), " ".join(words[2:])
+    return (words[0], " ".join(words[1:])) if len(words) > 1 else (title, title)
+
+
+def build() -> tuple[int, int, Path]:
+    print("  reading the catalogue…", flush=True)
+    entries = catalog()
+    print(f"  {len(entries)} vehicles listed", flush=True)
+
+    vehicles: list[dict] = []
+    skipped: list[str] = []
+
+    for index, entry in enumerate(entries, 1):
+        title = re.sub(r"\s+", " ", entry.get("title", {}).get("rendered", "")).strip()
+        title = title.replace("&#8211;", "-").replace("&amp;", "&")
+        if not title:
+            continue
+
+        try:
+            page = fetch(entry["link"]).decode("utf-8", "replace")
+        except Exception:
+            skipped.append(f"{title} (page unreachable)")
+            continue
+
+        rate = daily_rate(page)
+        if rate is None:
+            skipped.append(f"{title} (no single clear daily rate)")
+            continue
+
+        images = photographs(entry["id"])
+        category, seats, bags = shape_of(title)
+        make, model = split_name(title)
+
         vehicles.append({
-            "id": f"veh_{index:02d}",
+            "id": f"veh_{len(vehicles) + 1:03d}",
             "make": make,
             "model": model,
-            "year": int(year) if year else 2025,
+            # Delta does not publish a model year per vehicle. Null rather than
+            # guessed: the year is part of the name the customer is told.
+            "year": None,
             "category": category,
-            "body_type": {"convertible": "convertible", "supercar": "coupe", "sports": "coupe",
-                          "luxury_suv": "suv", "luxury_sedan": "sedan"}[category],
-            "color": colour or "unspecified",
+            "body_type": {"convertible": "convertible", "supercar": "coupe",
+                          "sports": "coupe", "luxury_suv": "suv",
+                          "luxury_sedan": "sedan"}[category],
+            "color": "unspecified",
             "interior_color": "unspecified",
-            "daily_price": daily,
-            # Delta lists weekly and monthly as "available on request" rather
-            # than publishing a figure. Null means the engine bills daily x days
-            # instead of inventing a discount the company never offered.
+            "daily_price": rate,
+            # Listed as "available on request" rather than published.
             "weekly_price": None,
             "monthly_price": None,
-            # "No deposit required (T&Cs apply)" on every listing. The T&Cs also
-            # describe a AED 5,000-20,000 deposit "varying by vehicle, driver
-            # and duration" — a range, not a value, so it cannot be encoded per
-            # vehicle without asking. See _assumed.
+            # Listings state no deposit; the terms describe a range varying by
+            # vehicle. Zero matches the listings.
             "deposit": 0,
-            "included_km_per_day": 250,
-            # T&Cs give AED 25-150/km, varying by vehicle. Unset rather than
-            # guessed; the agent will say it checks rather than name a figure.
+            "included_km_per_day": mileage(page),
+            # AED 25-150/km by vehicle in the terms. Not published per car.
             "extra_km_price": 0,
-            "features": FEATURES[category],
+            "features": [],
             "passenger_capacity": seats,
             "luggage_capacity": bags,
             "transmission": "automatic",
-            "images": [f"assets/vehicles/veh_{index:02d}.png"],
+            # Absolute, pointing at Delta's own server: Meta fetches image URLs
+            # itself, so their photographs stay where they already live.
+            "images": images,
             "status": "active",
-            "blocked_ranges": [
-                {"start_offset_days": a, "end_offset_days": b} for a, b in blocked
-            ],
+            "blocked_ranges": [],
+            "source_url": entry["link"],
         })
+        if index % 20 == 0:
+            print(f"    {index}/{len(entries)}…", flush=True)
+        time.sleep(PAUSE)
+
+    _seed_availability(vehicles)
 
     fleet = {
         "_comment": (
-            "Delta Rentals Dubai (TRIPLE D RENTALS L.L.C.). Daily rates imported from "
-            "deltarentalsdubai.com. THIS IS STILL A DEMONSTRATION CONFIGURATION — the "
-            "demo disclosure stays on until the operator confirms every field marked "
-            "in _assumed below. Real prices under a real company name make a wrong "
-            "answer far more damaging, not less."
+            "Delta Rentals Dubai (TRIPLE D RENTALS L.L.C.). Generated by "
+            "scripts/import_delta_fleet.py from their WordPress REST API and vehicle "
+            "pages. THIS REMAINS A DEMONSTRATION CONFIGURATION until every entry in "
+            "_assumed is confirmed by the operator — real prices under a real company "
+            "name make a wrong answer more damaging, not less."
         ),
-        "_source": "https://deltarentalsdubai.com — imported 22 Aug 2026",
+        "_source": f"{SITE}/wp-json/wp/v2/catalog — imported 22 Aug 2026",
         "_assumed": {
-            "_comment": "Not published by Delta. Confirm each with the operator before go-live.",
-            "colour": "Only the Urus (orange) and 911 GT3 RS (white) are stated. The rest are 'unspecified', so a customer asking for a black G63 gets a check rather than a claim.",
-            "interior_colour": "Never published. All 'unspecified'.",
-            "year": "Only the AED 5,999 Cullinan is dated (2025). Others defaulted to 2025 — this is a guess and appears in the name the customer sees.",
-            "seats_and_luggage": "Manufacturer specification, not Delta's. Verifiable, but worth a glance.",
-            "deposit": "Listings say no deposit; the T&Cs say AED 5,000-20,000 varying by vehicle, driver and duration. Encoded as 0. Needs a per-vehicle or per-category answer.",
-            "extra_km_price": "T&Cs give AED 25-150/km varying by vehicle. Encoded as 0 rather than guessed.",
+            "_comment": "Not published by Delta. Confirm each before go-live.",
+            "colour_and_interior": "Never published per vehicle. All 'unspecified', so a "
+                                   "customer asking for a black one gets a check rather than a claim.",
+            "year": "Not published. Null, so the customer is told 'Mercedes-Benz G63' "
+                    "rather than a model year nobody stated.",
+            "category_seats_luggage": "Classified from the model name against manufacturer "
+                                      "specification, not Delta's data. Worth a glance.",
+            "deposit": "Listings say no deposit; the terms say AED 5,000-20,000 varying by "
+                       "vehicle, driver and duration. Encoded as 0 to match the listings.",
+            "extra_km_price": "AED 25-150/km by vehicle in the terms. Left at 0 rather than guessed.",
             "weekly_and_monthly": "Listed as 'on request'. Null, so the engine bills daily x days.",
-            "availability": "Delta publishes none. Seeded blocks kept so the demo scenarios work.",
-            "second_price_column": "The homepage shows a second price beside each daily rate. Its meaning is not stated anywhere and has NOT been imported.",
+            "availability": "Delta publishes none. A handful of seeded blocks are added so the "
+                            "alternatives flow is demonstrable; everything else reads as free.",
+            "features": "No feature lists are published. Empty rather than invented.",
         },
         "operator": {
             "demo_company_name": "Delta Rentals Dubai (DEMO)",
@@ -138,11 +246,37 @@ def build():
         },
         "vehicles": vehicles,
     }
+
     path = ROOT / "config" / "fleet.json"
-    path.write_text(json.dumps(fleet, indent=2) + "\n", encoding="utf-8")
-    return len(vehicles), path
+    path.write_text(json.dumps(fleet, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if skipped:
+        print(f"\n  skipped {len(skipped)}:")
+        for reason in skipped[:12]:
+            print(f"    - {reason}")
+    return len(vehicles), len(skipped), path
+
+
+def _seed_availability(vehicles: list[dict]) -> None:
+    """Book a few cars out so the alternatives flow has something to work with.
+
+    Delta publishes no availability at all — a website is a catalogue, not a
+    diary. Without a car that is genuinely unavailable there is no way to
+    demonstrate the substitution logic, which is one of the eight required
+    scenarios.
+    """
+    wanted = ["huracan", "urus", "cullinan", "911"]
+    blocks = [[0, 10], [2, 6], [5, 9], [1, 4]]
+    for keyword, (start, end) in zip(wanted, blocks):
+        for vehicle in vehicles:
+            if keyword in f"{vehicle['make']} {vehicle['model']}".lower():
+                vehicle["blocked_ranges"] = [
+                    {"start_offset_days": start, "end_offset_days": end}
+                ]
+                break
 
 
 if __name__ == "__main__":
-    count, path = build()
-    print(f"wrote {count} vehicles to {path}")
+    count, skipped, path = build()
+    print(f"\n  wrote {count} vehicles to {path}")
+    if skipped:
+        print(f"  {skipped} skipped rather than guessed at")

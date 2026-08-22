@@ -128,7 +128,14 @@ def create_app(
                         "caption": photo_caption(
                             item.get("caption"), item.get("display_name", ""), result.reply
                         ),
-                        "images": [f"/{path.lstrip('/')}" for path in item.get("images", [])],
+                        # An operator's own photographs are absolute and fetched
+                        # from their server; generated cards are repo-relative
+                        # and served off the mounted /assets route.
+                        "images": [
+                            path if path.startswith(("http://", "https://"))
+                            else f"/{path.lstrip('/')}"
+                            for path in item.get("images", [])
+                        ],
                     }
                     for item in result.media
                 ],

@@ -356,7 +356,15 @@ class WhatsAppClient:
     # -- media -----------------------------------------------------------
 
     def card_url(self, image_path: str) -> str | None:
-        """Turn a fleet.json image path into a public URL Meta can fetch."""
+        """Turn a fleet.json image entry into a URL Meta can fetch.
+
+        An operator's own photographs are stored absolute, pointing at their
+        server — Meta fetches image URLs itself, so their images stay where they
+        already live and cannot go stale against a copy. Generated cards are
+        stored as repo-relative paths and need a public base prefixed.
+        """
+        if image_path.startswith(("http://", "https://")):
+            return image_path
         base = (self.settings.media_base_url or "").rstrip("/")
         if not base:
             return None

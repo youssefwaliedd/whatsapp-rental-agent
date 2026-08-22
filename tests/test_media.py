@@ -108,3 +108,17 @@ def test_a_card_is_not_blank(vehicle_index):
     _, vehicles = load_fleet()
     card = render(vehicles[vehicle_index], "Sandline Rentals (DEMO)")
     assert len(card.getcolors(maxcolors=100000) or []) > 5
+
+
+def test_every_image_is_either_a_real_url_or_a_file_that_exists():
+    """A path to a file nobody generated, or a URL to nothing, both reach the
+    customer as a blank bubble. The tool layer hands these straight out."""
+    _, vehicles = load_fleet()
+    broken = []
+    for vehicle in vehicles:
+        for image in vehicle.images:
+            if image.startswith(("http://", "https://")):
+                continue
+            if not (PROJECT_ROOT / image).exists():
+                broken.append(f"{vehicle.id}: {image}")
+    assert broken == []

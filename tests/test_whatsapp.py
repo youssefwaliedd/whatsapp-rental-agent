@@ -1138,3 +1138,22 @@ def test_a_redelivery_of_a_held_message_is_not_answered_twice(session_factory):
     post(client, text_payload("any update?", message_id="wamid.HELD"))
 
     assert outbound.texts == []
+
+
+def test_an_operators_own_photograph_is_fetched_from_their_server(harness):
+    """Their images are stored absolute. Meta fetches image URLs itself, so
+    prefixing a base onto one would produce nonsense — and copying them into the
+    repo would go stale the moment they change a car."""
+    _, outbound, _ = harness
+    absolute = "https://deltarentalsdubai.com/wp-content/uploads/2026/03/GLS-Maybach-1.jpg"
+    assert outbound.card_url(absolute) == absolute
+
+
+def test_a_generated_card_still_needs_a_public_base(harness):
+    _, outbound, _ = harness
+    outbound.settings = WhatsAppSettings(
+        phone_number_id="PID", access_token="TOK", media_base_url="https://cards.example.com"
+    )
+    assert outbound.card_url("assets/vehicles/veh_01.png") == (
+        "https://cards.example.com/assets/vehicles/veh_01.png"
+    )

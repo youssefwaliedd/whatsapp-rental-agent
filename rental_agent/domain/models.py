@@ -68,6 +68,11 @@ class Vehicle(Base):
     luggage_capacity: int
     transmission: str = "automatic"
     images: list[str] = Field(default_factory=list)
+    #: Where this vehicle's figures came from, when the config was generated
+    #: from an external source. Provenance for exactly one question: "where did
+    #: AED 2,199 come from?" — which somebody will ask, and the answer should
+    #: not be "I think the importer read it somewhere".
+    source_url: str | None = None
     status: VehicleStatus = VehicleStatus.ACTIVE
     blocked_ranges: list[BlockedRange] = Field(default_factory=list)
 
