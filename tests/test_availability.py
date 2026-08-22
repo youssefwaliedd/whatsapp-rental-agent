@@ -133,3 +133,38 @@ def test_a_booking_cannot_be_moved_into_the_past(engine):
             return_at=dt(30, 10, month=8),
             skip_availability_check=True,
         )
+
+
+def test_a_rental_of_a_few_minutes_is_refused(engine):
+    """Found by probing: 7:00pm to 7:01pm returned three cars and a price. That
+    is a mistake in the dates, not a short rental."""
+    with pytest.raises(InvalidWindow) as caught:
+        engine.validate_window(dt(5, 19), dt(5, 19, 1))
+    assert caught.value.reason == "rental_too_short"
+
+
+def test_a_legitimate_same_day_hire_is_not(engine):
+    """The floor must not refuse someone renting nine to five. Billing still
+    rounds to a day; that is a separate question from whether the booking is
+    real."""
+    engine.validate_window(dt(5, 9), dt(5, 17))
+
+
+def test_a_pickup_years_away_is_refused(engine):
+    """Also found by probing: the year 3000 returned three cars and quoted
+    AED 346.50. No diary goes that far."""
+    with pytest.raises(InvalidWindow) as caught:
+        engine.validate_window(dt(5, 19).replace(year=3000), dt(8, 19).replace(year=3000))
+    assert caught.value.reason == "pickup_too_far_ahead"
+
+
+def test_booking_months_ahead_is_fine(engine):
+    engine.validate_window(dt(5, 19).replace(year=2027, month=2), dt(8, 19).replace(year=2027, month=2))
+
+
+def test_an_internal_availability_probe_is_not_a_rental(engine):
+    """The fourteen-day grid asks "is this car free on Tuesday" with a one-hour
+    window. Answering "the shortest rental is two hours" to that would be
+    nonsense, so the bounds apply to customer paths rather than to the check."""
+    result = engine.check_availability("veh_13", dt(4, 10), dt(4, 11), validate=False)
+    assert result.available is True

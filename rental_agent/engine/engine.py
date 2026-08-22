@@ -135,9 +135,28 @@ class RentalEngine:
                 "Ask the customer to confirm the dates; they have them the wrong way round.",
             )
 
-        tolerance = int(
-            self._rules.rental_period.get("past_pickup_tolerance_minutes", 60)
-        )
+        period = self._rules.rental_period
+
+        minimum_hours = float(period.get("minimum_rental_hours", 0))
+        if minimum_hours and (return_at - pickup_at) < timedelta(hours=minimum_hours):
+            raise InvalidWindow(
+                "rental_too_short",
+                f"The shortest rental is {minimum_hours:g} hours.",
+                "Ask what time they actually need it back. A booking of a few "
+                "minutes is a mistake in the dates, not a short rental.",
+            )
+
+        lead_days = int(period.get("maximum_lead_days", 0))
+        if lead_days and pickup_at > self.now() + timedelta(days=lead_days):
+            raise InvalidWindow(
+                "pickup_too_far_ahead",
+                f"We take bookings up to {lead_days} days ahead, and "
+                f"{pickup_at:%-d %b %Y} is beyond that.",
+                "Say how far ahead the diary goes and ask for a nearer date. Do "
+                "not quote a price for a date you cannot hold a car for.",
+            )
+
+        tolerance = int(period.get("past_pickup_tolerance_minutes", 60))
         earliest = self.now() - timedelta(minutes=tolerance)
         if pickup_at < earliest:
             raise InvalidWindow(
@@ -150,9 +169,24 @@ class RentalEngine:
             )
 
     def check_availability(
-        self, vehicle_id: str, pickup_at: datetime, return_at: datetime
+        self,
+        vehicle_id: str,
+        pickup_at: datetime,
+        return_at: datetime,
+        *,
+        validate: bool = True,
     ) -> AvailabilityResult:
-        self.validate_window(pickup_at, return_at)
+        """Is this vehicle free for this window?
+
+        `validate=False` for internal probes that are not rentals — the
+        fourteen-day availability grid asks "is this car free on Tuesday" with a
+        one-hour window, and answering "the shortest rental is two hours" to
+        that question would be nonsense. Customer-facing paths validate first
+        and then pass False, so the bounds are applied once rather than once per
+        vehicle.
+        """
+        if validate:
+            self.validate_window(pickup_at, return_at)
         vehicle = self.get_vehicle(vehicle_id)
         return check_availability(
             vehicle,
@@ -174,7 +208,7 @@ class RentalEngine:
             if not ok:
                 continue
             if not self.check_availability(
-                vehicle.id, criteria.pickup_at, criteria.return_at
+                vehicle.id, criteria.pickup_at, criteria.return_at, validate=False
             ).available:
                 continue
             score, reasons = search.score_vehicle(vehicle, criteria)
@@ -278,7 +312,9 @@ class RentalEngine:
         self.validate_window(pickup_at, return_at)
 
         if not skip_availability_check:
-            result = self.check_availability(vehicle_id, pickup_at, return_at)
+            result = self.check_availability(
+                vehicle_id, pickup_at, return_at, validate=False
+            )
             if not result.available:
                 raise VehicleUnavailable(vehicle_id, result)
 

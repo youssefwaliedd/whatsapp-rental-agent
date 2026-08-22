@@ -414,8 +414,13 @@ def cmd_demo_fleet(ctx: ToolContext, parts: list[str]) -> None:
             day = datetime.combine(
                 start + timedelta(days=offset), datetime.min.time(), tzinfo=engine.tz
             )
+            # Not a rental — a probe asking whether the car is free that day,
+            # so the window sanity bounds do not apply.
             free = engine.check_availability(
-                vehicle.id, day + timedelta(hours=10), day + timedelta(hours=11)
+                vehicle.id,
+                day + timedelta(hours=10),
+                day + timedelta(hours=11),
+                validate=False,
             ).available
             cells.append("  ." if free else "  x")
         print(f"  {vehicle.display_name:<34}{''.join(cells)}")
