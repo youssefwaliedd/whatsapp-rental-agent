@@ -9,6 +9,12 @@ Pillow>=10.0          # renders the demonstration vehicle cards
 google-genai>=1.0
 anthropic>=0.40
 
+# PostgreSQL. Optional for development (SQLite is the default) and required in
+# production: SQLite serialises conversations, measured at 10 simultaneous
+# customers taking 10.7s on SQLite against 1.1s on Postgres.
+# See tests/concurrency_check.py.
+psycopg[binary]>=3.2
+
 # Milestone 4 — WhatsApp Cloud API transport
 fastapi>=0.115
 uvicorn[standard]>=0.32

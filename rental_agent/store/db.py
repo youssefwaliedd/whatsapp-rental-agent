@@ -1,7 +1,19 @@
-"""Database setup.
+"""Database setup — SQLite or PostgreSQL, chosen by URL.
 
-SQLite for the prototype. The schema is deliberately Postgres-compatible so the
-move to a real deployment is a URL change plus a migration tool, not a rewrite.
+SQLite is the development default: a file, no server, perfect for tests and for
+playing with the simulator.
+
+**PostgreSQL is required in production**, and that is a measurement rather than
+a preference. `tests/concurrency_check.py` fires ten simultaneous customers at
+the webhook: on SQLite they are answered one at a time, because a turn holds its
+write transaction from the first insert until commit and that spans the model
+call. Ten customers with a five-second turn means the last waits nearly a
+minute. Before `busy_timeout` was added it was worse — half of them were dropped
+outright. Postgres writers do not block each other, which is the whole point.
+
+Set `DATABASE_URL` to switch:
+
+    DATABASE_URL=postgresql+psycopg://user@localhost/rental_agent
 """
 
 from __future__ import annotations
@@ -26,9 +38,23 @@ QUOTE_SEQUENCE_START = 500
 
 
 def database_url(path: str | Path | None = None) -> str:
+    """Where the data lives.
+
+    An explicit `path` always wins, so tests and the simulator keep their own
+    files regardless of what is configured. Otherwise `DATABASE_URL` decides,
+    and only then does the SQLite default apply.
+    """
     if path == ":memory:":
         return "sqlite+pysqlite:///:memory:"
+    if path is None:
+        configured = os.getenv("DATABASE_URL")
+        if configured:
+            return configured
     return f"sqlite+pysqlite:///{Path(path or os.getenv('DEMO_DB_PATH') or DEFAULT_DB_PATH)}"
+
+
+def is_sqlite(url: str) -> bool:
+    return url.startswith("sqlite")
 
 
 #: How long a blocked writer waits before giving up, in milliseconds. Generous
@@ -38,6 +64,18 @@ BUSY_TIMEOUT_MS = 10_000
 
 def create_db_engine(path: str | Path | None = None, echo: bool = False) -> Engine:
     url = database_url(path)
+
+    if not is_sqlite(url):
+        # Postgres. A pool sized for the webhook's background workers, since
+        # each in-flight turn holds a connection for its whole duration.
+        return create_engine(
+            url,
+            echo=echo,
+            pool_size=10,
+            max_overflow=20,
+            pool_pre_ping=True,
+        )
+
     engine = create_engine(
         url,
         echo=echo,

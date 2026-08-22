@@ -60,8 +60,16 @@ class SlowAgent:
         ctx.save_state(state)              # a write, like a real turn
         return AgentTurn(reply=f"reply to {message}")
 
+import os
+# Respect DATABASE_URL so the same measurement runs against both engines:
+#   .venv/bin/python tests/concurrency_check.py 10
+#   DATABASE_URL=postgresql+psycopg://you@localhost/rental_agent_test \
+#       .venv/bin/python tests/concurrency_check.py 10
+DB = None if os.getenv("DATABASE_URL") else pathlib.Path(tempfile.mkdtemp()) / "c.db"
+print(f"  engine          : {'postgres' if DB is None else 'sqlite'}")
+
 app = create_app(
-    session_factory=init_db(create_db_engine(pathlib.Path(tempfile.mkdtemp()) / "c.db")),
+    session_factory=init_db(create_db_engine(DB)),
     agent_factory=SlowAgent, client=Recorder(),
     settings=WhatsAppSettings(phone_number_id="P", access_token="T",
                               app_secret=SECRET, verify_token="v"),
