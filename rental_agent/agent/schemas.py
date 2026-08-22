@@ -172,6 +172,29 @@ TOOLS: list[dict[str, Any]] = [
         ["question"],
     ),
     _tool(
+        "look_up_vehicles",
+        "Check what cars the company actually owns, by name — no dates needed. "
+        "Call this for ANY question about what is in the fleet: 'do you have a "
+        "Cybertruck?', 'what Teslas do you have?', 'do you have anything "
+        "electric?', 'what's your cheapest car?'. NEVER answer a question about "
+        "what the fleet contains from your own impression of what a rental "
+        "company owns — you will be wrong, and a customer told we do not have a "
+        "car we do have goes to a competitor. Owning a car and it being free "
+        "are different questions: this answers only the first, so get their "
+        "dates and call search_available_vehicles before promising anything.",
+        {
+            "query": {
+                "type": "string",
+                "description": (
+                    "Words to match against make, model, category and body type — "
+                    "'cybertruck', 'tesla', 'convertible ferrari'. Omit to list "
+                    "the cheapest cars in the fleet."
+                ),
+            },
+        },
+        [],
+    ),
+    _tool(
         "search_available_vehicles",
         "Search the fleet for cars that are actually free for the requested dates. "
         "Call this as soon as you know pickup and return times — it is the only way "

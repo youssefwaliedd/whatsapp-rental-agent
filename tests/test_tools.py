@@ -225,3 +225,71 @@ def test_the_photo_count_is_capped_by_config(ctx):
     cap = load_rules().messaging["photos"]["max_per_message"]
     execute_tool(ctx, "show_vehicle_photos", {"vehicle_id": "veh_13"})
     assert len(ctx.take_media()[0]["images"]) <= cap
+
+
+# --------------------------------------------------------------------------
+# What the company owns
+#
+# Found in the preview: asked "what kinds of Tesla do you have", the agent
+# answered "the Model 3 and Model Y" — neither of which is in the fleet. Asked
+# "do you have a Cybertruck", it said no. The fleet has one.
+#
+# It was not lying so much as guessing. Availability needs dates, so the search
+# tool refuses without them; details need an id the model cannot know. With no
+# tool between the two, the only thing left to answer from was its own
+# impression of what a rental company owns.
+# --------------------------------------------------------------------------
+
+
+def test_a_car_in_the_fleet_is_found_by_name(ctx):
+    result = execute_tool(ctx, "look_up_vehicles", {"query": "g63"})
+    assert result["matched"] >= 1
+    assert any("G63" in v["name"] for v in result["vehicles"])
+
+
+def test_a_car_that_is_not_there_says_so_plainly(ctx):
+    result = execute_tool(ctx, "look_up_vehicles", {"query": "delorean"})
+    assert result["matched"] == 0
+    assert result["vehicles"] == []
+    assert "not one we have" in result["note"]
+
+
+def test_looking_up_a_make_returns_every_model_of_it(ctx):
+    result = execute_tool(ctx, "look_up_vehicles", {"query": "mercedes"})
+    assert result["matched"] >= 2
+
+
+def test_the_lookup_does_not_claim_anything_is_free(ctx):
+    """Owning a car and it being free are different questions. Answering the
+    first as though it were the second is how a customer is promised a car that
+    is already out."""
+    result = execute_tool(ctx, "look_up_vehicles", {"query": "g63"})
+    assert "not cars confirmed free" in result["note"]
+    assert "search_available_vehicles" in result["note"]
+    assert not any("available" in str(v).lower() for v in result["vehicles"])
+
+
+def test_the_whole_fleet_is_not_dumped_into_one_answer(ctx):
+    """A hundred cars in one message is a catalogue, not a reply."""
+    from rental_agent.tools.rental_tools import MAX_LOOKUP_RESULTS
+
+    result = execute_tool(ctx, "look_up_vehicles", {})
+    assert result["showing"] <= MAX_LOOKUP_RESULTS
+    assert result["showing"] <= result["matched"]
+
+
+def test_the_cheapest_come_first_when_nothing_is_named(ctx):
+    """"What's your cheapest car?" is a real question and should not require a
+    second tool call to answer."""
+    from decimal import Decimal
+
+    result = execute_tool(ctx, "look_up_vehicles", {})
+    prices = [Decimal(v["daily_price"]) for v in result["vehicles"]]
+    assert prices == sorted(prices)
+
+
+def test_the_tool_forbids_answering_from_impression():
+    from rental_agent.agent.schemas import TOOLS
+
+    [schema] = [t for t in TOOLS if t["name"] == "look_up_vehicles"]
+    assert "NEVER answer a question about what the fleet contains" in schema["description"]

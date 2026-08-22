@@ -292,6 +292,70 @@ def get_allowed_discount(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
     }
 
 
+#: The fleet can be large. More than this in one answer is a catalogue, and the
+#: three-option sales rule applies to what is *offered*, not to a stock check.
+MAX_LOOKUP_RESULTS = 8
+
+
+def look_up_vehicles(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Which cars the company owns, by name — no dates needed.
+
+    This exists because "do you have a Cybertruck?" and "what Teslas do you
+    have?" were unanswerable. Availability needs a window, so `search_available_
+    vehicles` refuses without one; `get_vehicle_details` needs an id the model
+    has no way to know. With no tool between them the agent answered from its
+    own impression of what a rental company owns — and said the fleet had a
+    Model 3 and a Model Y, which it does not, and no Cybertruck, which it does.
+
+    Owning a car and it being free are different questions. This answers only
+    the first, and says so, so the agent does not turn a stock check into a
+    promise.
+    """
+    engine = ctx.engine
+    query = (args.get("query") or "").strip()
+
+    fleet = list(engine.list_fleet())
+    if query:
+        wanted = [word for word in query.lower().split() if len(word) > 1]
+        matches = [
+            v for v in fleet
+            if all(
+                word in f"{v.make} {v.model} {v.category.value} {v.body_type}".lower()
+                for word in wanted
+            )
+        ]
+    else:
+        matches = fleet
+
+    matches.sort(key=lambda v: v.daily_price)
+    shown = matches[:MAX_LOOKUP_RESULTS]
+
+    return {
+        "query": query or None,
+        "matched": len(matches),
+        "showing": len(shown),
+        "vehicles": [
+            {
+                "vehicle_id": v.id,
+                "name": v.display_name,
+                "category": v.category.value,
+                "daily_price": str(v.daily_price),
+                "currency": engine.operator.currency,
+                "seats": v.passenger_capacity,
+            }
+            for v in shown
+        ],
+        "note": (
+            "These are cars the company owns, not cars confirmed free. Say what "
+            "is in the fleet and what it costs per day, then get their dates and "
+            "call search_available_vehicles before promising anything."
+            if shown
+            else "Nothing in the fleet matches. Say plainly that this car is not "
+                 "one we have, and offer to suggest something similar."
+        ),
+    }
+
+
 def show_vehicle_photos(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     """Queue a vehicle's photos to go out alongside this turn's reply.
 
@@ -389,4 +453,5 @@ READ_HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]
     "find_alternatives": find_alternatives,
     "get_allowed_discount": get_allowed_discount,
     "show_vehicle_photos": show_vehicle_photos,
+    "look_up_vehicles": look_up_vehicles,
 }

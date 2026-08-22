@@ -133,6 +133,13 @@ SCENARIOS = [
         must_call=["search_company_policy"],
     ),
     Scenario(
+        11, "Asked whether a car is in the fleet at all",
+        ["what kinds of tesla do you have?",
+         "do you have a cybertruck?"],
+        must_call=["look_up_vehicles"],
+        must_not_call=["search_available_vehicles"],
+    ),
+    Scenario(
         10, "Dates that have already passed",
         ["i want a g63 from 25 august to 30 august"],
         must_not_call=["create_demo_reservation"],
