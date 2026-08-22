@@ -5,8 +5,12 @@ Not a pytest test — a run, done by hand against a live model:
     .venv/bin/python tests/scenario_run.py          # all of them
     .venv/bin/python tests/scenario_run.py 2 4 8    # just those
 
-Every scenario gets its own customer number, so nothing one conversation
-established can leak into the next and flatter the results.
+Every scenario gets its own **database**, not merely its own customer number.
+Availability is a property of the fleet rather than of a customer: once one
+scenario books the G63 for Friday, it is genuinely gone for every scenario
+after — which is correct behaviour and useless for testing, because half the
+runs then measure "what happens when the car is taken" regardless of what they
+were written to measure.
 
 Grading is in two parts. The **expectations** are what a rental salesperson
 would obviously have to do — call the pricing tool before naming a total, reach
@@ -193,7 +197,12 @@ def deliver(http: TestClient, payload: dict) -> None:
               headers={"X-Hub-Signature-256": signature, "Content-Type": "application/json"})
 
 
-def run(scenario: Scenario, session_factory, agent) -> tuple[bool, list[str]]:
+def run(scenario: Scenario, agent) -> tuple[bool, list[str]]:
+    import tempfile
+
+    # A fresh fleet for every scenario. See the module docstring.
+    session_factory = init_db(create_db_engine(
+        Path(tempfile.mkdtemp()) / f"scenario_{scenario.number}.db"))
     number = f"9715000{scenario.number:05d}"
     recorder = Recorder()
     app = create_app(session_factory=session_factory, agent_factory=lambda: agent,
@@ -258,12 +267,10 @@ def main() -> None:
     wanted = {int(a) for a in sys.argv[1:] if a.isdigit()}
     scenarios = [s for s in SCENARIOS if not wanted or s.number in wanted]
 
-    import tempfile
-    session_factory = init_db(create_db_engine(Path(tempfile.mkdtemp()) / "scenarios.db"))
     agent = build_agent()
     agent.warm_up()
 
-    results = [(s, *run(s, session_factory, agent)) for s in scenarios]
+    results = [(s, *run(s, agent)) for s in scenarios]
     passed = sum(1 for _, ok, _ in results if ok)
 
     print(f"\n{BOLD}{'═' * 60}{OFF}")
