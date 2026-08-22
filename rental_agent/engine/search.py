@@ -159,7 +159,7 @@ def alternative_reason(target: Vehicle, candidate: Vehicle) -> tuple[int, str] |
     if candidate.model.lower() == target.model.lower() and candidate.make.lower() == target.make.lower():
         if candidate.color.lower() != target.color.lower():
             return 0, f"identical model in {candidate.color}"
-        return 0, f"identical model, {candidate.year}"
+        return 0, f"identical model, {candidate.year}" if candidate.year else "identical model"
 
     if candidate.make.lower() == target.make.lower() and candidate.category is target.category:
         return 1, f"same brand, same class"

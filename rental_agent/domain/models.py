@@ -49,7 +49,10 @@ class Vehicle(Base):
     id: str
     make: str
     model: str
-    year: int
+    #: None when the operator does not publish it. Guessing would put a year in
+    #: front of the customer that nobody stated — "Mercedes-Benz G63 — 2025"
+    #: reads as a fact about the car, not as a placeholder.
+    year: int | None = None
     category: Category
     body_type: str
     color: str
@@ -70,7 +73,8 @@ class Vehicle(Base):
 
     @property
     def display_name(self) -> str:
-        return f"{self.make} {self.model} — {self.year}"
+        """What the customer is told the car is. Only what is actually known."""
+        return f"{self.make} {self.model} — {self.year}" if self.year else f"{self.make} {self.model}"
 
 
 class Operator(Base):

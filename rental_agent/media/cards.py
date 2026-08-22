@@ -117,7 +117,8 @@ def render(vehicle: Vehicle, operator_name: str, currency: str = "AED") -> Image
     card, draw, ink, muted, (left, width) = _frame(vehicle, operator_name, "")
 
     draw.text((left, 190), f"{vehicle.make} {vehicle.model}", font=_font(74, bold=True), fill=ink)
-    draw.text((left, 288), str(vehicle.year), font=_font(44), fill=muted)
+    if vehicle.year:
+        draw.text((left, 288), str(vehicle.year), font=_font(44), fill=muted)
     draw.text(
         (left, 356),
         f"{vehicle.color.title()} · {vehicle.interior_color} interior",
