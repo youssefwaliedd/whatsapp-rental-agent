@@ -66,6 +66,18 @@ PROVIDER_BUSY_REPLY = (
     "again."
 )
 
+#: Sent once the outage has cost the customer a second turn. At that point
+#: asking them to try again is just a slower way of losing them.
+PROVIDER_DOWN_REPLY = (
+    "Sorry — I'm still having trouble on my end. I've asked a colleague to pick "
+    "this up with you directly so you're not left waiting."
+)
+
+#: How many consecutive unreachable turns before a person is pulled in. One is
+#: bad luck and worth an apology; two is an outage the customer should not be
+#: made to sit through.
+PROVIDER_FAILURES_BEFORE_HANDOVER = 2
+
 
 @dataclass
 class AgentTurn:
@@ -234,9 +246,10 @@ class Agent:
             turn = self._run_tool_loop(
                 ctx, state, now, customer, active_reservation, pending=pending, message=message
             )
+            self._clear_provider_failures(ctx)
         except ProviderUnavailable as exc:
             pending.cancel()
-            turn = AgentTurn(reply=PROVIDER_BUSY_REPLY, provider_error=str(exc)[:200])
+            turn = self._provider_unavailable(ctx, exc, message)
         turn.extraction_error = pending.error
 
         ctx.messages.record(
@@ -349,6 +362,52 @@ class Agent:
             "deposit": quote.deposit,
             "expires_at": quote.expires_at.strftime("%a %d %b, %-I:%M %p"),
         }
+
+    def _provider_unavailable(
+        self, ctx: ToolContext, exc: Exception, message: str
+    ) -> AgentTurn:
+        """The model could not be reached. Do not leave the customer with it.
+
+        A single failure gets an apology and an invitation to resend — outages
+        are usually brief. A second consecutive one means the customer is stuck
+        behind something that is not clearing, and repeating the apology is a
+        slower way of losing them. So a person is pulled in, through the same
+        escalation path everything else uses, and somebody at the company finds
+        out a live customer is stranded.
+        """
+        state = ctx.load_state()
+        state.consecutive_provider_failures += 1
+        failures = state.consecutive_provider_failures
+        ctx.save_state(state)
+
+        if failures < PROVIDER_FAILURES_BEFORE_HANDOVER:
+            return AgentTurn(reply=PROVIDER_BUSY_REPLY, provider_error=str(exc)[:200])
+
+        execute_tool(
+            ctx,
+            "escalate_conversation",
+            {
+                "reason": "repeated_agent_failure",
+                "detail": (
+                    f"The model has been unreachable for {failures} turns. "
+                    f'Their last message: "{message[:200]}"'
+                ),
+            },
+        )
+        return AgentTurn(
+            reply=PROVIDER_DOWN_REPLY,
+            provider_error=str(exc)[:200],
+            escalated=True,
+        )
+
+    @staticmethod
+    def _clear_provider_failures(ctx: ToolContext) -> None:
+        """A turn got through. Reset the counter so an outage next week does not
+        inherit a count from this one."""
+        state = ctx.load_state()
+        if state.consecutive_provider_failures:
+            state.consecutive_provider_failures = 0
+            ctx.save_state(state)
 
     def _absorb_extraction(
         self, ctx: ToolContext, pending: _Pending, message: str, state: Any

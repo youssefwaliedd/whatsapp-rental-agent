@@ -137,7 +137,11 @@ class Phone(WhatsAppClient):
         self._bubble(to, body, tint=GOLD)
         tapped = "  ".join(f"[ {b['title']} ]" for b in buttons)
         print(f"{GOLD}          {tapped}{OFF}")
-        self._note("tap with /approve, /decline or /call")
+        # Name the commands that match the buttons actually offered — an
+        # emergency has one button and suggesting /approve for it would be the
+        # same confusion the buttons were split to remove.
+        commands = "  ".join(f"/{b['id'].split(':')[0]}" for b in buttons)
+        self._note(f"tap with {commands}")
         return SendResult(ok=True, message_ids=["wamid.ASK"])
 
     def send_reaction(self, to, message_id, emoji):
@@ -277,7 +281,8 @@ BANNER = f"""
 {DIM}  Your real webhook, real signatures, real agent. Only Meta is fake.
 
   <type anything>          speak as the customer
-  /approve /decline /call  tap a button as the owner
+  /approve /decline /call  tap a decision button as the owner
+  /handled                 tap it on an emergency handover
   /owner <text>            reply as the owner in free text
   /cases                   open cases · /state  what the agent knows
   /skip 30h                move the clock (shuts the 24-hour window)
@@ -364,12 +369,13 @@ def main() -> None:
             print(f"{DIM}  clock is now {clock().strftime('%a %d %b, %-I:%M %p')}{OFF}")
             continue
 
-        if line.startswith(("/approve", "/decline", "/call")):
+        if line.startswith(("/approve", "/decline", "/call", "/handled")):
             decision = line[1:].split()[0]
             code = newest_case_code(session_factory, clock)
             if code is None:
                 print(f"{DIM}  no open case to answer{OFF}"); continue
-            titles = {"approve": "Approve", "decline": "Decline", "call": "I'll call them"}
+            titles = {"approve": "Approve", "decline": "Decline",
+                      "call": "I'll call them", "handled": "I've taken it from here"}
             print(f"\n{GOLD}{BOLD}OWNER{OFF} tapped [ {titles[decision]} ] on case {code}")
             deliver(http, button_from(OWNER, f"{decision}:{code}", titles[decision],
                                       message_id("OWN")))

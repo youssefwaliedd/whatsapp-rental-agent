@@ -292,3 +292,51 @@ def test_escalating_twice_does_not_strand_the_conversation(booking_ctx, case):
     handover.record_decision(booking_ctx, case, outcome="approved")
     handover.mark_relayed(booking_ctx, case)
     assert booking_ctx.load_state().stage is not Stage.ESCALATED
+
+
+# --------------------------------------------------------------------------
+# Not every escalation is a decision
+#
+# Found by playing: a customer reported crashing on Sheikh Zayed Road and the
+# owner was sent "⚠️ Accident — [Approve] [Decline]". A fee dispute has two
+# possible answers and the owner picks one; a crash has none, it needs a person.
+# --------------------------------------------------------------------------
+
+
+def test_a_fee_dispute_is_a_decision(booking_ctx):
+    assert handover.needs_a_decision(booking_ctx, "fee_dispute") is True
+    labels = [o["label"] for o in handover.decision_options(booking_ctx, "fee_dispute")]
+    assert labels == ["Approve", "Decline", "I'll call them"]
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["accident", "injury", "police_involvement", "medical_emergency",
+     "breakdown", "abusive_language", "repeated_agent_failure"],
+)
+def test_an_emergency_is_never_put_to_a_vote(booking_ctx, reason):
+    """Asking someone to Approve or Decline a car crash is the same mistake as
+    reacting to one with a thumbs-up."""
+    assert handover.needs_a_decision(booking_ctx, reason) is False
+    labels = [o["label"] for o in handover.decision_options(booking_ctx, reason)]
+    assert labels == ["I've taken it from here"]
+
+
+def test_taking_over_is_a_recognised_outcome(booking_ctx):
+    assert handover.outcome_of(
+        booking_ctx, button_id="handled:ABC", text=None
+    ) == "owner_handled"
+    assert handover.outcome_of(booking_ctx, button_id=None, text="handled") == "owner_handled"
+
+
+def test_the_agent_is_told_not_to_restate_what_it_did_not_hear(booking_ctx):
+    """A colleague who sorted it out by phone had a conversation the agent was
+    not part of. Summarising it would be inventing an outcome."""
+    escalation = escalate(booking_ctx, "i've crashed the car")
+    case = handover.open_case(booking_ctx, escalation, "accident — i've crashed the car")
+    handover.record_decision(booking_ctx, case, outcome="owner_handled")
+
+    directive = handover.relay_directive(case)
+    assert "taken this over personally" in directive
+    assert "do not know what was said" in directive.lower()
+    assert "approved" not in directive

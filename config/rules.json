@@ -201,6 +201,23 @@
   "human_in_the_loop": {
     "_comment": "What happens after the agent hands a case to a person. The agent's job at this point is to stop guessing, ask a decidable question, and relay the answer accurately — never to soften it or fill the gap while waiting.",
 
+    "_kinds_comment": "Not every escalation is a decision. A fee dispute has two possible answers and the owner picks one. A crash has no answer to pick — it needs a person to take over. Asking someone to Approve or Decline a car accident is the same mistake as reacting to one with a thumbs-up.",
+
+    "decision_reasons": [
+      "refund_request",
+      "fee_dispute",
+      "eligibility_exception",
+      "discount_above_approval_threshold",
+      "outside_knowledge_base"
+    ],
+
+    "owner_handover": {
+      "_comment": "Everything not listed as a decision. The owner is told to take over rather than asked to choose, and one button releases the conversation once they have.",
+      "options": [
+        { "id": "handled", "label": "I've taken it from here", "outcome": "owner_handled" }
+      ]
+    },
+
     "owner_decision": {
       "_comment": "Three buttons is the Cloud API maximum and titles are capped at 20 characters. Ids are matched in code, so renaming a label is safe but renaming an id is not.",
       "options": [

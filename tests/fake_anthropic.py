@@ -62,7 +62,12 @@ class FakeMessages:
         self.owner.requests.append(kwargs)
         if not self.owner.script:
             raise AssertionError("FakeClient ran out of scripted responses")
-        return self.owner.script.pop(0)
+        scripted = self.owner.script.pop(0)
+        # An exception in the script is one the provider would have raised.
+        # Scripting failure is how outage handling gets tested at all.
+        if isinstance(scripted, Exception):
+            raise scripted
+        return scripted
 
     def parse(self, **kwargs: Any) -> ParsedResponse:
         self.owner.extraction_requests.append(kwargs)

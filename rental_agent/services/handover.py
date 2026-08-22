@@ -49,15 +49,34 @@ TIMED_OUT = "timed_out"
 OPEN_STATUSES = ("open", AWAITING, TIMED_OUT, DECIDED)
 
 #: Outcomes an owner may return. Anything else is refused rather than guessed at.
-OUTCOMES = ("approved", "declined", "owner_calling")
+OUTCOMES = ("approved", "declined", "owner_calling", "owner_handled")
 
 
 def _config(ctx: ToolContext) -> dict[str, Any]:
     return ctx.engine.rules.human_in_the_loop
 
 
-def decision_options(ctx: ToolContext) -> list[dict[str, str]]:
-    return _config(ctx).get("owner_decision", {}).get("options", [])
+def needs_a_decision(ctx: ToolContext, reason: str) -> bool:
+    """Whether this escalation has answers to choose between.
+
+    A fee dispute does: the owner picks one and the customer is told. A crash
+    does not — there is nothing to approve, only someone to take over. Getting
+    this wrong produces "⚠️ Accident — [Approve] [Decline]", which is the same
+    failure as reacting to one with a thumbs-up.
+    """
+    return reason in _config(ctx).get("decision_reasons", [])
+
+
+def decision_options(ctx: ToolContext, reason: str | None = None) -> list[dict[str, str]]:
+    """The buttons put in front of the owner, which depend on what is being asked.
+
+    `reason` is optional so an existing case can be re-asked without knowing it;
+    passing None gives the decision buttons, which is the older behaviour.
+    """
+    block = "owner_decision"
+    if reason is not None and not needs_a_decision(ctx, reason):
+        block = "owner_handover"
+    return _config(ctx).get(block, {}).get("options", [])
 
 
 def customer_message(ctx: ToolContext, key: str, default: str = "") -> str:
@@ -172,9 +191,11 @@ def outcome_of(ctx: ToolContext, *, button_id: str | None, text: str | None) -> 
     """
     if button_id:
         chosen = button_id.split(":")[0]
-        for option in decision_options(ctx):
-            if option["id"] == chosen:
-                return option.get("outcome")
+        config = _config(ctx)
+        for block in ("owner_decision", "owner_handover"):
+            for option in config.get(block, {}).get("options", []):
+                if option["id"] == chosen:
+                    return option.get("outcome")
 
     words = (text or "").strip().lower()
     if not words:
@@ -188,6 +209,7 @@ def outcome_of(ctx: ToolContext, *, button_id: str | None, text: str | None) -> 
                    "no problem", "no worries", "not a problem", "no issue")
     negative = ("decline", "declined", "no", "nope", "reject", "refuse", "deny")
     calling = ("call", "i'll call", "ill call", "phone them", "ring them")
+    handled = ("handled", "done", "sorted", "dealt with", "taken care of", "resolved")
 
     def mentions(options: tuple[str, ...]) -> bool:
         return any(re.search(rf"\b{re.escape(option)}\b", words) for option in options)
@@ -195,6 +217,7 @@ def outcome_of(ctx: ToolContext, *, button_id: str | None, text: str | None) -> 
     hits = [
         name
         for name, options in (
+            ("owner_handled", handled),
             ("owner_calling", calling),
             ("approved", affirmative),
             ("declined", negative),
@@ -238,6 +261,20 @@ def relay_directive(case: Escalation) -> str:
     consolation, or generalise a one-off into a policy — and the third of those
     is how an override quietly becomes the price list.
     """
+    if case.decision == "owner_handled":
+        # Nothing was decided — a person stepped in and dealt with it, usually
+        # by phone. The agent's job is to close the loop lightly and get out of
+        # the way, not to restate an outcome it does not know.
+        return "\n".join([
+            "A colleague has taken this over personally and dealt with it directly "
+            "with the customer.",
+            f"What happened: {case.question or case.detail or 'the escalated issue'}",
+            "Acknowledge briefly and warmly that a colleague has looked after it, "
+            "and ask if there is anything else you can help with.",
+            "Do not restate what was decided or agreed — you were not part of that "
+            "conversation and do not know what was said.",
+        ])
+
     outcome = {
         "approved": "approved it",
         "declined": "declined it",

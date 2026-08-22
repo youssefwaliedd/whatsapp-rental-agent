@@ -226,10 +226,12 @@ def create_app(
             _decision_buttons(ctx, case),
         )
 
-    def _decision_buttons(ctx: ToolContext, case: Escalation) -> list[dict[str, str]]:
+    def _decision_buttons(
+        ctx: ToolContext, case: Escalation, reason: str | None = None
+    ) -> list[dict[str, str]]:
         return [
             {"id": f"{option['id']}:{case.case_code}", "title": option["label"]}
-            for option in handover.decision_options(ctx)
+            for option in handover.decision_options(ctx, reason or case.reason)
         ]
 
     def _relay_to_customer(session: Any, case: Escalation) -> None:
@@ -473,21 +475,37 @@ def create_app(
             log.error("escalated turn with no escalation record on %s", ctx.conversation_id)
             return
 
-        reason = (state.escalation_reason or "unspecified").replace("_", " ")
+        raw_reason = state.escalation_reason or "unspecified"
+        reason = raw_reason.replace("_", " ")
         question = f"{reason} — {message.text[:200]}"
         handover.open_case(ctx, escalation, question)
         ctx.session.commit()
 
         customer = ctx.customers.get(ctx.customer_id or "")
+        who = customer.name or message.from_number
+        deciding = handover.needs_a_decision(ctx, raw_reason)
+
+        if deciding:
+            ask = "What should I tell them?"
+        else:
+            # No answer to choose between — someone has to take this over. The
+            # number is included because the right next action is usually a
+            # phone call, not a WhatsApp reply.
+            ask = (
+                f"*This needs a person.* I've told them a colleague is taking over "
+                f"and I've stopped replying.\n"
+                f"Reach them on +{message.from_number}."
+            )
+
         note = (
             f"⚠️ *{reason.title()}* — case {escalation.case_code}\n\n"
-            f"Customer: {customer.name or message.from_number}\n"
+            f"Customer: {who}\n"
             f'They said: "{message.text[:300]}"\n\n'
-            "What should I tell them?\n"
+            f"{ask}\n"
             "_(demonstration system)_"
         )
         result = client.send_buttons(
-            settings.staff_number, note, _decision_buttons(ctx, escalation)
+            settings.staff_number, note, _decision_buttons(ctx, escalation, raw_reason)
         )
         if not result.ok:
             log.error("could not notify staff: %s", result.error)

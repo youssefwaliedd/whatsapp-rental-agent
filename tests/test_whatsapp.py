@@ -514,8 +514,10 @@ def test_an_escalation_notifies_staff(session_factory):
 
     _, note, buttons = outbound.buttons[0]
     assert "I crashed the car" in note
-    assert "What should I tell them?" in note, "a notice is not a question"
-    assert [b["title"] for b in buttons] == ["Approve", "Decline", "I'll call them"]
+    # The stub escalates as "other", which is not a decision reason — so this is
+    # a handover, and the owner is told to take over rather than asked to pick.
+    assert "This needs a person" in note
+    assert [b["title"] for b in buttons] == ["I've taken it from here"]
 
 
 def test_a_crashing_turn_still_returns_200(session_factory):

@@ -564,3 +564,77 @@ def test_the_state_block_carries_the_quote_not_just_its_id(booking_ctx, settings
     assert quote["quote_id"] in block
     assert str(quote["total_charge"]) in block, "the figure, not just the reference"
     assert "do not search or re-quote" in block
+
+
+# --------------------------------------------------------------------------
+# Provider outages
+#
+# Before this, an unreachable model meant the customer got "send that again"
+# and nothing else happened — no retry, nobody told. An hour-long outage lost
+# live customers in silence, and the company never found out.
+# --------------------------------------------------------------------------
+
+
+def test_one_bad_turn_gets_an_apology_not_a_handover(booking_ctx, settings):
+    """Outages are usually brief. Pulling a person in for every blip would
+    train the owner to ignore the alerts."""
+    from rental_agent.agent.loop import PROVIDER_BUSY_REPLY
+    from rental_agent.agent.providers.errors import ProviderUnavailable
+
+    bot, _ = agent(script=[ProviderUnavailable("503 UNAVAILABLE")], settings=settings)
+    turn = bot.respond(booking_ctx, "do you have a g wagon")
+
+    assert turn.reply == PROVIDER_BUSY_REPLY
+    assert turn.escalated is False
+    assert booking_ctx.load_state().consecutive_provider_failures == 1
+
+
+def test_a_second_failure_in_a_row_pulls_a_person_in(booking_ctx, settings):
+    """Repeating the apology is a slower way of losing the customer."""
+    from rental_agent.agent.loop import PROVIDER_DOWN_REPLY
+    from rental_agent.agent.providers.errors import ProviderUnavailable
+
+    bot, _ = agent(
+        script=[ProviderUnavailable("503"), ProviderUnavailable("503")], settings=settings
+    )
+    bot.respond(booking_ctx, "do you have a g wagon")
+    turn = bot.respond(booking_ctx, "hello?")
+
+    assert turn.reply == PROVIDER_DOWN_REPLY
+    assert turn.escalated is True
+
+    state = booking_ctx.load_state()
+    assert state.escalated is True
+    assert state.escalation_reason == "repeated_agent_failure"
+    assert len(booking_ctx.escalations.open_escalations()) == 1
+
+
+def test_the_staff_note_carries_what_the_customer_was_asking(booking_ctx, settings):
+    """A colleague picking this up needs to know what the customer wanted, not
+    just that something broke."""
+    from rental_agent.agent.providers.errors import ProviderUnavailable
+
+    bot, _ = agent(
+        script=[ProviderUnavailable("503"), ProviderUnavailable("503")], settings=settings
+    )
+    bot.respond(booking_ctx, "can i get a black g63 for friday")
+    bot.respond(booking_ctx, "can i get a black g63 for friday")
+
+    [escalation] = booking_ctx.escalations.open_escalations()
+    assert "black g63" in (escalation.detail or "")
+
+
+def test_a_turn_that_gets_through_clears_the_count(booking_ctx, settings):
+    """Otherwise an outage next week inherits a count from this one and hands
+    over on its first blip."""
+    from rental_agent.agent.providers.errors import ProviderUnavailable
+
+    bot, _ = agent(
+        script=[ProviderUnavailable("503"), says("Sure — when do you need it?")],
+        settings=settings,
+    )
+    bot.respond(booking_ctx, "hello")
+    assert booking_ctx.load_state().consecutive_provider_failures == 1
+
+    bot.respond(booking_ctx, "hello again")
+    assert booking_ctx.load_state().consecutive_provider_failures == 0

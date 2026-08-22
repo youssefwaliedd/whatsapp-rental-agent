@@ -268,6 +268,10 @@ class ConversationState(Base):
     #: repeated-question failure, and it can only be detected at ask time —
     #: by evaluation time the value is present either way.
     redundant_asks: list[str] = Field(default_factory=list)
+    #: Turns in a row the model could not be reached for. One is bad luck; a
+    #: second means the customer is stuck behind an outage and needs a person,
+    #: not another apology.
+    consecutive_provider_failures: int = 0
     escalated: bool = False
     escalation_reason: str | None = None
     #: Where the conversation was before it escalated. Without this, resolving a
