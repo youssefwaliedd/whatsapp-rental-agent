@@ -247,3 +247,107 @@ def test_naive_datetimes_are_refused_by_storage(booking_ctx):
             expires_at=FROZEN_NOW,
         )
     booking_ctx.session.rollback()
+
+
+# --------------------------------------------------------------------------
+# What one conversation may know about another
+#
+# A customer must never be shown a trace of somebody else's chat, and a new
+# conversation must not inherit the last one's working memory. What may carry
+# is what a good salesperson would remember about a returning customer — their
+# name and their stated preferences — and nothing else.
+# --------------------------------------------------------------------------
+
+
+def _conversation_for(session, number, now):
+    from rental_agent.context import ToolContext
+    from tests.conftest import REFERENCE_DATE
+
+    ctx = ToolContext(session=session, now_fn=lambda: now, reference_date=REFERENCE_DATE)
+    customer, _ = ctx.customers.get_or_create(number, now)
+    conversation, _ = ctx.conversations.get_or_create(customer.customer_id, now)
+    ctx.customer_id = customer.customer_id
+    ctx.conversation_id = conversation.conversation_id
+    session.flush()
+    return ctx
+
+
+def _say_something_distinctive(ctx, now):
+    from rental_agent.tools.registry import execute_tool
+
+    ctx.messages.record(
+        conversation_id=ctx.conversation_id,
+        direction="inbound",
+        content="i need a bus for 50 people",
+        now=now,
+    )
+    execute_tool(ctx, "save_customer_preference", {"key": "favourite_colour", "value": "black"})
+    state = ctx.load_state()
+    state.delivery_location = "American University of Sharjah"
+    state.presented_vehicle_ids = ["veh_13"]
+    ctx.save_state(state)
+
+
+def test_a_new_customer_sees_no_trace_of_anyone_else(session):
+    """The state block is what the model reads. Nothing of another customer's
+    conversation may appear anywhere in it."""
+    from rental_agent.agent.prompt import render_state
+    from rental_agent.tools.registry import execute_tool
+    from tests.conftest import FROZEN_NOW
+
+    first = _conversation_for(session, "+971500000001", FROZEN_NOW)
+    _say_something_distinctive(first, FROZEN_NOW)
+    session.commit()
+
+    second = _conversation_for(session, "+971509999999", FROZEN_NOW)
+    session.commit()
+
+    assert second.messages.for_conversation(second.conversation_id) == []
+    state = second.load_state()
+    assert state.delivery_location is None
+    assert state.presented_vehicle_ids == []
+
+    customer = execute_tool(second, "get_customer", {})
+    assert customer.get("preferences") == {}
+
+    block = render_state(state, now=FROZEN_NOW, customer=customer).lower()
+    for leak in ("bus", "sharjah", "veh_13"):
+        assert leak not in block, f"{leak!r} leaked into another customer's prompt"
+
+
+def test_a_new_conversation_does_not_inherit_the_last_ones_working_memory(session):
+    """Their dates, their delivery address and the cars they were shown belong
+    to the conversation that established them. Carrying them into a new chat
+    means answering this week's enquiry with last month's details."""
+    from tests.conftest import FROZEN_NOW
+
+    ctx = _conversation_for(session, "+971500000001", FROZEN_NOW)
+    _say_something_distinctive(ctx, FROZEN_NOW)
+    first_id = ctx.conversation_id
+    ctx.conversations.get(first_id).outcome = "ended"
+    session.commit()
+
+    ctx = _conversation_for(session, "+971500000001", FROZEN_NOW)
+    assert ctx.conversation_id != first_id
+
+    assert ctx.messages.for_conversation(ctx.conversation_id) == []
+    state = ctx.load_state()
+    assert state.delivery_location is None
+    assert state.presented_vehicle_ids == []
+
+
+def test_what_does_survive_is_what_a_salesperson_would_remember(session):
+    """A returning customer should not have to repeat their name or restate a
+    preference they have already given. That is the whole of it — remembered
+    preferences carry, working memory does not."""
+    from rental_agent.tools.registry import execute_tool
+    from tests.conftest import FROZEN_NOW
+
+    ctx = _conversation_for(session, "+971500000001", FROZEN_NOW)
+    _say_something_distinctive(ctx, FROZEN_NOW)
+    ctx.conversations.get(ctx.conversation_id).outcome = "ended"
+    session.commit()
+
+    ctx = _conversation_for(session, "+971500000001", FROZEN_NOW)
+    customer = execute_tool(ctx, "get_customer", {})
+    assert customer["preferences"] == {"favourite_colour": "black"}

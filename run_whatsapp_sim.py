@@ -315,6 +315,32 @@ class LoudFailures(logging.Handler):
         print(f"{DIM}  (the customer got nothing — on a real number this is silence){OFF}")
 
 
+def close_open_conversation(session_factory, clock: Clock) -> bool:
+    """Start each run on a clean conversation.
+
+    The database outlives the process, so without this every session inherits
+    the last one — and the agent, correctly, brings it up. Someone testing a
+    fresh scenario then gets asked about a bus for fifty people they never
+    mentioned, which reads as the bot hallucinating when it is in fact
+    remembering.
+
+    Closes rather than deletes: the transcript is what the evaluator reads, and
+    a test session you cannot review afterwards is worth less than one you can.
+    Pass --continue to pick up where you left off instead.
+    """
+    ctx = context(session_factory, clock)
+    try:
+        conversation = ctx.conversations.get(ctx.conversation_id or "")
+        had_history = bool(ctx.messages.for_conversation(ctx.conversation_id or ""))
+        if conversation is not None and had_history:
+            conversation.outcome = "sim_session_ended"
+            ctx.session.commit()
+            return True
+        return False
+    finally:
+        ctx.session.close()
+
+
 def main() -> None:
     logging.getLogger("rental_agent").setLevel(logging.INFO)
     logging.getLogger("rental_agent").addHandler(LoudFailures())
@@ -327,6 +353,11 @@ def main() -> None:
     print(f"{DIM}  warming the model…{OFF}", end="", flush=True)
     took = agent.warm_up()
     print(f"{DIM} {took:.1f}s{OFF}\n" if took else f"{DIM} unavailable{OFF}\n")
+
+    if "--continue" in sys.argv:
+        print(f"{DIM}  continuing the previous conversation{OFF}\n")
+    elif close_open_conversation(session_factory, clock):
+        print(f"{DIM}  fresh conversation — the last one is kept; --continue resumes it{OFF}\n")
 
     app = create_app(
         session_factory=session_factory,
