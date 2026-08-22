@@ -183,7 +183,9 @@
       "driving under the influence"
     ],
     "salik_tolls_charged_at_cost": true,
-    "traffic_fines_admin_fee": 120
+    "traffic_fines_admin_fee": 120,
+    "cdw_excess_is_minimum": true,
+    "_cdw_excess_comment": "Numbered agreement 17.2: an excess 'starting from AED 5,000 up to depending on the car model and determined by the insurance provider'. So this is a floor, not the figure. The agent must say 'from', never state it as the amount owed — understating what someone could owe after an accident is the mistake that matters here."
   },
   "accidents_and_breakdowns": {
     "customer_must": [

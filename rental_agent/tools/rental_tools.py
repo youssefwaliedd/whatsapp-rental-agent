@@ -128,6 +128,7 @@ def _vehicle_detail(vehicle: Vehicle, engine: RentalEngine) -> dict[str, Any]:
             "status": vehicle.status.value,
             "minimum_driver_age": engine.minimum_age_for(vehicle.category),
             "insurance_excess": str(engine.rules.insurance_excess_for(vehicle.category.value)),
+            "insurance_excess_is_minimum": engine.rules.excess_is_minimum,
         }
     )
     data["unconfirmed"] = _unconfirmed(
@@ -184,6 +185,7 @@ def _quote(quote: Quote) -> dict[str, Any]:
         "included_km_total": quote.included_km_total,
         "extra_km_price": _figure(quote.extra_km_price),
         "insurance_excess": str(quote.insurance_excess),
+        "insurance_excess_is_minimum": quote.insurance_excess_is_minimum,
         "expires_at": quote.expires_at.isoformat(),
         "unconfirmed": _unconfirmed(
             ("deposit", quote.deposit),

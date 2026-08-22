@@ -342,6 +342,7 @@ def build_quote(
             money(vehicle.extra_km_price) if vehicle.extra_km_price is not None else None
         ),
         insurance_excess=rules.insurance_excess_for(vehicle.category.value),
+        insurance_excess_is_minimum=rules.excess_is_minimum,
         created_at=now,
         expires_at=now + timedelta(hours=quote_validity_hours),
         rules_version=rules.version,

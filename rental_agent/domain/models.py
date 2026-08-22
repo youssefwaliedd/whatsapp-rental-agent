@@ -189,6 +189,9 @@ class Quote(Base):
     included_km_total: int
     extra_km_price: Decimal | None = None
     insurance_excess: Decimal
+    #: True when the excess above is the bottom of a range the insurer sets, so
+    #: it must be phrased as "from" rather than as the amount.
+    insurance_excess_is_minimum: bool = False
 
     created_at: datetime
     expires_at: datetime

@@ -14,14 +14,14 @@ where zero promises free kilometres past the allowance.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from datetime import datetime
-from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from rental_agent.config import load_rules
+from rental_agent.config import Rules, load_rules
 from rental_agent.evaluation.checks import run_all
 from rental_agent.formatting import UNCONFIRMED, quote_message, vehicle_card
 from rental_agent.tools.rental_tools import _quote, _vehicle_detail, _vehicle_summary
@@ -116,6 +116,38 @@ def test_a_null_figure_never_reaches_the_model_as_the_string_none(unconfirmed_ca
 
 def test_a_confirmed_vehicle_reports_nothing_unconfirmed(engine):
     assert _vehicle_summary(engine.list_fleet()[0])["unconfirmed"] == []
+
+
+# --- a floor is not a figure ------------------------------------------------
+
+
+def test_an_excess_published_as_a_range_is_rendered_with_from(engine):
+    quote = quote_for(engine, engine.list_fleet()[0]).model_copy(
+        update={"insurance_excess_is_minimum": True}
+    )
+    assert "Insurance excess: from AED" in quote_message(quote, load_rules())
+
+
+def test_an_operator_with_a_fixed_excess_still_states_it_plainly(engine):
+    quote = quote_for(engine, engine.list_fleet()[0])
+    rendered = quote_message(quote.model_copy(update={"insurance_excess_is_minimum": False}),
+                             load_rules())
+    assert "Insurance excess: AED" in rendered
+    assert "from AED" not in rendered
+
+
+def test_the_flag_is_read_from_the_rules_rather_than_hardcoded():
+    assert Rules({"insurance": {"cdw_excess_is_minimum": True}}).excess_is_minimum is True
+    assert Rules({"insurance": {}}).excess_is_minimum is False
+
+
+def test_deltas_own_config_marks_the_excess_as_a_floor():
+    # 17.2 gives "from AED 5,000 up to, depending on the car model". The fixture
+    # operator has a fixed excess, so only the real config can assert this — and
+    # it is worth asserting, because the flag going missing would silently turn a
+    # floor back into a figure.
+    live = Rules(json.loads((Path(__file__).parents[1] / "config/rules.json").read_text()))
+    assert live.excess_is_minimum is True
 
 
 # --- what the evaluator catches ---------------------------------------------

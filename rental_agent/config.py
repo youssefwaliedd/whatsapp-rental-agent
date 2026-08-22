@@ -116,6 +116,15 @@ class Rules:
     def insurance_excess_for(self, category: str) -> Decimal:
         return Decimal(str(self._data["insurance"]["cdw_excess_by_category"][category]))
 
+    @property
+    def excess_is_minimum(self) -> bool:
+        """Whether the excess above is a floor rather than the amount.
+
+        Delta publishes it as "from AED 5,000, depending on the vehicle", so the
+        figure is the bottom of a range the insurer sets. Stating it flat would
+        understate what a customer could owe after an accident."""
+        return bool(self._data["insurance"].get("cdw_excess_is_minimum", False))
+
     def as_dict(self) -> dict[str, Any]:
         return self._data
 

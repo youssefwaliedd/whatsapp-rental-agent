@@ -115,11 +115,22 @@ def quote_message(quote: Quote, rules: Rules) -> str:
     lines += [
         "",
         f"{quote.included_km_total} km included · {per_km}",
-        f"Insurance excess: {amount(quote.insurance_excess, quote.currency)}",
+        f"Insurance excess: {excess(quote)}",
         "",
         demo_footer(rules),
     ]
     return "\n".join(lines)
+
+
+def excess(quote: Quote) -> str:
+    """`from AED 5,000` where the operator publishes a floor rather than a figure.
+
+    The word carries real weight: the excess is what a customer owes after an
+    accident, and printing the bottom of the insurer's range as though it were
+    the amount understates their exposure at the worst possible moment.
+    """
+    shown = amount(quote.insurance_excess, quote.currency)
+    return f"from {shown}" if quote.insurance_excess_is_minimum else shown
 
 
 def demo_footer(rules: Rules) -> str:
