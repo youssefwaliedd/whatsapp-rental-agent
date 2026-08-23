@@ -398,6 +398,77 @@ def check_escalated_before_answering(messages, tool_calls) -> list[Finding]:
     ]
 
 
+#: Asking what would happen. A customer deciding whether to book asks these
+#: constantly, and the answer is in the policy document.
+_HYPOTHETICAL = re.compile(
+    r"\b(?:what|who|how much)\s+(?:\w+\s+){0,3}?(?:if|when|in case)\b"
+    r"|\bwhat happens\b|\bwhat would\b|\bwould i (?:be|have|need|pay)\b"
+    r"|\bam i (?:covered|liable|responsible)\b"
+    r"|\bin case of\b|\bif i (?:crash|damage|scratch|break|lose|have an accident)\b",
+    re.I,
+)
+
+#: Reporting something that has happened. Deliberately checked first: "I crashed
+#: it, what happens now" is an incident, not a question.
+_ACTUAL = re.compile(
+    r"\b(?:i|we|someone|somebody)\s+(?:just\s+)?(?:have|has|had|'ve)?\s*"
+    r"(?:crashed|hit|damaged|scratched|broke|broken|lost|stolen)\b"
+    r"|\b(?:i|we)(?:'ve| have| just)\s+had an accident\b"
+    r"|\bthere(?:'s| has| have)\s+(?:been\s+)?an? (?:accident|crash|incident)\b"
+    r"|\bcar (?:is |has )?(?:broken down|been stolen|won'?t start)\b"
+    r"|\bpolice (?:are|is|came|arrived)\b|\bi am (?:hurt|injured)\b",
+    re.I,
+)
+
+#: Reasons where treating a question as the event does real damage: the agent
+#: goes silent, and the owner gets a case with nothing to act on.
+_INCIDENT_REASONS = frozenset(
+    {"accident", "injury", "breakdown", "vehicle_theft_or_loss", "medical_emergency",
+     "police_involvement"}
+)
+
+
+def check_escalated_a_hypothetical(messages, tool_calls) -> list[Finding]:
+    """Treating "what happens if I crash it?" as a crash.
+
+    Someone deciding whether to rent a supercar asks what an accident would cost
+    them. It is one of the most common questions there is, the answer is in the
+    policy document — excess, police report, what insurance excludes — and
+    escalating it ends the conversation for a customer who was about to book,
+    while handing a colleague a case containing no incident.
+    """
+    reasons = {
+        (call.result or {}).get("reason") or (call.arguments or {}).get("reason")
+        for call in tool_calls
+        if call.tool_name == "escalate_conversation"
+    }
+    if not (reasons & _INCIDENT_REASONS):
+        return []
+
+    inbound = [m for m in messages if m.direction == "inbound"]
+    if any(_ACTUAL.search(m.content or "") for m in inbound):
+        return []
+
+    asked = next((m for m in inbound if _HYPOTHETICAL.search(m.content or "")), None)
+    if asked is None:
+        return []
+
+    return [
+        Finding(
+            type="escalated_a_hypothetical",
+            severity="high",
+            situation="the customer asked what would happen, not reported that it had",
+            bad_behavior=f"escalated as an incident on {(asked.content or '')[:70]!r}",
+            correct_behavior=(
+                "answer it from search_company_policy — the excess, the police report "
+                "requirement and the insurance exclusions are all there — and escalate "
+                "only once something has actually happened"
+            ),
+            evidence={"message_id": asked.id, "reasons": sorted(r for r in reasons if r)},
+        )
+    ]
+
+
 def check_repeated_questions(state) -> list[Finding]:
     """Asking for something the customer had already supplied.
 
@@ -535,6 +606,7 @@ def run_all(messages, tool_calls, state, escalated: bool, owner_decisions=None) 
         *check_absence_claimed_for_unconfirmed(messages, tool_calls),
         *check_deferred_promise_for_unconfirmed(messages, tool_calls),
         *check_escalated_before_answering(messages, tool_calls),
+        *check_escalated_a_hypothetical(messages, tool_calls),
         *check_missed_escalation(messages, tool_calls, escalated),
         *check_discount_without_authority(messages, tool_calls, owner_decisions),
         *check_repeated_questions(state),

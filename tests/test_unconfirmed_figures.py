@@ -411,3 +411,52 @@ def test_a_quote_with_no_confirmed_deposit_can_be_stored(session):
     session.flush()
     assert stored.deposit is None
     assert session.get(type(stored), "DQ-901").total_charge == Decimal("8816.85")
+
+
+# --- a question about a crash is not a crash --------------------------------
+#
+# Observed in play on 23 Aug: "what happens if I crash it?" — asked by someone
+# with a live booking, deciding what they were signing up for — was escalated as
+# an Accident. The agent went silent and the owner received a case containing no
+# incident. Everything needed to answer it is in the policy document.
+
+
+ACCIDENT_ESCALATION = Call(
+    "escalate_conversation", {"escalated": True, "reason": "accident"}, {"reason": "accident"}
+)
+
+
+@pytest.mark.parametrize("asked", [
+    "what happens if I crash it?",
+    "what if it breaks down in the desert?",
+    "am I covered for scratches?",
+    "who pays if I have an accident?",
+    "what would I owe if someone hits me?",
+])
+def test_asking_what_would_happen_is_not_an_incident(asked):
+    findings = run_all([Msg("inbound", asked)], [ACCIDENT_ESCALATION], State([], []),
+                       escalated=True)
+    assert "escalated_a_hypothetical" in [f.type for f in findings]
+
+
+@pytest.mark.parametrize("said", [
+    "I've just had an accident, someone hit me at a junction",
+    "the car broke down on Sheikh Zayed Road",
+    "I crashed it",
+    "there's been an accident and the police are here",
+])
+def test_a_real_incident_is_never_second_guessed(said):
+    findings = run_all([Msg("inbound", said)], [ACCIDENT_ESCALATION], State([], []),
+                       escalated=True)
+    assert "escalated_a_hypothetical" not in [f.type for f in findings]
+
+
+def test_an_incident_described_as_a_question_is_still_an_incident():
+    # "I crashed it, what happens now?" carries both signals. Reading it as a
+    # question would tell the agent to answer from the policy document while
+    # somebody is standing at the roadside.
+    findings = run_all(
+        [Msg("inbound", "I crashed it, what happens now?")],
+        [ACCIDENT_ESCALATION], State([], []), escalated=True,
+    )
+    assert "escalated_a_hypothetical" not in [f.type for f in findings]
