@@ -502,3 +502,50 @@ def test_a_real_incident_left_unescalated_is_still_the_costliest_failure(said):
         [], State([], []), escalated=False,
     )
     assert "missed_escalation" in [f.type for f in findings]
+
+
+# --- asking how something works is not it happening -------------------------
+#
+# The second escalation of the same class, in the same conversation on 23 Aug:
+# "how do i do a police report" became a Police Involvement case. The customer
+# was then stuck behind it — every further message got "I'm still waiting to hear
+# back on that one", because an escalated conversation stops answering.
+#
+# The policy document holds the answer: a report is mandatory, call the police to
+# the scene, and tell Delta.
+
+
+POLICE_ESCALATION = Call(
+    "escalate_conversation", {"reason": "police_involvement"}, {"reason": "police_involvement"}
+)
+
+
+@pytest.mark.parametrize("asked", [
+    "how do i do a police report",
+    "who do I call if something happens?",
+    "do I need to call the police for a scratch?",
+    "what's the procedure after an accident?",
+    "how does the insurance work",
+])
+def test_asking_how_it_works_is_not_an_incident(asked):
+    findings = run_all([Msg("inbound", asked)], [POLICE_ESCALATION], State([], []), escalated=True)
+    assert "escalated_a_hypothetical" in [f.type for f in findings]
+
+
+@pytest.mark.parametrize("said", [
+    "I crashed it, how do I do a police report?",
+    "there's been an accident, who do I call?",
+])
+def test_a_procedure_question_from_inside_an_incident_is_an_incident(said):
+    findings = run_all([Msg("inbound", said)], [POLICE_ESCALATION], State([], []), escalated=True)
+    assert "escalated_a_hypothetical" not in [f.type for f in findings]
+
+
+def test_answering_a_procedure_question_is_not_a_missed_escalation():
+    findings = run_all(
+        [Msg("inbound", "how do i do a police report", 1),
+         Msg("outbound", "A police report is mandatory for any damage — call the police to "
+                         "attend the scene, and let us know straight away.", 2)],
+        [], State([], []), escalated=False,
+    )
+    assert findings == [], f"answering correctly was reported: {[f.type for f in findings]}"

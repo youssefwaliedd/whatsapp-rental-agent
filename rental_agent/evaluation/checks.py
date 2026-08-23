@@ -398,13 +398,23 @@ def check_escalated_before_answering(messages, tool_calls) -> list[Finding]:
     ]
 
 
-#: Asking what would happen. A customer deciding whether to book asks these
-#: constantly, and the answer is in the policy document.
+#: Asking about something rather than reporting it. Two shapes, and both were
+#: escalated as live incidents in one conversation on 23 Aug: "what happens if I
+#: crash it?" and "how do i do a police report". A customer deciding whether to
+#: rent a supercar asks both constantly, and the answers are in the policy
+#: document.
 _HYPOTHETICAL = re.compile(
+    # what would happen
     r"\b(?:what|who|how much)\s+(?:\w+\s+){0,3}?(?:if|when|in case)\b"
     r"|\bwhat happens\b|\bwhat would\b|\bwould i (?:be|have|need|pay)\b"
     r"|\bam i (?:covered|liable|responsible)\b"
-    r"|\bin case of\b|\bif i (?:crash|damage|scratch|break|lose|have an accident)\b",
+    r"|\bin case of\b|\bif i (?:crash|damage|scratch|break|lose|have an accident)\b"
+    # how it works — procedure, not event
+    r"|\bhow (?:do|would|can|should) (?:i|we|you)\b"
+    r"|\bhow does .{0,30}\bwork\b"
+    r"|\bwhat(?:'s| is| are) the (?:process|procedure|steps|rules?|policy)\b"
+    r"|\bdo i (?:need|have) to\b|\bwho (?:do|should) i (?:call|contact|tell)\b"
+    r"|\bis (?:a|the) police report (?:needed|required|mandatory)\b",
     re.I,
 )
 
