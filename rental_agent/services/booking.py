@@ -183,7 +183,7 @@ def create_demo_quote(
     # deposit at all, one message before the customer would have booked.
     from ..formatting import quote_message
 
-    ctx.queue_card(quote_message(quote, ctx.engine.rules))
+    ctx.queue_card(quote_message(quote, ctx.engine.rules), tag="quote")
 
     return {
         "quote_id": quote.quote_id,

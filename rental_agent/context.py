@@ -37,7 +37,7 @@ class ToolContext:
     #: reply. The model writes the sentence; this is the part it must not be
     #: trusted to reproduce from a JSON payload — it once quoted a total and
     #: never mentioned the deposit at all.
-    _pending_cards: list[str] = field(default_factory=list, repr=False)
+    _pending_cards: list[tuple[str | None, str]] = field(default_factory=list, repr=False)
 
     # -- construction ----------------------------------------------------
 
@@ -61,16 +61,29 @@ class ToolContext:
         queued, self._pending_media = list(self._pending_media), []
         return queued
 
-    def queue_card(self, text: str) -> None:
-        """Send engine-rendered figures alongside this turn's reply."""
-        if text:
-            self._pending_cards.append(text)
+    def queue_card(self, text: str, *, tag: str | None = None) -> None:
+        """Send engine-rendered figures alongside this turn's reply.
+
+        A tagged card supersedes an earlier one carrying the same tag. Only one
+        quote can be the one being presented, and a model that called the quote
+        tool twice in a turn — once for a car nobody had mentioned — would
+        otherwise send two formal quotes and leave the customer to work out
+        which was theirs. Observed in play: a Mercedes CLA250 quote arriving
+        beside the BMW they had actually chosen.
+        """
+        if not text:
+            return
+        if tag is not None:
+            self._pending_cards = [
+                (kept_tag, body) for kept_tag, body in self._pending_cards if kept_tag != tag
+            ]
+        self._pending_cards.append((tag, text))
 
     def take_cards(self) -> list[str]:
         """Drain, for the same reason media drains: an abandoned turn must not
         send the same quote twice."""
         queued, self._pending_cards = list(self._pending_cards), []
-        return queued
+        return [body for _, body in queued]
 
     def documents_received(self) -> int:
         """How many messages in this conversation actually carried a document.

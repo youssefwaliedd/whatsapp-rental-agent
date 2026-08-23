@@ -102,3 +102,62 @@ def test_a_null_figure_never_reaches_the_model_as_the_string_none(booking_ctx):
 def test_draining_means_a_retried_turn_cannot_send_it_twice(booking_ctx, quoted):
     assert booking_ctx.take_cards()
     assert booking_ctx.take_cards() == []
+
+
+# --- one quote at a time ----------------------------------------------------
+#
+# From a live run: asked for a BMW M4, the agent called the quote tool twice and
+# the customer received two formal quote breakdowns — one for a Mercedes CLA250
+# they had never mentioned, at a different total from the one in the agent's own
+# sentence. Two quotes and no indication which was theirs.
+#
+# The stray tool call is the model's mistake and the evaluator's business. What
+# reaches the customer is not: only one quote can be the one being presented, and
+# the newest is the one `state.quote_id` points at.
+
+
+def test_a_second_quote_supersedes_the_first(booking_ctx):
+    fleet = booking_ctx.engine.list_fleet()
+    for vehicle in (fleet[0], fleet[1]):
+        execute_tool(
+            booking_ctx,
+            "create_demo_quote",
+            {"vehicle_id": vehicle.id, "pickup_at": dt(10, 17).isoformat(),
+             "return_at": dt(12, 17).isoformat()},
+        )
+
+    cards = booking_ctx.take_cards()
+    assert len(cards) == 1
+    # The one the customer is actually being shown.
+    assert fleet[1].display_name in cards[0]
+    assert fleet[0].display_name not in cards[0]
+
+
+def test_the_surviving_card_is_the_live_quote(booking_ctx):
+    fleet = booking_ctx.engine.list_fleet()
+    last = None
+    for vehicle in (fleet[0], fleet[1], fleet[2]):
+        last = execute_tool(
+            booking_ctx,
+            "create_demo_quote",
+            {"vehicle_id": vehicle.id, "pickup_at": dt(10, 17).isoformat(),
+             "return_at": dt(12, 17).isoformat()},
+        )
+    card = booking_ctx.take_cards()[0]
+    assert last["quote_id"] in card
+    assert booking_ctx.load_state().quote_id == last["quote_id"]
+
+
+def test_an_untagged_card_is_not_superseded(booking_ctx):
+    # Superseding is for cards that replace each other. Anything else queued in
+    # the same turn stands on its own.
+    booking_ctx.queue_card("a note that is not a quote")
+    execute_tool(
+        booking_ctx,
+        "create_demo_quote",
+        {"vehicle_id": booking_ctx.engine.list_fleet()[0].id,
+         "pickup_at": dt(10, 17).isoformat(), "return_at": dt(12, 17).isoformat()},
+    )
+    cards = booking_ctx.take_cards()
+    assert len(cards) == 2
+    assert "a note that is not a quote" in cards
