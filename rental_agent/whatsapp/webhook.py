@@ -26,7 +26,7 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 from ..config import load_rules
 from ..context import ToolContext
 from ..formatting import photo_caption
-from ..services import handover, outcomes
+from ..services import booking, handover, outcomes
 from ..sources import refresh as refresh_mod
 from ..store.models import Escalation
 from . import reactions as reactions_mod
@@ -195,6 +195,13 @@ def create_app(
 
             note = "" if message.button_id else message.text
             handover.record_decision(ctx, case, outcome=outcome, note=note)
+
+            # A confirmed hold becomes a booking; a released one must not linger
+            # as something the agent will later call theirs.
+            if case.reason == "booking_hold":
+                reservation_id = (case.detail or "").split(":")[0].strip()
+                booking.apply_hold_decision(ctx, reservation_id, outcome)
+
             session.commit()
 
             client.send_text(

@@ -84,6 +84,10 @@ class UnavailabilityReason(str, Enum):
 
 
 class ReservationStatus(str, Enum):
+    #: Taken, but not yet confirmed by a person who can see the real fleet.
+    #: Every promise made to the customer about a HELD booking must be
+    #: conditional, because the car may already be out.
+    HELD = "held"
     PENDING = "pending"
     CONFIRMED = "confirmed"
     CANCELLED = "cancelled"

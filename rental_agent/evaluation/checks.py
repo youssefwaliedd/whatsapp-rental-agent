@@ -441,6 +441,66 @@ def check_escalated_a_hypothetical(messages, tool_calls) -> list[Finding]:
     ]
 
 
+#: Telling a customer a held car is theirs. No figure in it for the number check
+#: to catch, and the most expensive sentence in the system to get wrong.
+_CONFIRMED_IT = re.compile(
+    r"\b(?:is|it'?s|you'?re|your booking is|all)\s+(?:now\s+)?"
+    r"(?:booked|confirmed|reserved|secured|locked in)\b"
+    r"|\bi(?:'ve| have)\s+(?:booked|confirmed|reserved|secured)\b"
+    r"|\bbooking (?:is )?confirmed\b|\ball set\b|\byou'?re good to go\b",
+    re.I,
+)
+
+
+def check_confirmed_a_hold(messages, tool_calls) -> list[Finding]:
+    """Calling a hold a booking.
+
+    Where the operator keeps availability somewhere the engine cannot read, a
+    booking is a hold until a person who can see the fleet confirms it. Saying
+    "you're all booked" before that sends someone to collect a car that may
+    already be out — the worst outcome a rental business has, and the one thing
+    this design exists to prevent.
+    """
+    held = [
+        call
+        for call in tool_calls
+        if (call.result or {}).get("awaiting_confirmation")
+        and (call.result or {}).get("status") == "held"
+    ]
+    if not held:
+        return []
+
+    confirmed_later = any(
+        (call.result or {}).get("status") == "confirmed"
+        for call in tool_calls
+        if call.tool_name in {"create_demo_reservation", "get_active_reservation"}
+    )
+    if confirmed_later:
+        return []
+
+    findings: list[Finding] = []
+    for message in messages:
+        if message.direction != "outbound":
+            continue
+        match = _CONFIRMED_IT.search(message.content or "")
+        if not match:
+            continue
+        findings.append(
+            Finding(
+                type="confirmed_a_hold",
+                severity="high",
+                situation="the car is held, not confirmed — a colleague is still checking",
+                bad_behavior=f"told the customer it was done: {match.group(0).strip()!r}",
+                correct_behavior=(
+                    "say the car is held and a colleague is confirming it now, and come "
+                    "back when they have — never that it is booked, reserved or theirs"
+                ),
+                evidence={"message_id": message.id, "phrase": match.group(0).strip()},
+            )
+        )
+    return findings
+
+
 def check_repeated_questions(state) -> list[Finding]:
     """Asking for something the customer had already supplied.
 
@@ -625,6 +685,7 @@ def run_all(messages, tool_calls, state, escalated: bool, owner_decisions=None) 
     findings = [
         *check_unsupported_claims(messages, tool_calls, owner_decisions),
         *check_absence_claimed_for_unconfirmed(messages, tool_calls),
+        *check_confirmed_a_hold(messages, tool_calls),
         *check_deferred_promise_for_unconfirmed(messages, tool_calls),
         *check_escalated_before_answering(messages, tool_calls),
         *check_escalated_a_hypothetical(messages, tool_calls),

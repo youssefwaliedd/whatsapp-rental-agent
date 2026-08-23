@@ -22,8 +22,8 @@ from decimal import Decimal
 from typing import Any
 
 from ..context import ToolContext
-from ..domain.enums import Stage
-from . import outcomes
+from ..domain.enums import ReservationStatus, Stage
+from . import escalation, outcomes
 from ..domain.models import Quote as QuoteModel
 from ..engine.engine import VehicleNotFound, VehicleUnavailable
 from ..engine.locations import normalise_location
@@ -268,6 +268,10 @@ def create_demo_reservation(
         )
 
     now = ctx.now()
+    # A booking is a claim about a car nobody has looked at, wherever the
+    # operator keeps availability somewhere the engine cannot read. Held, not
+    # confirmed, until a person who can see the fleet says otherwise.
+    held = holds_require_confirmation(ctx)
     reservation = ctx.reservations.create(
         reservation_id=ctx.counters.next_reservation_reference(),
         is_demo=True,
@@ -275,7 +279,7 @@ def create_demo_reservation(
         conversation_id=ctx.conversation_id,
         vehicle_id=quote.vehicle_id,
         quote_id=quote.quote_id,
-        status="confirmed",
+        status=ReservationStatus.HELD.value if held else "confirmed",
         pickup_at=quote.pickup_at,
         return_at=quote.return_at,
         delivery_location=quote.delivery_location,
@@ -290,7 +294,6 @@ def create_demo_reservation(
         history=[{"event": "created", "quote_id": quote.quote_id, "at": now.isoformat()}],
     )
     ctx.quotes.mark_converted(quote.quote_id)
-    outcomes.mark_booked(ctx)
     _update_state(
         ctx,
         reservation_id=reservation.reservation_id,
@@ -298,7 +301,64 @@ def create_demo_reservation(
         stage=Stage.RESERVED,
     )
 
-    return _reservation_dict(reservation, ctx)
+    payload = _reservation_dict(reservation, ctx)
+    if not held:
+        outcomes.mark_booked(ctx)
+        return payload
+
+    # Not a sale yet — the owner may release it — so it is not tagged booked
+    # here. Confirmation does that.
+    escalation.escalate_conversation(
+        ctx,
+        reason="booking_hold",
+        detail=(
+            f"{reservation.reservation_id}: {vehicle.display_name} "
+            f"{reservation.pickup_at:%a %d %b %H:%M} to {reservation.return_at:%a %d %b %H:%M}"
+            + (f", delivery {reservation.delivery_location}" if reservation.delivery_location else "")
+        ),
+    )
+    payload["status"] = ReservationStatus.HELD.value
+    payload["awaiting_confirmation"] = True
+    payload["guidance"] = (
+        "This is a HOLD, not a confirmed booking. Tell them the car is held and a "
+        "colleague is confirming it now, and that you will come straight back. Do "
+        "NOT say it is booked, confirmed, reserved or theirs. Give them the "
+        "reference so they have something to refer to. Carry on with anything else "
+        "they need in the meantime."
+    )
+    return payload
+
+
+def holds_require_confirmation(ctx: ToolContext) -> bool:
+    """Whether a booking has to be confirmed by a person before it is one."""
+    return bool(ctx.engine.rules.get("booking", {}).get("holds_require_confirmation", False))
+
+
+def apply_hold_decision(ctx: ToolContext, reservation_id: str, outcome: str) -> str | None:
+    """Turn the owner's answer into the reservation's actual state.
+
+    Approved means the car really is free and the customer has a booking.
+    Declined means it is not, and the reservation must not linger as something
+    the agent will later describe as theirs.
+    """
+    reservation = ctx.reservations.get(reservation_id)
+    if reservation is None or reservation.status != ReservationStatus.HELD.value:
+        return None
+
+    now = ctx.now()
+    if outcome == "approved":
+        reservation.status = ReservationStatus.CONFIRMED.value
+        reservation.history.append({"event": "hold_confirmed", "at": now.isoformat()})
+        outcomes.record(ctx, outcomes.BOOKED, conversation_id=reservation.conversation_id)
+    elif outcome == "declined":
+        reservation.status = ReservationStatus.CANCELLED.value
+        reservation.history.append({"event": "hold_released", "at": now.isoformat()})
+    else:
+        return None
+
+    reservation.updated_at = now
+    ctx.session.flush()
+    return reservation.status
 
 
 def modify_demo_reservation(

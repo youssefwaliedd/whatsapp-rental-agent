@@ -231,7 +231,8 @@
     "refund_request",
     "fee_dispute",
     "eligibility_exception",
-    "outside_knowledge_base"
+    "outside_knowledge_base",
+    "booking_hold"
   ],
   "payment": {
     "accepted": [
@@ -255,7 +256,8 @@
       "fee_dispute",
       "eligibility_exception",
       "discount_above_approval_threshold",
-      "outside_knowledge_base"
+      "outside_knowledge_base",
+      "booking_hold"
     ],
     "owner_handover": {
       "_comment": "Everything not listed as a decision. The owner is told to take over rather than asked to choose, and one button releases the conversation once they have.",
@@ -322,6 +324,27 @@
       "ask": "*Reply with the figure* and I'll pass it straight on. I won't guess at it.",
       "reminder_after_minutes": 15,
       "timeout_after_minutes": 45
+    },
+    "owner_decision_by_reason": {
+      "booking_hold": {
+        "options": [
+          {
+            "id": "approve",
+            "label": "Confirm the car",
+            "outcome": "approved"
+          },
+          {
+            "id": "decline",
+            "label": "Not available",
+            "outcome": "declined"
+          },
+          {
+            "id": "call",
+            "label": "I'll call them",
+            "outcome": "owner_calling"
+          }
+        ]
+      }
     }
   },
   "messaging": {
@@ -357,5 +380,9 @@
       "modification_confirmation",
       "extension_confirmation"
     ]
+  },
+  "booking": {
+    "_comment": "The fictional operator's availability is in the fleet file, so a booking is a booking.",
+    "holds_require_confirmation": false
   }
 }

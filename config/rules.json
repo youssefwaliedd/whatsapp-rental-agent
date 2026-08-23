@@ -217,7 +217,8 @@
     "fee_dispute",
     "eligibility_exception",
     "outside_knowledge_base",
-    "unconfirmed_figure"
+    "unconfirmed_figure",
+    "booking_hold"
   ],
   "payment": {
     "accepted": [
@@ -243,7 +244,8 @@
       "fee_dispute",
       "eligibility_exception",
       "discount_above_approval_threshold",
-      "outside_knowledge_base"
+      "outside_knowledge_base",
+      "booking_hold"
     ],
     "owner_handover": {
       "_comment": "Everything not listed as a decision. The owner is told to take over rather than asked to choose, and one button releases the conversation once they have.",
@@ -311,6 +313,28 @@
       "ask": "*Reply with the figure* and I'll pass it straight on. I won't guess at it.",
       "reminder_after_minutes": 15,
       "timeout_after_minutes": 45
+    },
+    "owner_decision_by_reason": {
+      "_comment": "Approve and Decline are right for a fee dispute and wrong for a held car — the owner is being asked whether it is actually free, and the words should say so.",
+      "booking_hold": {
+        "options": [
+          {
+            "id": "approve",
+            "label": "Confirm the car",
+            "outcome": "approved"
+          },
+          {
+            "id": "decline",
+            "label": "Not available",
+            "outcome": "declined"
+          },
+          {
+            "id": "call",
+            "label": "I'll call them",
+            "outcome": "owner_calling"
+          }
+        ]
+      }
     }
   },
   "messaging": {
@@ -373,5 +397,10 @@
     "delivery_outside_dubai": "6.5: charged by agreement depending on location.",
     "minimum_age_sports": "5.1: 23-25 for sports and supercars, vehicle dependent. Held at 25 because turning away an eligible customer costs less than refusing one at handover.",
     "weekly_monthly_rates": "Listed publicly as 'on request'; the engine bills daily x days."
+  },
+  "booking": {
+    "_comment": "The operator publishes no availability anywhere, and their team checks it by hand — 'please allow me a moment to check'. So a booking the agent makes is a claim about a car nobody has looked at: someone may have rented it an hour ago by phone. Until there is a feed to read, a booking is a HOLD the owner confirms or releases. A customer arriving for a car that is not there is the worst outcome a rental business has.",
+    "holds_require_confirmation": true,
+    "hold_expires_after_minutes": 120
   }
 }

@@ -85,12 +85,20 @@ def decision_options(ctx: ToolContext, reason: str | None = None) -> list[dict[s
     `reason` is optional so an existing case can be re-asked without knowing it;
     passing None gives the decision buttons, which is the older behaviour.
     """
+    config = _config(ctx)
+    if reason is not None:
+        # Some decisions deserve their own words. "Approve" a held car tells the
+        # owner nothing about what they are approving.
+        specific = config.get("owner_decision_by_reason", {}).get(reason)
+        if specific:
+            return specific.get("options", [])
+
     block = "owner_decision"
     if reason is not None and needs_an_answer(ctx, reason):
         block = "owner_answer"
     elif reason is not None and not needs_a_decision(ctx, reason):
         block = "owner_handover"
-    return _config(ctx).get(block, {}).get("options", [])
+    return config.get(block, {}).get("options", [])
 
 
 def answer_prompt(ctx: ToolContext) -> str:
@@ -328,6 +336,25 @@ def relay_directive(case: Escalation) -> str:
             "It applies to this customer and this car. It is not a price list, so do not "
             "describe it as what you normally charge.",
         ])
+
+    if (case.reason or "") == "booking_hold":
+        held = case.detail or "the vehicle"
+        if case.decision == "approved":
+            return "\n".join([
+                "A colleague has confirmed the car is free. The hold is now a real booking.",
+                f"What was held: {held}",
+                "Tell the customer it is confirmed, warmly and plainly, and give them the "
+                "reference. This is the message they have been waiting for.",
+            ])
+        if case.decision == "declined":
+            return "\n".join([
+                "A colleague checked and the car is NOT available. The hold has been released.",
+                f"What was held: {held}",
+                "Tell the customer straight away and apologise once, without excuses and "
+                "without blaming a system. Then search for something similar for the same "
+                "dates and offer it — they still want a car.",
+                "Do not imply the booking still stands in any form.",
+            ])
 
     outcome = {
         "approved": "approved it",
