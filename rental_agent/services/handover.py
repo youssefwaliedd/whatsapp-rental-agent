@@ -358,6 +358,8 @@ def relay_directive(case: Escalation) -> str:
                 f"What was held: {held}",
                 "Tell the customer it is confirmed, warmly and plainly, and give them the "
                 "reference. This is the message they have been waiting for.",
+                "Then carry on serving them yourself. Nobody is taking over — a colleague "
+                "answered one question and that is finished.",
             ])
         if case.decision == "declined":
             return "\n".join([

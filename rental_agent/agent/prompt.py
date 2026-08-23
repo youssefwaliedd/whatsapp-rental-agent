@@ -387,7 +387,22 @@ def render_state(
             lines.append("About this customer:")
             lines.extend(f"  - {d}" for d in details)
 
-    if state.escalated:
+    if state.escalated and directive:
+        # A relay runs while the conversation is still flagged escalated —
+        # `mark_relayed` deliberately waits until the message has actually gone,
+        # because an answer nobody delivered has resolved nothing. Without this
+        # branch the state block tells the model a colleague is taking over at
+        # the exact moment it is delivering that colleague's answer, and it
+        # dutifully signs off with "a colleague is now taking over" on a booking
+        # that was just confirmed.
+        lines += [
+            "",
+            "You are delivering a colleague's answer right now. The instruction above "
+            "is what happened and is more recent than anything else here. The "
+            "conversation is back with you: do not tell them someone is taking over "
+            "unless that instruction says so.",
+        ]
+    elif state.escalated:
         lines += [
             "",
             f"THIS CONVERSATION IS ESCALATED ({state.escalation_reason}). A colleague is "

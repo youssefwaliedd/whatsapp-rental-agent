@@ -245,3 +245,66 @@ def test_the_owner_is_asked_whether_the_car_is_free_not_what_to_say(holding_ctx)
     assert "free" in asked.lower()
     # The generic prompt is right for a fee dispute and useless for a held car.
     assert handover.decision_prompt(holding_ctx, "fee_dispute") == "What should I tell them?"
+
+
+# --- the state block must not contradict the message being sent -------------
+#
+# From a live run, one message after the owner confirmed the car: "your booking
+# is now all set... a colleague of mine is now taking over to finalize the final
+# details." Nobody was taking over. A colleague had answered one question and the
+# agent was delivering it.
+#
+# `mark_relayed` runs after the send, deliberately — an answer nobody delivered
+# has resolved nothing — so a relay happens while the conversation is still
+# flagged escalated, and the state block was telling the model a colleague was
+# taking over at the exact moment it was delivering that colleague's answer.
+
+
+def _state(**kwargs):
+    from rental_agent.domain.models import ConversationState
+
+    state = ConversationState(conversation_id="c", customer_id="u")
+    for key, value in kwargs.items():
+        setattr(state, key, value)
+    return state
+
+
+def test_a_waiting_conversation_still_says_a_colleague_is_taking_over():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from rental_agent.agent.prompt import render_state
+
+    now = datetime(2026, 9, 1, 10, tzinfo=ZoneInfo("Asia/Dubai"))
+    text = render_state(_state(escalated=True, escalation_reason="accident"), now=now)
+    assert "ESCALATED" in text
+    assert "Do not sell, quote or book" in text
+
+
+def test_delivering_the_answer_hands_the_conversation_back():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from rental_agent.agent.prompt import render_state
+
+    now = datetime(2026, 9, 1, 10, tzinfo=ZoneInfo("Asia/Dubai"))
+    text = render_state(
+        _state(escalated=True, escalation_reason="booking_hold"),
+        now=now,
+        directive="A colleague has confirmed the car is free.",
+    )
+    assert "back with you" in text
+    # The instruction it would otherwise have obeyed instead of the directive.
+    assert "Do not sell, quote or book" not in text
+
+
+def test_a_confirmed_hold_tells_the_agent_to_carry_on():
+    from types import SimpleNamespace
+
+    from rental_agent.services import handover
+
+    case = SimpleNamespace(reason="booking_hold", decision="approved",
+                           detail="DEMO-1044: BMW M4 Competition",
+                           question=None, decision_note=None)
+    directive = handover.relay_directive(case)
+    assert "Nobody is taking over" in directive
