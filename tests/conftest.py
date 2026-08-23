@@ -20,6 +20,12 @@ from zoneinfo import ZoneInfo
 # Set before anything imports rental_agent.config, which resolves this lazily.
 os.environ["RENTAL_AGENT_CONFIG_DIR"] = str(Path(__file__).parent / "fixtures" / "config")
 
+# The suite must not reach the network, and must not depend on what happens to
+# be in .env. A developer with PAYMENT_PROVIDER=stripe set for a demo would
+# otherwise have every payment test open a real Checkout session against their
+# account — slowly, and for as long as nobody noticed.
+os.environ["PAYMENT_PROVIDER"] = "simulated"
+
 import pytest
 
 from rental_agent.config import load_rules

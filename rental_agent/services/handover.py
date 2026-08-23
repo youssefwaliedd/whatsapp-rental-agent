@@ -101,6 +101,14 @@ def decision_options(ctx: ToolContext, reason: str | None = None) -> list[dict[s
     return config.get(block, {}).get("options", [])
 
 
+def decision_prompt(ctx: ToolContext, reason: str) -> str:
+    """What the owner is asked. "What should I tell them?" is right for a fee
+    dispute and useless for a held car — they are being asked whether it is
+    free, and the message should say so."""
+    specific = _config(ctx).get("owner_decision_by_reason", {}).get(reason, {})
+    return specific.get("ask") or "What should I tell them?"
+
+
 def answer_prompt(ctx: ToolContext) -> str:
     """What the owner is asked when the case wants a value."""
     return _config(ctx).get("owner_answer", {}).get(
@@ -154,11 +162,16 @@ def open_cases(ctx: ToolContext) -> list[Escalation]:
 
 
 def _open_cases(ctx: ToolContext) -> list[Escalation]:
+    # Ordered by id as well as time. Two cases raised in the same second tie on
+    # created_at, and the tie resolves arbitrarily — which sent an owner's
+    # "confirm the car" to a police-report case from the night before, and left
+    # the customer holding a booking nobody answered. The id is monotonic, so
+    # newest wins.
     return list(
         ctx.session.scalars(
             select(Escalation)
             .where(Escalation.status.in_((AWAITING, TIMED_OUT)))
-            .order_by(Escalation.created_at.desc())
+            .order_by(Escalation.created_at.desc(), Escalation.id.desc())
         )
     )
 

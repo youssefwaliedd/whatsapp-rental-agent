@@ -151,8 +151,16 @@ def test_nothing_takes_money_unless_configured(monkeypatch):
     assert build_provider().name == "simulated"
 
 
+def test_the_suite_never_reaches_a_real_provider():
+    # A developer with stripe configured for a demo would otherwise have every
+    # test in this file open a Checkout session against their live account.
+    import os
+
+    assert os.environ["PAYMENT_PROVIDER"] == "simulated"
+
+
 def test_the_demo_link_does_not_look_like_a_real_payment_page():
-    link = build_provider().create_link(
+    link = build_provider("simulated").create_link(
         amount=Decimal("100"), currency="AED", reference="PAY-1", description="x"
     )
     # A demo link plausible enough to click is one somebody types a card into.

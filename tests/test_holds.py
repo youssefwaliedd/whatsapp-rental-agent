@@ -208,3 +208,40 @@ def test_holding_language_is_fine(said):
 def test_a_real_booking_may_be_called_a_booking():
     booked = [Call("create_demo_reservation", {"status": "confirmed"})]
     assert check_confirmed_a_hold([Msg("outbound", "You're all booked!")], booked) == []
+
+
+# --- the owner's answer must reach the case they were asked about -----------
+#
+# From a live run: the owner tapped "Confirm the car" on a held BMW and the
+# system applied it to a police-report case from the night before. The customer
+# was told about accident procedure and never got their booking. Both cases had
+# the same created_at — the simulator's clock is frozen — so ordering by time
+# alone resolved arbitrarily.
+
+
+def test_the_newest_case_wins_when_two_were_raised_in_the_same_second(booking_ctx):
+    from rental_agent.services import handover
+
+    now = booking_ctx.now()
+    first = booking_ctx.escalations.create(
+        conversation_id=booking_ctx.conversation_id, customer_id=booking_ctx.customer_id,
+        reason="police_involvement", detail="older", now=now,
+    )
+    handover.open_case(booking_ctx, first, "older question")
+    second = booking_ctx.escalations.create(
+        conversation_id=booking_ctx.conversation_id, customer_id=booking_ctx.customer_id,
+        reason="booking_hold", detail="DEMO-1043: BMW M4 Competition", now=now,
+    )
+    handover.open_case(booking_ctx, second, "is this car free?")
+
+    assert first.created_at == second.created_at  # the tie that caused it
+    assert handover.open_cases(booking_ctx)[0].case_code == second.case_code
+
+
+def test_the_owner_is_asked_whether_the_car_is_free_not_what_to_say(holding_ctx):
+    from rental_agent.services import handover
+
+    asked = handover.decision_prompt(holding_ctx, "booking_hold")
+    assert "free" in asked.lower()
+    # The generic prompt is right for a fee dispute and useless for a held car.
+    assert handover.decision_prompt(holding_ctx, "fee_dispute") == "What should I tell them?"

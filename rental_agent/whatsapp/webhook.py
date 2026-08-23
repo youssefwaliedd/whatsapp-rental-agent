@@ -533,7 +533,7 @@ def create_app(
         if handover.needs_an_answer(ctx, raw_reason):
             ask = handover.answer_prompt(ctx)
         elif deciding:
-            ask = "What should I tell them?"
+            ask = handover.decision_prompt(ctx, raw_reason)
         else:
             # No answer to choose between — someone has to take this over. The
             # number is included because the right next action is usually a

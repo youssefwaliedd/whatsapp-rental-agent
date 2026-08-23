@@ -345,7 +345,8 @@
             "label": "I'll call them",
             "outcome": "owner_calling"
           }
-        ]
+        ],
+        "ask": "*Is this car actually free?* Confirm and I'll tell them it's booked. If it is out, I'll say so and find them something else."
       }
     }
   },
