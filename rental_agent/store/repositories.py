@@ -268,7 +268,7 @@ class Quotes:
         vehicle_id: str,
         payload: dict[str, Any],
         total_charge: Decimal,
-        deposit: Decimal,
+        deposit: Decimal | None,
         created_at: datetime,
         expires_at: datetime,
         conversation_id: str | None = None,

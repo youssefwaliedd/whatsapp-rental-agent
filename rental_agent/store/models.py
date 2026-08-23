@@ -144,7 +144,10 @@ class Quote(Base):
     #: even if config or pricing logic changes afterwards.
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     total_charge: Mapped[Decimal] = mapped_column(Money)
-    deposit: Mapped[Decimal] = mapped_column(Money)
+    #: Null where the operator has not confirmed a deposit for this vehicle. The
+    #: column has to allow it or the quote cannot be stored at all, and the
+    #: customer's booking fails on a figure that was never needed to take it.
+    deposit: Mapped[Decimal | None] = mapped_column(Money, default=None)
     status: Mapped[str] = mapped_column(String, default="active")  # active|superseded|converted
     created_at: Mapped[datetime] = mapped_column(AwareDateTime)
     expires_at: Mapped[datetime] = mapped_column(AwareDateTime)
@@ -167,7 +170,7 @@ class Reservation(Base):
     delivery_location: Mapped[str | None] = mapped_column(String, default=None)
 
     total_charge: Mapped[Decimal] = mapped_column(Money)
-    deposit: Mapped[Decimal] = mapped_column(Money)
+    deposit: Mapped[Decimal | None] = mapped_column(Money, default=None)
     currency: Mapped[str] = mapped_column(String, default="AED")
 
     #: All simulated. none | authorised | paid | refunded

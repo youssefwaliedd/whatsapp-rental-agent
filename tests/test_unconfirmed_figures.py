@@ -382,3 +382,32 @@ def test_a_figure_the_owner_supplied_is_not_reported_as_invented():
         [{"decision": "owner_answered", "note": "the deposit is AED 5,000", "question": ""}]
     )
     assert Decimal("5000") in authorised
+
+
+# --- it has to survive being written down -----------------------------------
+#
+# Found in play on 23 Aug, at the worst possible moment: the owner had supplied
+# the deposit, the agent had relayed it, the customer said "book it" — and the
+# insert failed because the quotes column would not accept a null deposit. On a
+# real number that is silence, after the customer has already been told the
+# figure and agreed to pay it.
+
+
+def test_a_quote_with_no_confirmed_deposit_can_be_stored(session):
+    from datetime import timedelta
+    from decimal import Decimal
+    from rental_agent.store.repositories import Quotes
+
+    quotes = Quotes(session)
+    stored = quotes.save(
+        quote_id="DQ-901",
+        vehicle_id="veh_01",
+        payload={"quote_id": "DQ-901"},
+        total_charge=Decimal("8816.85"),
+        deposit=None,
+        created_at=FROZEN_NOW,
+        expires_at=FROZEN_NOW + timedelta(hours=24),
+    )
+    session.flush()
+    assert stored.deposit is None
+    assert session.get(type(stored), "DQ-901").total_charge == Decimal("8816.85")
