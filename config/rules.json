@@ -229,7 +229,19 @@
     ],
     "deposit_taken_as": "card_verification",
     "rental_charged": "in_advance_before_delivery",
-    "notes": "All payments in this prototype are SIMULATED."
+    "notes": "All payments in this prototype are SIMULATED.",
+    "links": {
+      "_comment": "Their brief section 2 asks for a link generated from the quoted price. Their terms say 'you will only pay when you pick up your car', and across thirteen conversations nobody ever sent one — what they take in advance is a holding payment to secure a specific car. So what the link charges is a question for them (questionnaire 22), and until they answer it the safe default is the rental total, which the engine always knows.",
+      "enabled": true,
+      "default_purpose": "rental_total",
+      "purposes": [
+        "rental_total",
+        "holding",
+        "deposit"
+      ],
+      "holding_amount": null,
+      "_holding_amount_note": "Their team quotes AED 500 to secure a booking, and once USD 300. Left null until confirmed — a holding payment is money taken from a real customer."
+    }
   },
   "fuel_policy": {
     "type": "same_level_returned",

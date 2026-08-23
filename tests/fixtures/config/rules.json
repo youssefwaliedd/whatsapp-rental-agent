@@ -242,7 +242,17 @@
     ],
     "deposit_taken_as": "pre_authorisation",
     "rental_charged": "on_delivery",
-    "notes": "All payments in the prototype are SIMULATED. No real payment is ever taken."
+    "notes": "All payments in the prototype are SIMULATED. No real payment is ever taken.",
+    "links": {
+      "enabled": true,
+      "default_purpose": "rental_total",
+      "purposes": [
+        "rental_total",
+        "holding",
+        "deposit"
+      ],
+      "holding_amount": 500
+    }
   },
   "fuel_policy": {
     "type": "like_for_like",

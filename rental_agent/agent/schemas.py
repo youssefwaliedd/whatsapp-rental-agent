@@ -272,6 +272,28 @@ TOOLS: list[dict[str, Any]] = [
         ["quote_id"],
     ),
     _tool(
+        "create_payment_link",
+        "Create a link the customer can pay on, for a CONFIRMED booking. The amount "
+        "comes from their stored quote — you cannot set it, change it, round it or "
+        "negotiate it, and there is no parameter for one. Send the link with a plain "
+        "sentence saying what it is for and how much. Do not call this for a booking "
+        "that is still held: a colleague is confirming the car is free, and asking for "
+        "money before that is worse than asking late. If the amount for a purpose has "
+        "not been confirmed by the operator, this refuses rather than guessing — take "
+        "that to a person.",
+        {
+            "reservation_id": {"type": "string", "description": "e.g. DEMO-1042"},
+            "purpose": {
+                "type": "string",
+                "description": (
+                    "What they are paying: 'rental_total' (the default), 'holding' to "
+                    "secure the car against the invoice, or 'deposit'."
+                ),
+            },
+        },
+        ["reservation_id"],
+    ),
+    _tool(
         "escalate_conversation",
         "Hand the conversation to a human colleague. Call this IMMEDIATELY, before "
         "anything else, when something HAS HAPPENED: an accident, injury, police "

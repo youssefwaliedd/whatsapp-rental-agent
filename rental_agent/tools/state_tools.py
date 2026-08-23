@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Any, Callable
 
 from ..context import ToolContext
-from ..services import booking, escalation
+from ..services import booking, escalation, payments
 from .rental_tools import _parse_dt, _parse_money
 
 
@@ -87,6 +87,14 @@ def record_demo_documents(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
     )
 
 
+def create_payment_link(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    # Deliberately no amount parameter. The figure comes from the stored quote,
+    # because a parameter for it is one a model could fill in.
+    return payments.create_payment_link(
+        ctx, reservation_id=args["reservation_id"], purpose=args.get("purpose")
+    )
+
+
 def simulate_payment(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     return booking.simulate_payment(
         ctx,
@@ -137,6 +145,7 @@ STATE_HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]
     "extend_demo_rental": extend_demo_rental,
     "cancel_demo_reservation": cancel_demo_reservation,
     "record_demo_documents": record_demo_documents,
+    "create_payment_link": create_payment_link,
     "simulate_payment": simulate_payment,
     "schedule_demo_delivery": schedule_demo_delivery,
     "save_customer_preference": save_customer_preference,
