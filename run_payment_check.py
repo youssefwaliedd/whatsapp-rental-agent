@@ -44,7 +44,10 @@ def main() -> None:
     else:
         print("  (simulated — set PAYMENT_PROVIDER=stripe in .env for a real link)")
 
-    factory = init_db(create_db_engine("payment_check.db"))
+    # The same database the webhook uses, so a payment arriving at
+    # /payments/stripe finds the booking this created. A throwaway file here
+    # would leave the callback looking up a reservation that exists only in it.
+    factory = init_db(create_db_engine())
     with factory() as session:
         ctx = ToolContext(session=session, now_fn=lambda: NOW, reference_date=NOW.date())
         customer, _ = ctx.customers.get_or_create("+971500000123", NOW)
