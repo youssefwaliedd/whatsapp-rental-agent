@@ -1,0 +1,129 @@
+[06/06/2026 06:23:43] Customer: Hi, I am interested in renting a car 'Lamborghini Huracan Evo Spyder'. Can you please assist?
+[06/06/2026 06:23:44] Bot: Hi there, welcome to *Delta Rentals Dubai*  — where every car is a statement.
+
+I’m Emma, here to assist you with your inquiry today 😊  
+Feel free to let me know what you’re looking for, and I’ll take care of the rest.
+
+📸 *Instagram:* [link]
+⭐ *Google Reviews:* [link]
+
+
+[06/06/2026 06:24:00] Customer: hi
+[06/06/2026 06:25:05] Customer: do you have any huracans in stock?
+[06/06/2026 06:25:23] Agent: -When would you like to have the car, and for how many days?
+-Could you please share your preferred dates with us?
+
+May I have your name for our records? 😇
+[06/06/2026 06:25:47] Customer: Hi, I would like to rent the car today. 1 day only
+[06/06/2026 06:26:00] Customer: my name is Customer
+[06/06/2026 06:28:26] Template "Hello 👋🏻, thank you for your enquiry. Our team will reply to you shortly. " was sent.
+[06/06/2026 06:28:30] Agent: Well Noted. Please allow me a moment to check ✅
+[06/06/2026 06:29:28] Agent: Yes, we have multiple colour subject to availability.
+[06/06/2026 06:30:50] Customer: [photo] Caption: do you have this one available?
+[06/06/2026 06:31:54] Agent: I will check now, one moment please
+[06/06/2026 06:34:36] Customer: ok
+[06/06/2026 06:35:40] Agent: [photo]
+[06/06/2026 06:35:40] Agent: [photo]
+[06/06/2026 06:35:46] Agent: [photo]
+[06/06/2026 06:35:50] Agent: [photo]
+[06/06/2026 06:36:03] Agent: *Lamborghini Huracàn Evo Spyder 2025*
+ Daily Price: 3199 plus vat per day
+[06/06/2026 06:36:13] Agent: yes the same one is available today ✅
+[06/06/2026 06:36:30] Customer: Okay perfect and I’m 21 years old. I can rent it today?
+[06/06/2026 06:37:19] Agent: Yes that is correct
+[06/06/2026 06:37:29] Agent: 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍𝐒:
+
+1. 𝐍𝐎 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍:
+✅ Pay only *650 AED + VAT (Non-refundable) and avoid the 5000 AED deposit.* Quick, hassle-free, and no 28 days waiting period.
+
+2. *5000* 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍:
+💰 *Pay a refundable 5000 AED deposit,* held for 28 working days to cover traffic fines, and refunded thereafter.
+[06/06/2026 06:37:45] Agent: Which option you would like to move further with ?
+[06/06/2026 06:37:56] Agent: Option 1 no deposit or option 2 deposit ?
+[06/06/2026 06:40:33] Customer: i will do no deposit option
+[06/06/2026 06:41:03] Agent: Well noted
+[06/06/2026 06:41:09] Agent: To secure your reservation, kindly complete the form via the link below with the required details.
+
+[link]
+
+•⁠  ⁠ᴘᴀssᴘᴏʀᴛ/ᴇɪᴅ, ᴅʀɪᴠɪɴɢ ʟɪᴄᴇɴsᴇ, ᴇᴍᴀɪʟ, ᴘʜᴏɴᴇ ɴᴏ., ᴀᴅᴅɪᴛɪᴏɴᴀʟ ᴅʀɪᴠᴇʀ (ɪғ ᴀɴʏ).
+
+Once submitted, we will share the invoice and car reservation link to confirm the booking under your name 🔐
+[06/06/2026 06:41:27] Customer: can you deliver it asap?
+[06/06/2026 06:41:52] Agent: Yes, once we confirm the booking within one hour, the car should be with you.
+[06/06/2026 06:42:13] Agent: Once we confirm the booking card will be cleaned and sanitise ASAP, and dispatched.
+[06/06/2026 06:43:13] Customer: Ok
+[06/06/2026 06:43:21] Customer: i will fill out the form now
+[06/06/2026 06:43:49] Agent: Well noted, we will share the invoice and car reservation link to confirm the booking under your name once form submitted
+[06/06/2026 06:44:42] Customer: I pay when he delivers it right?
+[06/06/2026 06:45:21] Agent: You would need to reserve your car with a minimum down payment, and the remaining balance can be paid upon delivery when you receive the car. 
+This ensures the car won't be booked by anyone else.
+
+
+The amount paid will be adjusted against the total rental, and rest can be paid once you would have the car with you on delivery date.
+[06/06/2026 06:45:30] Customer: [photo] Caption: done
+[06/06/2026 06:45:39] Customer: ok
+[06/06/2026 06:46:09] Agent: [document] Caption: Customer : Evo Spyder : 6.Jun.26 :.pdf
+[06/06/2026 06:46:10] Agent: *Kindly reserve the vehicle under your name using your preferred method below:*
+⊙ ᴘᴀʏᴍᴇɴᴛ ʟɪɴᴋ ⊙ ᴄᴀʀᴅ ⊙ ᴄʀʏᴘᴛᴏ ᴡᴀʟʟᴇᴛ ⊙ ᴄᴀꜱʜ ⊙
+
+⊙ ᴘᴀʏᴍᴇɴᴛ ʟɪɴᴋ: [link]
+[06/06/2026 06:48:28] Customer: I have paid now
+[06/06/2026 06:48:51] Agent: It well received.
+[06/06/2026 06:49:04] Agent: 𝐏𝐥𝐞𝐚𝐬𝐞 𝐩𝐫𝐨𝐯𝐢𝐝𝐞 𝐭𝐡𝐞 𝐛𝐞𝐥𝐨𝐰 𝐝𝐞𝐭𝐚𝐢𝐥𝐬 👇:  
+
+𒊹︎️ Location and Time of delivery
+[06/06/2026 06:49:19] Customer: Herad Tower, JVC
+[06/06/2026 06:49:31] Customer: Time of delivery: now / as soon as possible
+[06/06/2026 06:50:09] Agent: ✅ Booking Confirmation & Delivery Details
+
+-Your booking is confirmed based on the details shared.
+-Everything will be arranged accordingly to ensure a smooth experience.
+-Our driver will contact you before delivery and share the live location.
+-You’ll be able to track the delivery and see the estimated arrival time.
+
+Thank you for choosing us 💜 We truly appreciate your trust and wish you a wonderful day. 💫
+[06/06/2026 06:50:43] Customer: thanks
+[06/06/2026 06:51:05] Customer: can you tell the delivery driver to contact me on this whatsapp? Instead of my dubai number
+[06/06/2026 06:51:10] Customer: this number is best for contact
+[06/06/2026 06:51:26] Agent: Yes they will contact on same number ✅
+[06/06/2026 06:54:15] Agent: Do you have emirates ID as well ?
+[06/06/2026 06:54:30] Customer: yes
+[06/06/2026 06:54:37] Agent: Because with UAE license - we would need emirates ID as well
+[06/06/2026 06:55:00] Customer: i shared it in the form
+[06/06/2026 06:55:23] Agent: I will inform the team. Thank you so much.
+[06/06/2026 07:05:14] Customer: do you need me to send it again?
+[06/06/2026 07:09:25] Agent: Team has received it, thank you for asking.
+
+No problem at all
+[06/06/2026 07:09:31] Agent: Team will message you once nearby ✅
+[06/06/2026 07:18:29] Customer: Ok
+[06/06/2026 07:39:40] Agent: Thank you so much.
+[06/06/2026 08:20:27] Customer: are you here?
+[06/06/2026 08:21:10] Agent: I will check with team ✅
+[06/06/2026 08:44:28] Customer: Hello it’s been 2 hours soon
+[06/06/2026 08:44:46] Customer: The driver went to the palm instead and he is still there
+[06/06/2026 08:45:12] Agent: He should be with you shortly. I will doublecheck with the team one moment, please..
+[06/06/2026 08:46:17] Agent: Within 10 minutes team should be there.
+[06/06/2026 08:52:33] Customer: Ok
+[06/06/2026 14:19:37] Customer: Hello
+[06/06/2026 14:19:47] Customer: I cannot connect to the cars Bluetooth from my phone to listen to music 🎵
+[06/06/2026 14:19:50] Customer: How do I fix this?
+[06/06/2026 14:20:01] Agent: Good Evening ✨
+[06/06/2026 14:21:50] Customer: [photo]
+[06/06/2026 14:21:53] Customer: Also what is this about oil level?
+[06/06/2026 14:25:21] Agent: Will check now
+[06/06/2026 14:26:02] Customer: Yeah the music is fixed
+[06/06/2026 14:26:05] Customer: Just the oil now
+[06/06/2026 14:29:12] Agent: Team has been informed 🌷
+[06/07/2026 10:09:41] Agent: Hello, hope you are great
+[06/07/2026 10:13:51] Customer: Hi
+[06/07/2026 10:22:13] Agent: You would like to extend the car ?
+[06/07/2026 10:22:27] Customer: No
+[06/07/2026 10:23:56] Agent: May we please have the pickup location?
+
+The vehicle is currently past its scheduled return time, and we would appreciate your assistance in sharing the location so we can arrange collection accordingly. Thank you. 🙏
+[06/07/2026 10:24:36] Customer: Yeah I spoke to the delivery guy
+[06/07/2026 10:24:46] Customer: Herad tower jvc
+[06/07/2026 10:25:01] Customer: He is coming
+[06/07/2026 10:25:36] Agent: Well noted thank you.

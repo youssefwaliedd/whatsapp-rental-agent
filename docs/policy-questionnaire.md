@@ -1,169 +1,182 @@
-# Delta Rentals — the numbers we need
+# Confirming what your own team already quotes
 
-Your website gives us the car, the daily price, the photos and the free
-kilometres per day. Everything below is the part it does not publish, and the
-assistant cannot quote a figure nobody has confirmed.
+Your website publishes the car, the daily price, the photos and 250 km a day.
+Everything else we needed was missing from it — but most of it turned up in the
+twelve conversations you sent, quoted to real customers by your own team.
 
-Where we already have a value it is shown, so many of these are a tick rather
-than an answer. Sections 1, 2 and 3 are the urgent ones — those are the figures
-the assistant would otherwise state wrongly to a customer.
+So this is not a form asking you to look things up. **It is a list of what we
+found, for you to confirm or correct.** Where your chats and your website
+disagree, we have shown both, because the assistant can only state one of them.
 
-**How to reply:** fill in the blanks, or just send back the numbers — "1: 5,000
-/ 2: 10,000 / 5: no" is perfectly fine.
+**How to reply:** a number and a word is plenty — "1: yes / 4: it's 25 now". If
+something is right, say so and we will encode it.
 
 ---
 
-## 1 — Deposits
+## 1 — The no-deposit option
 
-Your site says four different things about deposits, on the same page:
+Your website advertises "no deposit required (T&Cs apply)" and never states what
+it costs. Your team quotes it constantly:
 
-- The homepage and listings say **"No Deposit Required"**
-- Terms 3.1 says **"a security deposit ranging from AED 5,000 to AED 20,000 is
-  required, subject to vehicle, driver profile, and rental duration"**
-- The invoicing section says **"we will block a deposit of AED 5,000"**
-- A later section says **"a security deposit of AED 5,000 is required for luxury
-  and supercar rentals"**
+- **AED 500 + VAT** on most cars, non-refundable
+- **AED 650 + VAT** on some
+- **AED 350 + VAT** once, described as "spoke to management"
+- **AED 1,000 + VAT** for a twenty-day rental
 
-Section 4 appears to reconcile them — the no-deposit option is a paid,
-non-refundable extra rather than the standing policy. If that is right, the
-assistant needs the actual figures, because "no deposit" as a headline and
-AED 20,000 at handover is the worst conversation a customer can have.
+**1.** Is **AED 500 + VAT** the standard, with 650 for the higher classes?
+____________
 
-**1.** Is a deposit the default, with "no deposit" as a paid option? ____________
+**2.** Which cars are the higher ones? ____________
 
-**2.** The no-deposit fee — the one number the site never states.
-Flat AED ______, or a percentage of the rental ______ %
+**3.** Does it scale with duration — and is the twenty-day figure a rule or a
+one-off? ____________
 
-**3.** Standard deposit — economy and sedans, AED ____________
+**4.** May the assistant quote it directly, or does every no-deposit request go
+to a person? ____________
 
-**4.** SUVs and luxury sedans — AED ____________
+## 2 — Deposit and the hold
 
-**5.** Sports and convertibles — AED ____________
+Your team is consistent: **AED 5,000**, held **28 working days**, payable by
+cash, card or crypto, plus a **AED 50–100 pre-authorisation** at delivery
+refunded within 21 days.
 
-**6.** Supercars — AED ____________
+Your terms say the deposit ranges AED 5,000–20,000, and section 3.2 says it is
+held for **30 days** rather than 28.
 
-**7.** Release period. *Your terms give 30 days in section 3.2, 28 days under
-invoicing, and 28 working days further down.* Which is right? ____________
+**5.** Is AED 5,000 the deposit on every car, or does it rise on the top
+vehicles? If it rises, on which and to what? ____________
 
-**8.** Is the AED 100 pre-authorisation applied on every rental, or only on
-no-deposit ones? ____________
+**6.** 28 working days or 30 days? ____________
 
-## 2 — Kilometres
+**7.** Is the pre-authorisation AED 50, AED 100, or does it vary? ____________
 
-Every listing on your site states 250 km per day, supercars included, so we have
-taken that as standard across the fleet. What the site never states is the cost
-of going over it.
+## 3 — Kilometres
 
-**9.** Cost per extra kilometre. *Your terms say AED 25–150 depending on the
-vehicle, so we need it by class.*
+250 km a day is on every listing and every chat, and your team explains it as a
+pooled allowance — five days gives 1,250 km to use whenever, and a half-day
+booking gives 125 km. We have encoded it that way.
+
+The rate beyond it is where the numbers diverge. Your team quoted **AED 15 per
+extra km** to one customer and **AED 25** to another. Your terms say the range
+is AED 25–150.
+
+**8.** What is the extra-km rate by class?
 Economy/sedan ______ · SUV/luxury ______ · Sports ______ · Supercar ______
 
-**10.** Can a customer buy unlimited mileage? If so, how much per day?
+**9.** Is AED 15 a mistake, a special, or the real rate on some cars?
 ____________
 
-## 3 — Weekly and monthly rates
+## 4 — Insurance excess
 
-Your site lists these as "on request", so the assistant currently bills
-day × number of days — which overcharges anyone renting for a month.
+Your team tells customers the excess starts **from AED 3,500**. Your terms say
+**from AED 5,000**. Both add a minimum 20% of the damage cost.
 
-**11.** Is there a standard weekly discount? *e.g. 6 days' price for 7 days*
+**10.** Which figure is current? ____________
+
+**11.** Does it differ by class, and if so what are the floors? ____________
+
+## 5 — What the assistant may offer without asking
+
+Every discount in your chats is framed the same way — *"with management
+approval"*, *"a special offer for this booking only"*, *"as per management, cost
+price for you"*. Never as a standing rate. That is exactly right, and it is how
+the assistant is built: an override for one customer, never a new price list.
+
+Which leaves the question of what it may do alone. Today every price request
+goes to a person, which is safe and will exhaust you within a week.
+
+**12.** May it offer a discount without asking? Up to what percentage?
 ____________
 
-**12.** A standard monthly rate? *e.g. 25 days' price for 30* ____________
+**13.** Is there a longer-rental discount it may apply automatically — and are
+multi-day prices like "AED 15,000 for 5 days" negotiated each time, or is there
+a ladder? ____________
 
-**13.** From how many days does the weekly rate apply? ______ The monthly?
-______
+**14.** Above what percentage must it always come to you? ____________
 
-## 4 — What the assistant may offer on its own
+## 6 — Delivery
 
-Right now every discount ceiling is zero, so every price request goes to you.
-That is deliberately safe, and it will get tiring for you within a week.
+Free delivery anywhere in Dubai, **9 AM to 10 PM**. Confirmed in both your terms
+and your chats, and encoded. Out of hours is AED 200 per your terms.
 
-**14.** May the assistant offer a discount without asking you? Up to what
-percentage? ____________
+**15.** Sharjah — free, or AED ____________
 
-**15.** Is there a longer-rental discount it may apply automatically?
+**16.** Abu Dhabi — free, or AED ____________
+
+**17.** Beyond 30 km of your base, your terms say "charged upon agreement". Is
+there a rate, or does every one of those come to a person? ____________
+
+## 7 — Cancellation and changes
+
+Your terms give a 72-hour window and also say services are non-refundable and
+cannot be cancelled. Your team told a customer that **same-day changes are
+non-refundable, including reductions and on-the-spot cancellations**, and
+separately offered a refund if a customer is unhappy with the car at handover.
+
+**18.** What is the real cancellation rule? ____________
+
+**19.** Is the at-handover refund a standing promise the assistant may make, or a
+judgement call for a person? ____________
+
+## 8 — Payment
+
+Your chats show card, cash, crypto and bank transfer, prices quoted **plus VAT**,
+and a **AED 500 holding payment** (once USD 300) to secure a booking against the
+invoice.
+
+**20.** Is the AED 500 hold standard, and refundable if they cancel in time?
 ____________
 
-**16.** Above what percentage must it always ask you first? ____________
+**21.** Should the assistant quote prices excluding VAT the way your team does,
+or all-in? ____________
 
-## 5 — Delivery
+**22.** Do you want it to send a payment link, or keep taking payment the way you
+do now? ____________
 
-**17.** Free delivery inside Dubai — *confirmed from your site.* Is it free
-regardless of rental length? ____________
+## 9 — Availability — still the one nobody can answer
 
-**18.** Delivery to Sharjah — free, or AED ____________
+Nothing on your website and nothing in the chats tells us which cars are free on
+which dates. Your team checks and comes back — *"please allow me a moment to
+check"* — which means it is somewhere we cannot see.
 
-**19.** Abu Dhabi — free, or AED ____________
+**23.** Where is that checked — a system, a sheet, a whiteboard? ____________
 
-**20.** Airport delivery (DXB) — free, or AED ____________
+**24.** Can we read from it, or receive it daily? ____________
 
-**21.** Delivery hours. *We have 9 AM–11 PM from your site.* Is there an
-out-of-hours fee, and what is it? ____________
+**25.** Until then, should the assistant treat every booking as a request your
+team confirms, rather than telling the customer it is confirmed? ____________
 
-## 6 — Cancellation, late return, extension
+## 10 — Which agreement is current
 
-**22.** Free cancellation up to ______ hours before pickup.
-*Currently assumed: 72.*
+Your terms page carries two rental agreements. The numbered one at the top and an
+older set below it disagree on about twelve figures — 120 km/h against 160,
+extra kilometres 25–150 against 25–50, a claims window of five years against one,
+deposit release 30 days against 28.
 
-**23.** Cancelling later than that costs ______ % of the rental.
-*Currently assumed: 100%.*
+We have built to the numbered agreement.
 
-**24.** No-show costs ______ %.
-
-**25.** Late return — how many minutes' grace, and what is charged after?
+**26.** Is that the current one, and should the older section come down?
 ____________
 
-**26.** After how many hours late does a full extra day get charged? ______
+> One of your own customers wrote: *"I was reading your website and 2 questions
+> popped up, it mentions a 200 AED for pickup after hours and a security deposit
+> from 5000 to 2000. Do we have to pay both these fees extra too?"* — and asked
+> again later about the same deposit. Whatever the assistant does, that page is
+> costing your team time today.
 
-## 7 — Driver requirements
+## 11 — Who the assistant asks
 
-**27.** Minimum age. *We assume 21 for standard cars, 25 for sports and
-supercars.* Correct? ____________
-
-**28.** Must a licence have been held for a minimum number of years?
+**27.** Which number should it message when something is outside its rules?
 ____________
 
-**29.** Anything required beyond passport, licence and visa — for tourists,
-GCC residents, or for the supercars? ____________
+**28.** What hours is that person realistically reachable? ____________
 
-## 8 — Payment and fuel
-
-**30.** How does a customer actually pay? *Card link, bank transfer, cash on
-collection, card at handover?* ____________
-
-**31.** Is the deposit taken as a card hold or an actual charge? ____________
-
-**32.** Fuel policy — like-for-like, full-to-full, or prepaid? And the
-refuelling fee if returned short: ____________
-
-## 9 — Availability — the important one
-
-Your website does not publish availability anywhere, so the assistant currently
-cannot tell whether a car is actually free on the dates a customer asks for.
-
-**33.** How do you track which cars are booked today? *A system, a spreadsheet,
-a WhatsApp group, someone's memory?* ____________
-
-**34.** Could we read from it, or receive it in some regular form?
-____________
-
-**35.** Until then: should the assistant treat every booking as a request that
-you confirm, rather than telling the customer it is confirmed? ____________
-
-## 10 — When the assistant needs a person
-
-**36.** Which number should it message when something is outside its rules — a
-refund, an accident, an unusual request? ____________
-
-**37.** What hours is that person realistically reachable? ____________
-
-**38.** If nobody is available at 2 AM, what should the customer be told?
+**29.** If nobody is available at 2 AM, what should the customer be told?
 ____________
 
 ---
 
-Anything you leave blank stays blank in the assistant — it will say "the team
-will confirm that" rather than guess a number. That is the safe failure, but it
-is also a lost sale each time, so the more of these that come back, the more the
-assistant can close on its own.
+Anything left blank stays blank in the assistant — it will say "the team will
+confirm that" rather than guess. That is the safe failure, and it is also a
+slower sale every time, so the more of these that come back, the more it closes
+on its own.

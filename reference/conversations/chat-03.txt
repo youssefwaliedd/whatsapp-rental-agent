@@ -1,0 +1,197 @@
+[05/23/2026 09:25:32] Customer: Hi, I am interested in renting a car 'Lamborghini Huracan Evo Spyder'. Can you please assist?
+[05/23/2026 09:25:33] Bot: Hi there, welcome to *Delta Rentals Dubai*  — where every car is a statement.
+
+I’m Emma, here to assist you with your inquiry today 😊  
+Feel free to let me know what you’re looking for, and I’ll take care of the rest.
+
+📸 *Instagram:* [link]
+⭐ *Google Reviews:* [link]
+
+
+[05/23/2026 09:25:46] Agent: -When would you like to have the car, and for how many days?
+-Could you please share your preferred dates with us?
+
+May I have your name for our records? 😇
+[05/23/2026 09:25:52] Customer: Today
+[05/23/2026 09:25:56] Customer: Customer
+[05/23/2026 09:26:26] Agent: Well Noted. Please allow me a moment to check ✅
+[05/23/2026 09:26:29] Template "Hello 👋🏻, thank you for your enquiry. Our team will reply to you shortly. " was sent.
+[05/23/2026 09:26:44] Agent: [photo]
+[05/23/2026 09:27:03] Customer: I want the black one
+[05/23/2026 09:27:19] Customer: Like on the website
+[05/23/2026 09:28:22] Agent: Yes we have multiple colors subject to availability ✅
+[05/23/2026 09:28:36] Customer: Show me
+[05/23/2026 09:29:33] Customer: [photo]
+[05/23/2026 09:29:36] Customer: This one
+[05/23/2026 09:32:26] Agent: [photo]
+[05/23/2026 09:32:27] Agent: [photo]
+[05/23/2026 09:32:35] Agent: [photo]
+[05/23/2026 09:32:36] Agent: [photo]
+[05/23/2026 09:32:38] Agent: [photo]
+[05/23/2026 09:32:52] Customer: What year is this
+[05/23/2026 09:33:28] Customer: You don’t have like the one on your website?
+[05/23/2026 09:33:47] Customer: This is normal evo
+[05/23/2026 09:33:57] Customer: You don’t have the evo spyder?
+[05/23/2026 09:34:14] Agent: This is Evo spyder only
+[05/23/2026 09:34:33] Agent: Yes we have but unfortunately, the same one is not available today.
+[05/23/2026 09:34:36] Customer: Does the roof go up
+[05/23/2026 09:34:40] Customer: Okay
+[05/23/2026 09:34:43] Customer: No problem
+[05/23/2026 09:34:49] Customer: What year is this one?
+[05/23/2026 09:34:54] Customer: .
+[05/23/2026 09:34:59] Agent: Yes same car different Units
+[05/23/2026 09:35:12] Customer: What year is this car
+[05/23/2026 09:35:31] Customer: ?
+[05/23/2026 09:35:33] Agent: 2023 ✅
+[05/23/2026 09:35:45] Agent: 2024 ✅
+[05/23/2026 09:35:45] Customer: Okay
+[05/23/2026 09:35:48] Customer: I want this one
+[05/23/2026 09:35:52] Customer: .
+[05/23/2026 09:35:56] Customer: I want the black one
+[05/23/2026 09:35:58] Customer: 2023
+[05/23/2026 09:36:19] Customer: How fast can you deliver
+[05/23/2026 09:36:19] Agent: *Lamborghini Huracàn Evo Spyder*
+ Daily Price: 3199 plus vat per day
+[05/23/2026 09:36:27] Agent: 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍𝐒:
+
+1. 𝐍𝐎 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍:
+✅ Pay only *500 AED + VAT (Non-refundable) and avoid the 5000 AED deposit.* Quick, hassle-free, and no 28 days waiting period.
+
+2. *5000* 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍:
+💰 *Pay a refundable 5000 AED deposit,* held for 28 working days to cover traffic fines, and refunded thereafter.
+[05/23/2026 09:36:33] Customer: I want for one day
+[05/23/2026 09:36:42] Agent: Which option you would like to move further with ?
+[05/23/2026 09:37:03] Agent: Once we confirm the booking we can delivery in 1-1.5 hour ✅
+[05/23/2026 09:37:05] Customer: 1
+[05/23/2026 09:37:18] Agent: As we will sanitise and clean the car ✅
+[05/23/2026 09:37:20] Customer: No deposit option
+[05/23/2026 09:37:22] Agent: To secure your reservation, kindly complete the form via the link below with the required details.
+
+[link]
+
+•⁠  ⁠ᴘᴀssᴘᴏʀᴛ/ᴇɪᴅ, ᴅʀɪᴠɪɴɢ ʟɪᴄᴇɴsᴇ, ᴇᴍᴀɪʟ, ᴘʜᴏɴᴇ ɴᴏ., ᴀᴅᴅɪᴛɪᴏɴᴀʟ ᴅʀɪᴠᴇʀ (ɪғ ᴀɴʏ).
+
+Once submitted, we will share the invoice and car reservation link to confirm the booking under your name 🔐
+[05/23/2026 09:37:29] Customer: How much do I have to pay
+[05/23/2026 09:37:30] Agent: well noted ✅
+[05/23/2026 09:37:44] Customer: Please give me an exact estimate
+[05/23/2026 09:37:57] Agent: Kindly submit the form and in the meantime, I will share the invoice for net price ✅
+[05/23/2026 09:38:07] Agent: Well Noted. Please allow me a moment ✅
+[05/23/2026 09:38:17] Customer: Thank you
+[05/23/2026 09:38:21] Customer: I will pay upon arrival
+[05/23/2026 09:38:26] Customer: I want to inspect the vehicle first
+[05/23/2026 09:38:39] Agent: You would need to reserve your car with a minimum down payment, and the remaining balance can be paid upon delivery when you receive the car. 
+This ensures the car won't be booked by anyone else.
+
+
+The amount paid will be adjusted against the total rental, and rest can be paid once you would have the car with you on delivery date.
+[05/23/2026 09:39:28] Customer: How much do I need to pay upfront?
+[05/23/2026 09:39:38] Customer: This isn’t okay
+[05/23/2026 09:39:44] Customer: Because I don’t know the condition of the car
+[05/23/2026 09:39:53] Customer: If you can send me video of the vehicle right now
+[05/23/2026 09:39:58] Customer: And show that it is okay
+[05/23/2026 09:40:00] Customer: I’ll pay
+[05/23/2026 09:40:02] Agent: Please check our reviews to see why Delta Rentals is trusted by clients across Dubai. 
+
+We’re known for our trusted service, full transparency, and no hidden charges.
+Every rental comes with a clear, documented agreement and we prioritise your comfort, safety, and satisfaction providing best condition quality cars to make every rental VIP experience 🎯
+
+
+
+[link]
+[05/23/2026 09:40:49] Customer: Can you send video?
+[05/23/2026 09:43:07] Agent: Well Noted. Please allow me a moment to check ✅
+[05/23/2026 09:43:19] Agent: If you would like, we can confirm the booking with only AED 500 upfront (plus bank charges), as the system reserves the car only once the booking is confirmed.
+
+For your satisfaction, the remaining balance can be paid once you see the car at the time of delivery 🙏
+[05/23/2026 09:43:53] Customer: If the car isn’t like in the picture
+[05/23/2026 09:44:00] Customer: And I don’t like it
+[05/23/2026 09:44:07] Customer: Will you give the money back
+[05/23/2026 09:44:25] Agent: Its the same car ✅
+[05/23/2026 09:44:47] Customer: I don’t trust
+[05/23/2026 09:44:47] Customer: Send video
+[05/23/2026 09:46:31] Agent: Yes, no problem ✨
+
+We truly care about our clients and their satisfaction, and we always aim to deliver exactly what we promise 🙏
+[05/23/2026 09:47:00] Agent: Please check our reviews ✅
+[05/23/2026 09:47:22] Customer: So if I don’t like the car
+[05/23/2026 09:47:27] Customer: You will send back the deposit
+[05/23/2026 09:47:30] Customer: Is that correct?
+[05/23/2026 09:48:26] Agent: Yesss ✅
+[05/23/2026 09:48:33] Agent: It will be the same car as photo
+[05/23/2026 09:48:38] Customer: Okay
+[05/23/2026 09:48:42] Customer: Send me video of the car please
+[05/23/2026 09:49:35] Agent: One moment please
+[05/23/2026 09:59:11] Agent: [video]
+[05/23/2026 09:59:29] Customer: No
+[05/23/2026 09:59:34] Customer: I want physical video
+[05/23/2026 09:59:44] Customer: Like
+[05/23/2026 09:59:46] Customer: Go to the car
+[05/23/2026 09:59:48] Customer: Take video
+[05/23/2026 09:59:52] Customer: With your phone
+[05/23/2026 10:02:54] Customer: Can you call me
+[05/23/2026 10:03:42] Agent: Sir, the car is currently parked in our garage facility. Once the booking is confirmed in the system, the team will be immediately dispatched to go in warehouse and prepare the car - washing, cleaning, and preparation before making its way to you.
+
+Will double check the latest delivery video from the previous booking
+
+And while on delivery you can properly check the condition of the car yourself. In the rare case you are not satisfied with the vehicle upon seeing it, we will refund the amount to you 🙏
+[05/23/2026 10:07:10] Customer: Can you call me?
+[05/23/2026 10:08:38] Agent: Yes one moment please ✅
+[05/23/2026 10:17:50] Agent: [photo]
+[05/23/2026 10:17:50] Agent: [photo]
+[05/23/2026 10:17:50] Agent: [photo]
+[05/23/2026 10:17:51] Agent: [photo]
+[05/23/2026 10:18:01] Agent: [photo]
+[05/23/2026 10:18:18] Customer: Please send location of the showroom
+[05/23/2026 10:19:13] Agent: Please find our Location below👇
+
+𝐃𝐞𝐥𝐭𝐚 𝐑𝐞𝐧𝐭𝐚𝐥𝐬,
+𝐍𝐨 𝐃𝐞𝐩𝐨𝐬𝐢𝐭 𝐋𝐮𝐱𝐮𝐫𝐲 & 𝐒𝐮𝐩𝐞𝐫 𝐂𝐚𝐫 𝐑𝐞𝐧𝐭𝐚𝐥𝐬 𝐈𝐧 𝐃𝐮𝐛𝐚𝐢    
+[phone]
+
+𝐖𝐚𝐫𝐞𝐡𝐨𝐮𝐬𝐞 #𝟏𝟎, 
+𝐑𝐚𝐬 𝐀𝐥 𝐊𝐡𝐨𝐫 𝐈𝐧𝐝𝐮𝐬𝐭𝐫𝐢𝐚𝐥 𝐀𝐫𝐞𝐚 𝟏,
+[link]
+[05/23/2026 10:19:36] Customer: Thank you so much
+[05/23/2026 10:23:52] Agent: Most welcomee
+
+I will share McLaren Artura and evo spyder invoices in meantime ✅
+[05/23/2026 10:24:09] Customer: Thank you
+[05/23/2026 10:31:36] Agent: [document] Caption: Customer : EVO SPYDER : 23.5.26 : 1 DAY .pdf
+[05/23/2026 10:33:29] Agent: [document] Caption: Customer : MCLAREN ARTURA : 23.5.26 : 1 DAY .pdf
+[05/23/2026 10:39:28] Customer: Thank you so much
+[05/23/2026 10:42:58] Agent: Always welcomee 🌷
+[05/23/2026 11:21:25] Customer: We are on our way
+[05/23/2026 11:29:41] Agent: Well noted ✅
+[05/23/2026 11:51:43] Agent: Kindly let us know once near 🌷
+[05/23/2026 11:52:42] Customer: 10 min away
+[05/23/2026 11:52:55] Agent: Well noted ✅ Thank you
+[05/23/2026 12:04:22] Customer: Hello
+[05/23/2026 12:04:25] Customer: I am here
+[05/23/2026 12:05:17] Customer: [link]
+[05/23/2026 12:05:56] Customer: Where is the place
+[05/23/2026 12:06:01] Customer: You did not send exact location
+[05/23/2026 12:10:32] Agent: Warehouse 10
+[05/25/2026 12:24:59] Customer: Hello
+[05/25/2026 12:25:01] Bot: Hi there, welcome to *Delta Rentals Dubai*  — where every car is a statement.
+
+I’m Emma, here to assist you with your inquiry today 😊  
+Feel free to let me know what you’re looking for, and I’ll take care of the rest.
+
+📸 *Instagram:* [link]
+⭐ *Google Reviews:* [link]
+
+
+[05/25/2026 12:25:05] Customer: I asked Mohammed for a boat
+[05/25/2026 12:25:09] Customer: He told me to ask you for the number
+[05/25/2026 12:25:17] Customer: Can you please send me the number for boat rentals
+[05/25/2026 12:25:33] Agent: hello yes
+[05/25/2026 12:25:56] Customer: Thank you
+[05/25/2026 12:33:22] Agent: Our your team will message you shortly✅
+[05/25/2026 12:34:58] Customer: Thank you
+[05/25/2026 17:44:10] Agent: Hello, Just wanted to ask - if you could share your email address please 🌷✅✨
+[05/25/2026 17:54:21] Customer: [email]
+[05/25/2026 17:54:46] Agent: Thank you so much.
+[05/25/2026 17:54:59] Agent: Have a wonderful evening
+[05/25/2026 17:55:17] Customer: [audio recorder]
+[05/25/2026 17:58:59] Agent: No problem at thank you so much.

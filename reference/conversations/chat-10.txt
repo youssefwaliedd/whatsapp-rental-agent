@@ -1,0 +1,441 @@
+[04/30/2026 23:02:24] Customer: Yo
+[04/30/2026 23:02:25] Bot: Hi there, welcome to *Delta Rentals Dubai*  — where every car is a statement.
+
+I’m Emma, here to assist you with your inquiry today 😊  
+Feel free to let me know what you’re looking for, and I’ll take care of the rest.
+
+📸 *Instagram:* [link]
+⭐ *Google Reviews:* [link]
+
+
+[04/30/2026 23:04:26] Customer: Salam walakum akhi, I’m going to be in Dubai on Monday, wanted to secure at least 3 cars for 3 of the akhis including me
+[05/01/2026 04:55:08] Agent: May I know which car you’re most interested in, or would you like us to suggest some of our most popular options? 🚗
+[05/01/2026 04:55:13] Agent: -When would you like to have the car, and for how many days?
+-Could you please share your preferred dates with us?
+
+May I have your name for our records? 😇
+[05/01/2026 06:49:35] Customer: Do you have a list of cars
+[05/01/2026 06:50:03] Customer: I’m staying for at least a week, starting from Monday, and my name is Customer
+[05/01/2026 06:51:21] Agent: Kindly review our website for available options and pricing.
+
+Please let us know which one you prefer, and we will  check availability and and assist you right away ✅
+
+[link]
+[05/01/2026 06:51:31] Agent: May I kindly ask what would be your budget ? Once we know this, We’ll do our best to work around it and get you the best option
+[05/01/2026 06:55:03] Agent: We have many great options.
+
+Do you have any specific preference of three cars and any specific budget? 
+
+Once we know this, we will share the related options.
+[05/01/2026 09:22:43] Customer: Do any cars come with exhaust mods
+[05/01/2026 09:37:04] Agent: Yes, supercars typically come with their original sport exhaust systems.
+
+Some options have special exhaust.
+[05/01/2026 10:28:16] Customer: The Aston Martin have an exhaust?
+[05/01/2026 11:26:36] Agent: Well Noted. Please allow me a moment to check ✅
+[05/01/2026 12:29:38] Agent: [photo]
+[05/01/2026 12:29:38] Agent: [photo]
+[05/01/2026 12:29:38] Agent: [photo]
+[05/01/2026 12:29:38] Agent: [photo]
+[05/01/2026 12:29:39] Agent: [photo]
+[05/01/2026 12:32:49] Agent: It had normal Vantage exhaust.
+[05/01/2026 12:32:57] Agent: *Aston Martin Vantage*
+Daily Price: Aed 1999 plus vat
+[05/01/2026 12:50:34] Customer: Whag are some of the v8s with an exhaust?
+[05/01/2026 12:51:19] Agent: Well Noted. Please allow me a moment to check ✅
+[05/01/2026 13:18:15] Agent: [photo]
+[05/01/2026 13:18:15] Agent: [photo]
+[05/01/2026 13:18:23] Agent: [photo]
+[05/01/2026 13:18:24] Agent: [photo]
+[05/01/2026 13:18:25] Agent: [photo]
+[05/01/2026 13:18:38] Customer: I have a urus at home
+[05/01/2026 13:18:42] Customer: Anything else v
+[05/01/2026 13:18:44] Customer: ?*
+[05/01/2026 13:18:54] Agent: ok noted one moment please
+[05/02/2026 06:26:00] Agent: Good morning 🔆
+[05/02/2026 06:26:48] Agent: We have Supercars like Ferrari SF90, Lamborghini Revuelto Spyder, Porsche GT3 RS
+[05/02/2026 06:27:10] Agent: Which car you would be interested in ?
+[05/02/2026 06:36:37] Agent: Lamborghini evo spyder
+Mercedes G900 rocket brabus
+[05/02/2026 06:36:49] Agent: many more super car and luxury cars options
+[05/03/2026 11:34:22] Template "Hello, hope you’re doing great ✨
+
+Would you like us to proceed with reserving the car or is there anything you’d like to clarify?
+
+Please feel free to let us know if you need any assistance. We're here to assist with any clarification needed 💐😇" was sent.
+[05/04/2026 23:17:19] Customer: Hello sorry, I’m landing at Tuesday 6:50am
+[05/04/2026 23:17:21] Bot: Hi there, welcome to *Delta Rentals Dubai*  — where every car is a statement.
+
+I’m Emma, here to assist you with your inquiry today 😊  
+Feel free to let me know what you’re looking for, and I’ll take care of the rest.
+
+📸 *Instagram:* [link]
+⭐ *Google Reviews:* [link]
+
+
+[05/04/2026 23:17:21] Customer: Need three cars
+[05/04/2026 23:17:41] Customer: Is the gt63 and Aston Martin vantage available
+[05/05/2026 04:32:20] Agent: Good morning 🔆
+[05/05/2026 04:44:53] Agent: [photo]
+[05/05/2026 04:44:53] Agent: [photo]
+[05/05/2026 04:44:53] Agent: [photo]
+[05/05/2026 04:44:53] Agent: [photo]
+[05/05/2026 04:44:54] Agent: [photo]
+[05/05/2026 04:45:37] Agent: *Aston Martin Vantage*
+Daily Price: Aed 1999 plus vat
+[05/05/2026 04:49:51] Agent: [photo]
+[05/05/2026 04:49:52] Agent: [photo]
+[05/05/2026 04:49:52] Agent: [photo]
+[05/05/2026 04:49:53] Agent: [photo]
+[05/05/2026 04:49:53] Agent: [photo]
+[05/05/2026 04:50:27] Agent: *Mercedes AMG GT63s*
+Daily Price: Aed 1599 plus vat
+[05/05/2026 04:51:22] Agent: Yes Above aston Martin vantage and GT63s is available
+[05/05/2026 04:52:07] Agent: we also provide no deposit option kindly check below
+[05/05/2026 04:52:18] Agent: 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍𝐒:
+
+1. 𝐍𝐎 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍:
+✅ Pay only *500 AED + VAT (Non-refundable) and avoid the 5000 AED deposit.* Quick, hassle-free, and no 28 days waiting period.
+
+2. *5000* 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍:
+💰 *Pay a refundable 5000 AED deposit,* held for 28 working days to cover traffic fines, and refunded thereafter.
+[05/05/2026 05:23:07] Agent: Just to confirm, Wahidur Omor is your friend, correct? He recommended you to us as he is one of our valued VIP clients.
+
+We noticed a third party inquiring about our same vehicle from us. To ensure a smoother and more transparent process, it would be better to coordinate directly here rather than through a middle party.
+[05/05/2026 05:23:42] Agent: We always aim to offer fair and transparent pricing for our vehicles. Our rental rates may sometimes appear slightly different because we believe in being honest with our clients from the beginning until the end of the rental.
+
+Many companies offer very low rental prices but later charge unreasonably high amounts for damages or additional fees. At Delta Rentals, we do things differently. We keep our prices reasonable and fair, even if there are damages or extra costs involved.
+
+Our goal is to provide quality cars, transparent pricing, and a smooth experience for our valued clients, without any hidden tactics or unexpected charges. We believe in building long term trust and good relationships with our customers.
+[05/05/2026 05:25:22] Customer: Okay no worries I’ll do it from myself
+[05/05/2026 05:25:31] Customer: We also need one more car can you please share the fleet with us
+[05/05/2026 05:25:35] Customer: We are in Dubai right now
+[05/05/2026 05:25:56] Agent: Kindly review our website for available options and pricing.
+
+Please let us know which one you prefer, and we will  check availability and and assist you right away ✅
+
+[link]
+[05/05/2026 05:26:14] Agent: [photo]
+[05/05/2026 05:26:36] Agent: *Mercedes G900 Rocket Brabus*
+Daily Price: Aed 1599 plus vat
+[05/05/2026 06:58:23] Agent: Hi, which cars you would like ?
+[05/05/2026 07:18:30] Agent: May I kindly ask what would be your budget ? Once we know this, We’ll do our best to work around it and get you the best option
+[05/05/2026 14:47:45] Customer: Okay scrap the g63
+[05/05/2026 14:48:02] Customer: Only get the gt63 and Aston Martin for tomorrow
+[05/05/2026 14:48:46] Agent: hello may I know around what time ?
+[05/05/2026 15:04:33] Customer: Tomorrow 9:30 should be good
+[05/05/2026 15:05:04] Agent: Well Noted. Please allow me a moment to check ✅
+[05/05/2026 15:20:29] Agent: yes both are available for tomorrow as of now
+[05/05/2026 15:20:40] Agent: you would like option 1 or option 2 ?
+[05/05/2026 15:39:56] Customer: Option 2
+[05/05/2026 15:40:35] Agent: Very well noted. Please note it's per car ✅
+[05/05/2026 15:40:45] Agent: I will share the invoice and reservation link
+[05/05/2026 15:40:57] Customer: My friend said this was a no depo service
+[05/05/2026 15:41:53] Agent: yes option 1 is no deposit service
+[05/05/2026 15:42:12] Agent: As same taken by Mr. Omor
+[05/05/2026 15:42:26] Agent: 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍𝐒:
+
+1. 𝐍𝐎 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍:
+✅ Pay only *500 AED + VAT (Non-refundable) and avoid the 5000 AED deposit.* Quick, hassle-free, and no 28 days waiting period.
+
+2. *5000* 𝐃𝐄𝐏𝐎𝐒𝐈𝐓 𝐎𝐏𝐓𝐈𝐎𝐍:
+💰 *Pay a refundable 5000 AED deposit,* held for 28 working days to cover traffic fines, and refunded thereafter.
+[05/05/2026 15:42:39] Agent: Kindly check option 1 is the no deposit option.
+[05/05/2026 15:42:54] Agent: No deposit option service fee.
+[05/05/2026 15:48:36] Agent: You would like option 2 or option 1 ?
+[05/05/2026 15:49:49] Customer: How much mileage comes with the car
+[05/05/2026 15:50:10] Agent: Its 250 KMs per car / per day - standard.
+[05/05/2026 15:50:57] Customer: Okay
+[05/05/2026 15:51:01] Customer: I’ll do option 2
+[05/05/2026 15:51:22] Agent: well noted.
+[05/05/2026 15:51:25] Agent: To secure your reservation, kindly complete the form via the link below with the required details.
+
+[link]
+
+•⁠  ⁠ᴘᴀssᴘᴏʀᴛ/ᴇɪᴅ, ᴅʀɪᴠɪɴɢ ʟɪᴄᴇɴsᴇ, ᴇᴍᴀɪʟ, ᴘʜᴏɴᴇ ɴᴏ., ᴀᴅᴅɪᴛɪᴏɴᴀʟ ᴅʀɪᴠᴇʀ (ɪғ ᴀɴʏ).
+
+Once submitted, we will share the invoice and car reservation link to confirm the booking under your name 🔐
+[05/05/2026 15:55:24] Customer: Bro, I think we just found someone with no deposit
+[05/05/2026 15:55:46] Customer: We are not comfortable with leaving a deposit for 28 days
+[05/05/2026 15:55:48] Agent: We also have no deposit
+[05/05/2026 15:55:52] Agent: That is option 1
+[05/05/2026 15:56:01] Agent: So then you can move further with no deposit option
+[05/05/2026 15:56:08] Agent: We do have a No Deposit option available as well. It’s one of our most requested services. 
+
+This way, you can enjoy a completely hassle-free booking without locking up AED 5,000 as a deposit for a whole month. We will be happy to share the details with you if you’d like to know more.
+[05/05/2026 15:56:34] Agent: Kindly check carefully the option one which states it's a no deposit option.
+[05/05/2026 15:57:18] Agent: A deposit is mandatory for all vehicles to cover potential traffic fines and damage security.  
+
+However, if we offer a no-deposit option, a service fee will apply to accommodate this convenience.
+[05/05/2026 16:00:50] Agent: [document] Caption: Customer : Vantage & GT63 : 6.6.26.pdf
+[05/05/2026 16:02:49] Agent: Kindly check the invoice. There’s nothing extra to pay - There is no AED 5,000 deposit is required. If you’ve chosen the no-deposit option, everything is already covered.
+[05/05/2026 16:05:37] Agent: Spoke to management and we can do 350+ vat for no deposit for you for this time.
+[05/05/2026 16:06:54] Agent: [document] Caption: Customer : Vantage & GT63 : 6.6.26.pdf
+[05/05/2026 16:11:39] Agent: We keep our pricing transparent and fair because we do not follow tactics where companies offer very low rental prices and later charge high amounts even for small damages. Our rates reflect the quality of the vehicle and the service we provide, and the same principle applies if there is any minor damage we only charge reasonable and fair costs.
+
+
+
+This is why our pricing may sometimes differ, as we prefer to keep everything clear, honest, and straightforward from the beginning of the rental until the end.
+
+
+And we also avoid sudden surprises and deliver what we promised.
+[05/05/2026 17:26:47] Customer: Alright fine
+[05/05/2026 17:27:01] Customer: 350 is ok
+[05/05/2026 17:27:57] Agent: To secure your reservation, kindly complete the form via the link below with the required details.
+
+[link]
+
+•⁠  ⁠ᴘᴀssᴘᴏʀᴛ/ᴇɪᴅ, ᴅʀɪᴠɪɴɢ ʟɪᴄᴇɴsᴇ, ᴇᴍᴀɪʟ, ᴘʜᴏɴᴇ ɴᴏ., ᴀᴅᴅɪᴛɪᴏɴᴀʟ ᴅʀɪᴠᴇʀ (ɪғ ᴀɴʏ).
+
+Once submitted, we will share the invoice and car reservation link to confirm the booking under your name 🔐
+[05/05/2026 17:28:07] Agent: *Kindly reserve the vehicle under your name using your preferred method below:*
+⊙ ᴘᴀʏᴍᴇɴᴛ ʟɪɴᴋ ⊙ ᴄᴀʀᴅ ⊙ ᴄʀʏᴘᴛᴏ ᴡᴀʟʟᴇᴛ ⊙ ᴄᴀꜱʜ ⊙
+
+⊙ ᴘᴀʏᴍᴇɴᴛ ʟɪɴᴋ: [link]
+[05/05/2026 17:30:23] Agent: Kindly submit the form and kindly ask second driver to also submit form from same link
+
+and kindly confirm the booking with reservation link as well
+[05/05/2026 17:36:09] Agent: Kindly let us know once booking is confirmed and further upon confirmation - we can arrange everything for tomorrow accordingly.
+[05/05/2026 18:03:00] Agent: hello you would be confirming the bookings for arrangement ?
+[05/05/2026 18:03:12] Agent: Please note - the car will only be reserved once the booking is confirmed, as the system secures it on a first-come, first-served basis upon confirmation.
+[05/06/2026 06:57:15] Agent: Hello good morning
+[05/06/2026 06:57:18] Agent: any update ?
+[05/06/2026 07:53:46] Agent: hello, you would like to have the cars ?
+[05/06/2026 08:14:42] Customer: My chats keep disappearing
+[05/06/2026 08:14:44] Customer: I’m so sorry
+[05/06/2026 08:14:48] Customer: Can you resent the link
+[05/06/2026 08:14:48] Customer: Look
+[05/06/2026 08:14:58] Customer: [photo]
+[05/06/2026 08:15:07] Customer: Mus be the Dubai WiFi
+[05/06/2026 08:15:45] Agent: oh on the WhatsApp, I think you have activated the 24 hour chat to be deleted automatically.
+[05/06/2026 08:15:53] Agent: Maybe if you would turn the setting off, it will not delete it.
+[05/06/2026 08:16:00] Agent: Kindly reserve the vehicle under your name using your preferred method below:
+⊙ ᴘᴀʏᴍᴇɴᴛ ʟɪɴᴋ ⊙ ᴄᴀʀᴅ ⊙ ᴄʀʏᴘᴛᴏ ᴡᴀʟʟᴇᴛ ⊙ ᴄᴀꜱʜ ⊙
+
+⊙ ᴘᴀʏᴍᴇɴᴛ ʟɪɴᴋ: [link]
+[05/06/2026 08:16:07] Agent: No problem, kindly find a link here
+[05/06/2026 08:22:49] Agent: Kindly confirm the booking for the vehicle reservation in order to confirm and it will not be booked out anywhere else and we can arrange everything accordingly for tonight ✅
+[05/06/2026 08:35:27] Customer: What’s the 4.6k dirhams for and what car
+[05/06/2026 08:35:30] Customer: And how long ?
+[05/06/2026 08:35:52] Agent: [document] Caption: Customer _ Vantage & GT63 _ 6.6.26.pdf
+[05/06/2026 08:36:02] Agent: this is the invoice sent eariier
+[05/06/2026 08:37:21] Customer: Ok
+[05/06/2026 08:40:12] Agent: Please share the receipt once completed
+[05/06/2026 08:40:28] Customer: We will get the car today right ?
+[05/06/2026 08:40:28] Agent: for confirmation.
+[05/06/2026 08:40:43] Agent: Yes, tonight✅
+[05/06/2026 08:41:04] Agent: We provide free delivery within Dubai and pick up is also included for tomorrow.
+[05/06/2026 08:43:00] Customer: [photo]
+[05/06/2026 08:43:08] Customer: What if we wanted to extend ?
+[05/06/2026 08:43:25] Customer: [document] Caption: Payment Receipt 2461175.pdf
+[05/06/2026 08:44:26] Agent: If you would like to extend, kindly let us know before due time and we will share the invoice and extension link and you can just extend the cars before due time.
+[05/06/2026 08:46:15] Agent: Could you please share the delivery location for tonight?
+[05/06/2026 08:46:20] Agent: To secure your reservation, kindly complete the form via the link below with the required details.
+
+[link]
+
+•⁠  ⁠ᴘᴀssᴘᴏʀᴛ/ᴇɪᴅ, ᴅʀɪᴠɪɴɢ ʟɪᴄᴇɴsᴇ, ᴇᴍᴀɪʟ, ᴘʜᴏɴᴇ ɴᴏ., ᴀᴅᴅɪᴛɪᴏɴᴀʟ ᴅʀɪᴠᴇʀ (ɪғ ᴀɴʏ).
+[05/06/2026 08:46:24] Agent: And fill up the form.
+[05/06/2026 09:04:38] Customer: My friend Adam is driving the gt63
+[05/06/2026 09:04:40] Customer: You need his details ?
+[05/06/2026 09:05:11] Agent: Yes, kindly both of the drivers can fill this form. This link he can submit from his side as well.
+[05/06/2026 09:05:22] Agent: We will need all same details for both drivers.
+[05/06/2026 09:06:24] Customer: I did it from my side
+[05/06/2026 09:07:43] Agent: Well noted, similarly you can share the same link with him and he can open it and submit the form from his side as well.
+[05/06/2026 09:25:49] Agent: Please let us know once form is submitted from your friend side as well.
+[05/06/2026 09:32:53] Customer: I need a new link
+[05/06/2026 09:32:56] Customer: Doesn’t work for him
+[05/06/2026 09:33:07] Customer: Oh it’s done
+[05/06/2026 09:33:08] Customer: He’s done it
+[05/06/2026 09:33:11] Agent: To secure your reservation, kindly complete the form via the link below with the required details.
+
+[link]
+
+•⁠  ⁠ᴘᴀssᴘᴏʀᴛ/ᴇɪᴅ, ᴅʀɪᴠɪɴɢ ʟɪᴄᴇɴsᴇ, ᴇᴍᴀɪʟ, ᴘʜᴏɴᴇ ɴᴏ., ᴀᴅᴅɪᴛɪᴏɴᴀʟ ᴅʀɪᴠᴇʀ (ɪғ ᴀɴʏ).
+[05/06/2026 09:33:16] Agent: okay noted
+[05/06/2026 09:41:54] Customer: Hey bro
+[05/06/2026 09:42:05] Customer: Can you delay gt63 until Saturday
+[05/06/2026 09:45:05] Agent: hello,
+
+means you would like to have the car from today till Saturday
+[05/06/2026 09:45:18] Customer: No
+[05/06/2026 09:45:26] Customer: Because you said tonight
+[05/06/2026 09:45:29] Customer: I need one car now
+[05/06/2026 09:45:34] Customer: And one car Saturday
+[05/06/2026 09:48:47] Agent: Could you please clarify the information that which car you need tonight and which car you would like to have on Saturday ? 
+
+Because both cars are available tonight,  I would need to doublecheck if it's available on Saturday as well.
+[05/06/2026 09:49:16] Customer: I need a car literally right now
+[05/06/2026 09:49:18] Customer: Not tonight
+[05/06/2026 09:49:26] Customer: And I need a car on Saturday
+[05/06/2026 09:49:37] Customer: Because I’m going abu dhabi on Friday coming back on Saturday
+[05/06/2026 09:49:48] Agent: So, you would need both cars right now?
+[05/06/2026 09:49:57] Customer: No I need only one car now
+[05/06/2026 09:50:08] Customer: Like literally now bro
+[05/06/2026 09:50:12] Agent: May I know which one?
+[05/06/2026 09:50:21] Customer: Aston Martin
+[05/06/2026 10:04:01] Agent: yes
+[05/06/2026 10:04:12] Agent: Team will be delivering the car now please can you share the location?
+[05/06/2026 10:04:20] Agent: And GT63s for saturday
+[05/06/2026 10:16:07] Agent: helloo
+[05/06/2026 10:16:13] Agent: Please update the location
+[05/06/2026 10:16:34] Customer: Hello
+[05/06/2026 10:16:44] Customer: What’s the eta
+[05/06/2026 10:16:48] Customer: Paramount midtown hotel
+[05/06/2026 10:16:54] Customer: [link]
+[05/06/2026 10:18:22] Agent: They should be with you in an hour ✅
+[05/06/2026 10:21:06] Customer: Brother I ain’t got time for an hour
+[05/06/2026 10:21:09] Customer: Is there anyway
+[05/06/2026 10:21:12] Customer: U can leave the key
+[05/06/2026 10:21:16] Customer: With the hotel people ?
+[05/06/2026 10:22:10] Agent: For the car handover, you would need to sign the contract so you have to be present while delivery.
+[05/06/2026 10:22:19] Agent: Third person handover is not allowed.
+[05/06/2026 10:22:53] Customer: Can you meet me at the beach then
+[05/06/2026 10:23:05] Agent: yes surely possible
+[05/06/2026 10:23:11] Agent: Please let us know the location
+[05/06/2026 10:23:28] Customer: Give me 5
+[05/06/2026 10:34:54] Agent: hello
+[05/06/2026 10:42:50] Customer: JBR BEACH
+[05/06/2026 10:42:51] Customer: JBR BEACH
+[05/06/2026 10:43:10] Customer: it’s JBR BEACH
+[05/06/2026 10:43:47] Agent: Okay, well noted. I have informed the team.
+[05/06/2026 10:43:49] Agent: They will be in touch with you.
+[05/06/2026 11:14:54] Customer: Can you tell him to go JBR beach
+[05/06/2026 11:15:01] Customer: Location change
+[05/06/2026 11:16:55] Agent: kindly let us know the location as team is already on the move so if possible to confirm the exact location then they will come there.
+[05/06/2026 11:17:37] Customer: Brother
+[05/06/2026 11:17:41] Customer: He’s asking for my passport
+[05/06/2026 11:17:55] Customer: But I’ve left the apartment
+[05/06/2026 11:19:55] Agent: Because the pictures you have uploaded on the form, it's blurry and we need clear picture.
+[05/06/2026 11:20:17] Agent: I will doublecheck, no problem.
+[05/06/2026 11:20:25] Customer: Okay
+[05/06/2026 11:20:32] Customer: The proof is there brother
+[05/06/2026 11:20:41] Customer: My license should be enough too
+[05/06/2026 14:16:26] Agent: Hope everything went well.
+[05/06/2026 14:16:42] Agent: Kindly let us know if anything is needed. Have a great evening
+[05/06/2026 14:49:46] Customer: Okkk
+[05/06/2026 14:57:38] Customer: Bro the boot is not opening
+[05/06/2026 15:01:39] Agent: team will assist you.
+[05/06/2026 15:01:43] Agent: Have informed them.
+[05/06/2026 15:16:52] Customer: No worries
+[05/06/2026 15:17:10] Agent: Thank you. Team has messaged. He will assist you.
+[05/07/2026 08:46:22] Agent: Hello
+[05/07/2026 08:46:29] Agent: which car you would like to have ?
+[05/07/2026 08:49:03] Customer: Can you show me the list
+[05/07/2026 08:49:16] Agent: Kindly review our website for available options and pricing.
+
+Please let us know which one you prefer, and we will  check availability and and assist you right away ✅
+
+[link]
+[05/07/2026 10:18:14] Agent: Hello, we have McLaren Artura available now
+[05/07/2026 10:18:31] Agent: [photo]
+[05/07/2026 10:18:32] Agent: [photo]
+[05/07/2026 10:18:32] Agent: [photo]
+[05/07/2026 10:18:32] Agent: [photo]
+[05/07/2026 10:18:34] Agent: [photo]
+[05/07/2026 10:18:44] Agent: [photo]
+[05/07/2026 10:26:54] Customer: How much
+[05/07/2026 10:27:37] Agent: Its new in edition and has offer right now.
+
+Its AED 2300 plus vat per day rental
+[05/07/2026 10:28:02] Customer: [photo]
+[05/07/2026 10:28:07] Customer: 720s for 1.9
+[05/07/2026 10:30:58] Agent: We keep our pricing transparent and fair because we do not follow tactics where companies offer very low rental prices and later charge high amounts even for small damages. Our rates reflect the quality of the vehicle and the service we provide, and the same principle applies if there is any minor damage we only charge reasonable and fair costs.
+[05/07/2026 10:31:06] Agent: As we specialize in VIP service, we do not compromise on vehicle quality or standards. Our pricing reflects the level of cars and experience we provide. We have already adjusted the rate based on the situation, but we always maintain a certain standard.
+
+As they say, premium quality always comes at the right value - it’s not something that can be matched at just any price.
+[05/07/2026 10:32:48] Agent: No problem as per management we will do 2000 plus vat rental for Artura for you.
+
+Its 7k mileage new car.
+[05/07/2026 10:54:30] Customer: What time do I return the Aston
+[05/07/2026 10:54:55] Agent: return time is 4 PM
+[05/07/2026 10:56:22] Agent: and please note its with 200 KMs per day not 250 KMs.
+plus a 2022 model.
+[05/07/2026 10:56:52] Customer: I understand but the pricing is very bad
+[05/07/2026 10:57:15] Customer: Like I paid £460 for this Aston Martin
+[05/07/2026 10:57:22] Customer: Could I cancel the gt63 please
+[05/07/2026 10:57:45] Agent: Yes you can. Its non refundable ✅
+[05/07/2026 10:58:02] Agent: Certain quality always comes at the right value - it’s not something that can be matched at just any price.
+[05/07/2026 10:58:05] Agent: as mentioned
+[05/07/2026 10:58:17] Customer: You should’ve told me it was non refundable
+[05/07/2026 10:58:24] Agent: please check all google reviews to verify
+[05/07/2026 10:58:44] Agent: Its stated on invoice ✅
+[05/07/2026 10:59:01] Customer: but that’s after I paid, not before
+[05/07/2026 10:59:06] Customer: You should me before I pay
+[05/07/2026 10:59:20] Agent: Invoice is always shared before payment
+[05/07/2026 10:59:25] Agent: it was shared before payment
+[05/07/2026 10:59:33] Customer: Alright 👍 I’ll just keep the gt63
+[05/07/2026 11:02:26] Agent: Mr. Wahidur Omor continues to be one of our VIP clients for a reason - our commitment to quality and service speaks for itself.
+[05/07/2026 12:49:45] Agent: Hello, could you please reconfirm the time for GT63 on Sunday.
+[05/07/2026 12:50:04] Agent: Saturday *
+[05/07/2026 13:46:08] Customer: 2pm
+[05/07/2026 14:08:43] Agent: well noted thank you.
+[05/10/2026 08:42:40] Template "Hello ,this is Emma from Delta Rentals 😊
+
+I trust you are doing great." was sent.
+[05/10/2026 08:42:53] Template "Hello ,this is Emma from Delta Rentals 😊
+
+I trust you are doing great." was sent.
+[05/10/2026 08:54:38] Customer: Hello yes
+[05/10/2026 08:54:40] Bot: Hi there, welcome to *Delta Rentals Dubai*  — where every car is a statement.
+
+I’m Emma, here to assist you with your inquiry today 😊  
+Feel free to let me know what you’re looking for, and I’ll take care of the rest.
+
+📸 *Instagram:* [link]
+⭐ *Google Reviews:* [link]
+
+
+[05/10/2026 08:56:00] Agent: Hope you are great.
+
+You would like to extend the GT63s ?
+[05/10/2026 08:56:14] Agent: will share the extension link below
+[05/10/2026 09:00:24] Agent: [document] Caption: Customer : GT63s : 10.5.26 : Extension.pdf
+[05/10/2026 09:00:37] Agent: *Kindly clear the extension using your preferred method below:*
+⊙ ᴘᴀʏᴍᴇɴᴛ ʟɪɴᴋ ⊙ ᴄᴀʀᴅ ⊙ ᴄʀʏᴘᴛᴏ ᴡᴀʟʟᴇᴛ ⊙ ᴄᴀꜱʜ ⊙
+
+⊙ ᴘᴀʏᴍᴇɴᴛ ʟɪɴᴋ: [link]
+[05/10/2026 09:13:41] Customer: Do you have an m3 g80
+[05/10/2026 09:16:24] Agent: This car is not available ✅
+[05/10/2026 09:31:46] Customer: ??
+[05/10/2026 09:31:46] Customer: [photo]
+[05/10/2026 09:32:00] Agent: well received.
+[05/10/2026 09:32:09] Agent: Team is informed for extension.
+[05/10/2026 09:32:16] Agent: Thank you so much.
+[05/10/2026 21:05:39] Customer: Hello
+[05/10/2026 21:05:52] Customer: Would need the car collected around 3am
+[05/10/2026 21:06:11] Customer: We are leaving early to catch our flight
+[05/11/2026 04:02:54] Customer: Hello
+[05/11/2026 04:03:01] Customer: We are leaving keys with the valet
+[05/11/2026 04:03:09] Customer: Can you please come early
+[05/11/2026 04:14:38] Customer: I’ve left the keys somewhere the valet won’t take it
+[05/11/2026 04:14:53] Customer: [photo]
+[05/11/2026 04:14:54] Customer: [photo]
+[05/11/2026 04:14:55] Customer: [photo]
+[05/11/2026 04:14:55] Customer: [photo]
+[05/11/2026 04:14:56] Customer: [photo]
+[05/11/2026 04:15:09] Customer: It’s in the building entrance
+[05/11/2026 04:15:20] Agent: Hello please note  you have to present while handover 
+[05/11/2026 04:15:38] Customer: I have a flight
+[05/11/2026 04:15:39] Agent:  Please do not leave the keys like this . It’s Car keys.
+[05/11/2026 04:15:45] Customer: I’ve checked the whole car
+[05/11/2026 04:15:57] Customer: I did message you at 1am but you have no response
+[05/11/2026 04:17:21] Agent: Team is unavailable past midnight\, apologies
+[05/11/2026 04:17:46] Customer: Yes but what am I supposed to do in this situation where I have a early flight
+[05/11/2026 04:17:56] Customer: I checked the car full on through
+[05/11/2026 04:18:04] Customer: Everything is good
+[05/11/2026 04:19:04] Agent: I have informed the team.
+[05/11/2026 04:19:17] Customer: Thank you sir
+[05/11/2026 04:19:22] Customer: Paramount midtown hotel
+[05/11/2026 04:19:23] Customer: Entrance
+[05/11/2026 04:21:17] Agent: Will let you know if there would be anything.
+[05/11/2026 05:10:01] Customer: Of course
+[05/11/2026 05:10:05] Customer: Let me know everything
+[05/11/2026 05:10:14] Customer: Tolls fuel etc
+[05/11/2026 05:10:28] Agent: yes surely, safe travels
+[05/11/2026 05:28:55] Customer: Have you went
+[05/11/2026 05:29:20] Agent: operations team will reach there around 10-10:30
+[05/11/2026 14:34:51] Customer: Everything good?
+[05/11/2026 14:52:10] Agent 2: Hello
+[05/11/2026 15:00:11] Agent 2: Yes, everything is good with the car ✅
+Also, no fines have appeared so far.

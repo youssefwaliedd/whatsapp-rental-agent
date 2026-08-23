@@ -145,7 +145,34 @@ def load_fleet() -> tuple[Operator, tuple[Vehicle, ...]]:
     return operator, vehicles
 
 
+@lru_cache(maxsize=1)
+def load_playbook() -> str:
+    """How the operator sells, in their own patterns. Empty when absent.
+
+    Held to the same rule as the policy documents: it may not state a figure. A
+    number in here is one the model reads every single turn as guidance, which
+    is the most reliable way there is to teach it to repeat a price nobody
+    calculated. Sequence and wording here; amounts in this file's siblings.
+    """
+    path = config_dir() / "playbook.md"
+    if not path.exists():
+        return ""
+    text = path.read_text(encoding="utf-8")
+
+    from .knowledge.retrieval import PolicyContainsFigures, _forbidden_figures
+
+    figures = _forbidden_figures(text)
+    if figures:
+        raise PolicyContainsFigures(
+            f"playbook.md states {figures[0]!r}. The playbook is read on every turn, so a "
+            "figure in it is one the agent will eventually quote without any tool having "
+            "produced it. Amounts belong in rules.json."
+        )
+    return text.strip()
+
+
 def reload() -> None:
     """Drop the caches so edited config takes effect without a restart."""
     load_rules.cache_clear()
     load_fleet.cache_clear()
+    load_playbook.cache_clear()

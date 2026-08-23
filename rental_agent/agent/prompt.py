@@ -154,25 +154,39 @@ customer. They are talking to a person at a car rental company.
 
 
 @lru_cache(maxsize=4)
-def _system_text(operator_name: str, is_demonstration: bool) -> str:
+def _system_text(operator_name: str, is_demonstration: bool, playbook: str = "") -> str:
     """Assembled once per operator, then reused byte-for-byte.
 
     The operator name is not volatile — it changes when the configuration
-    changes, which is exactly when the cached prefix *should* move.
+    changes, which is exactly when the cached prefix *should* move. The playbook
+    is passed in rather than read here for the same reason: it is part of the
+    cache key, so replacing it moves the prefix instead of being ignored until a
+    restart.
     """
     parts = [SYSTEM_PROMPT_HEADER]
     if is_demonstration:
         parts.append(DEMONSTRATION_NOTICE)
     parts.append(SYSTEM_PROMPT_BODY)
+    if playbook:
+        parts.append(
+            "\n\n# How this company sells\n\n"
+            "Written from their own best conversations. Follow it for sequence and "
+            "wording. It contains no figures, and it does not license one.\n\n"
+            + playbook
+        )
     return "".join(parts).replace(OPERATOR, operator_name)
 
 
 def build_system(rules: Rules, operator: Operator) -> list[dict[str, Any]]:
     """The cached prefix. Must be byte-identical on every request."""
+    from ..config import load_playbook
+
     return [
         {
             "type": "text",
-            "text": _system_text(operator.demo_company_name, operator.is_demonstration),
+            "text": _system_text(
+                operator.demo_company_name, operator.is_demonstration, load_playbook()
+            ),
             # Tools render before system, so this one breakpoint caches both.
             "cache_control": {"type": "ephemeral"},
         }
