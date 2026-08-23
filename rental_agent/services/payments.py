@@ -135,3 +135,78 @@ def create_payment_link(
         }
     )
     return result
+
+
+def mark_paid(
+    ctx: ToolContext,
+    *,
+    reservation_id: str,
+    amount_minor: int | None,
+    currency: str,
+    reference: str,
+    event_id: str = "",
+) -> dict[str, Any]:
+    """Record money that actually arrived.
+
+    Idempotent, because Stripe retries an event until it gets a 200 and a
+    customer must not be recorded as having paid twice. The event id is written
+    into the reservation's history and a repeat is ignored on sight.
+
+    The amount stored is the one the provider says it received, converted back
+    from minor units. Not the one we asked for: a customer paying an old link, a
+    currency conversion or a partial payment all make those differ, and
+    reconciling against what you hoped for is how money goes missing on paper.
+    """
+    reservation = ctx.reservations.get(reservation_id)
+    if reservation is None:
+        return {"recorded": False, "reason": "unknown_reservation", "reservation_id": reservation_id}
+
+    already = any(
+        entry.get("event") == "payment_received" and entry.get("event_id") == event_id
+        for entry in (reservation.history or [])
+        if event_id
+    )
+    if already or reservation.payment_status == "paid":
+        return {
+            "recorded": False,
+            "reason": "already_recorded",
+            "reservation_id": reservation_id,
+            "payment_status": reservation.payment_status,
+        }
+
+    amount = (
+        (Decimal(amount_minor) / 100) if amount_minor is not None
+        else Decimal(str(reservation.total_charge))
+    )
+    expected = Decimal(str(reservation.total_charge))
+
+    now = ctx.now()
+    reservation.payment_status = "paid"
+    reservation.payment_reference = reference or reservation.payment_reference
+    reservation.version += 1
+    ctx.reservations.append_history(
+        reservation,
+        {
+            "event": "payment_received",
+            "event_id": event_id,
+            "amount": str(amount),
+            "currency": currency,
+            "reference": reference,
+        },
+        now,
+    )
+    ctx.session.flush()
+
+    result = {
+        "recorded": True,
+        "reservation_id": reservation_id,
+        "amount": str(amount),
+        "currency": currency,
+        "payment_status": "paid",
+    }
+    if amount != expected:
+        # Recorded either way — the money is real. Flagged because a mismatch is
+        # somebody's problem and silence would make it nobody's.
+        result["amount_differs"] = True
+        result["expected"] = str(expected)
+    return result

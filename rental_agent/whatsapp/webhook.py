@@ -26,6 +26,7 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 from ..config import load_rules
 from ..context import ToolContext
 from ..formatting import photo_caption
+from ..payments import webhook as payments_webhook
 from ..services import booking, handover, outcomes
 from ..sources import refresh as refresh_mod
 from ..store.models import Escalation
@@ -565,6 +566,55 @@ def create_app(
             ctx.session.commit()
 
     # -- health -----------------------------------------------------------
+
+    # -- the payment provider's callback ----------------------------------
+
+    def _context(session: Any) -> ToolContext:
+        return ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)
+
+    def _tell_them_it_arrived(result: dict[str, Any], reservation_id: str) -> None:
+        """The customer paid and is waiting to hear that it landed.
+
+        Delivered by the agent rather than as a fixed string, for the same
+        reason a decision is: the facts are settled, the wording is its job. If
+        the window has shut the payment is still recorded — money is not
+        conditional on being able to send a message about it.
+        """
+        session = session_factory()
+        try:
+            ctx = _context(session)
+            reservation = ctx.reservations.get(reservation_id)
+            if reservation is None or not reservation.customer_id:
+                return
+            ctx.customer_id = reservation.customer_id
+            ctx.conversation_id = reservation.conversation_id
+            record = ctx.customers.get(reservation.customer_id)
+            if record is None or not window_mod.is_open(ctx, reservation.conversation_id or ""):
+                log.info("payment recorded for %s but the customer cannot be messaged",
+                         reservation_id)
+                return
+
+            turn = agent_factory().relay(ctx, (
+                f"Their payment of {result['currency']} {result['amount']} for booking "
+                f"{reservation_id} has arrived and is recorded. Tell them it is received, "
+                "briefly and warmly, and confirm what happens next for the delivery. Do not "
+                "restate the amount as a different figure, and do not ask them to pay again."
+            ))
+            session.commit()
+            client.send_text(record.whatsapp_id, turn.reply)
+        except Exception:  # noqa: BLE001 - the money is recorded either way
+            session.rollback()
+            log.exception("could not tell %s their payment arrived", reservation_id)
+        finally:
+            session.close()
+
+    app.include_router(
+        payments_webhook.build_router(
+            session_factory=session_factory,
+            context_factory=_context,
+            on_paid=_tell_them_it_arrived,
+        )
+    )
 
     @app.get("/health")
     def health() -> dict[str, Any]:
