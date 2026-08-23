@@ -549,3 +549,71 @@ def test_answering_a_procedure_question_is_not_a_missed_escalation():
         [], State([], []), escalated=False,
     )
     assert findings == [], f"answering correctly was reported: {[f.type for f in findings]}"
+
+
+# --- the gate, because the instruction was not reliable ---------------------
+#
+# Asked "I'm thinking about the Ferrari Roma. what happens if I crash it?" twice
+# on 23 Aug, with the same prompt and the same tool description, the model
+# answered it correctly once and escalated it as an Accident the other time.
+#
+# So the rule moved out of the instruction and into the engine — but as a
+# downgrade, never a refusal. This module's own docstring is right that a tool
+# which can reject an escalation will eventually reject the wrong one.
+
+
+def test_a_question_about_a_crash_does_not_freeze_the_conversation(booking_ctx):
+    from rental_agent.services.escalation import escalate_conversation
+
+    booking_ctx.messages.record(
+        conversation_id=booking_ctx.conversation_id, direction="inbound",
+        content="I'm thinking about the Ferrari Roma. what happens if I crash it?",
+        now=booking_ctx.now(),
+    )
+    result = escalate_conversation(booking_ctx, reason="accident", detail="asked about crashing")
+
+    assert result["escalated"] is False
+    assert result["advisory"] is True
+    # Nothing refused: the record exists to audit.
+    assert result["escalation_id"]
+    # And the agent is told what to do instead of going quiet.
+    assert "Answer it yourself" in result["guidance"]
+    assert booking_ctx.load_state().escalated is False
+
+
+def test_a_reported_crash_still_escalates_immediately(booking_ctx):
+    from rental_agent.services.escalation import escalate_conversation
+
+    booking_ctx.messages.record(
+        conversation_id=booking_ctx.conversation_id, direction="inbound",
+        content="I've just had an accident, someone hit me at a junction",
+        now=booking_ctx.now(),
+    )
+    result = escalate_conversation(booking_ctx, reason="accident", detail="collision")
+
+    assert result["escalated"] is True
+    assert result.get("advisory") is not True
+    assert result["urgent"] is True
+    assert booking_ctx.load_state().escalated is True
+
+
+def test_a_procedure_question_asked_from_inside_an_incident_still_escalates(booking_ctx):
+    from rental_agent.services.escalation import escalate_conversation
+
+    booking_ctx.messages.record(
+        conversation_id=booking_ctx.conversation_id, direction="inbound",
+        content="I crashed it, how do I do a police report?", now=booking_ctx.now(),
+    )
+    assert escalate_conversation(booking_ctx, reason="accident")["escalated"] is True
+
+
+def test_a_non_incident_reason_is_never_downgraded(booking_ctx):
+    # "What happens if I want a refund?" is a question, but a refund request is
+    # not an incident — the gate must not touch it.
+    from rental_agent.services.escalation import escalate_conversation
+
+    booking_ctx.messages.record(
+        conversation_id=booking_ctx.conversation_id, direction="inbound",
+        content="what happens if I want a refund?", now=booking_ctx.now(),
+    )
+    assert escalate_conversation(booking_ctx, reason="refund_request")["escalated"] is True

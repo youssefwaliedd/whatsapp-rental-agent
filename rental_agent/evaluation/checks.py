@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
 
+from ..domain.incident import ACTUAL, INCIDENT_REASONS, QUESTION
+
 #: Money and percentages as a customer would read them: "AED 7,560", "7560.00",
 #: "10%". Bare small integers are ignored — "2 or 3 options", "7 days" and
 #: "999" are not claims about price.
@@ -398,46 +400,6 @@ def check_escalated_before_answering(messages, tool_calls) -> list[Finding]:
     ]
 
 
-#: Asking about something rather than reporting it. Two shapes, and both were
-#: escalated as live incidents in one conversation on 23 Aug: "what happens if I
-#: crash it?" and "how do i do a police report". A customer deciding whether to
-#: rent a supercar asks both constantly, and the answers are in the policy
-#: document.
-_HYPOTHETICAL = re.compile(
-    # what would happen
-    r"\b(?:what|who|how much)\s+(?:\w+\s+){0,3}?(?:if|when|in case)\b"
-    r"|\bwhat happens\b|\bwhat would\b|\bwould i (?:be|have|need|pay)\b"
-    r"|\bam i (?:covered|liable|responsible)\b"
-    r"|\bin case of\b|\bif i (?:crash|damage|scratch|break|lose|have an accident)\b"
-    # how it works — procedure, not event
-    r"|\bhow (?:do|would|can|should) (?:i|we|you)\b"
-    r"|\bhow does .{0,30}\bwork\b"
-    r"|\bwhat(?:'s| is| are) the (?:process|procedure|steps|rules?|policy)\b"
-    r"|\bdo i (?:need|have) to\b|\bwho (?:do|should) i (?:call|contact|tell)\b"
-    r"|\bis (?:a|the) police report (?:needed|required|mandatory)\b",
-    re.I,
-)
-
-#: Reporting something that has happened. Deliberately checked first: "I crashed
-#: it, what happens now" is an incident, not a question.
-_ACTUAL = re.compile(
-    r"\b(?:i|we|someone|somebody)\s+(?:just\s+)?(?:have|has|had|'ve)?\s*"
-    r"(?:crashed|hit|damaged|scratched|broke|broken|lost|stolen)\b"
-    r"|\b(?:i|we)(?:'ve| have| just)\s+had an accident\b"
-    r"|\bthere(?:'s| has| have)\s+(?:been\s+)?an? (?:accident|crash|incident)\b"
-    r"|\bcar (?:is |has )?(?:broken down|been stolen|won'?t start)\b"
-    r"|\bpolice (?:are|is|came|arrived)\b|\bi am (?:hurt|injured)\b",
-    re.I,
-)
-
-#: Reasons where treating a question as the event does real damage: the agent
-#: goes silent, and the owner gets a case with nothing to act on.
-_INCIDENT_REASONS = frozenset(
-    {"accident", "injury", "breakdown", "vehicle_theft_or_loss", "medical_emergency",
-     "police_involvement"}
-)
-
-
 def check_escalated_a_hypothetical(messages, tool_calls) -> list[Finding]:
     """Treating "what happens if I crash it?" as a crash.
 
@@ -452,14 +414,14 @@ def check_escalated_a_hypothetical(messages, tool_calls) -> list[Finding]:
         for call in tool_calls
         if call.tool_name == "escalate_conversation"
     }
-    if not (reasons & _INCIDENT_REASONS):
+    if not (reasons & INCIDENT_REASONS):
         return []
 
     inbound = [m for m in messages if m.direction == "inbound"]
-    if any(_ACTUAL.search(m.content or "") for m in inbound):
+    if any(ACTUAL.search(m.content or "") for m in inbound):
         return []
 
-    asked = next((m for m in inbound if _HYPOTHETICAL.search(m.content or "")), None)
+    asked = next((m for m in inbound if QUESTION.search(m.content or "")), None)
     if asked is None:
         return []
 
@@ -545,7 +507,7 @@ def check_missed_escalation(messages, tool_calls, escalated: bool) -> list[Findi
             continue
         content = message.content or ""
         hit = _INCIDENT.search(content)
-        if hit and _HYPOTHETICAL.search(content) and not _ACTUAL.search(content):
+        if hit and QUESTION.search(content) and not ACTUAL.search(content):
             continue
         if hit:
             return [
