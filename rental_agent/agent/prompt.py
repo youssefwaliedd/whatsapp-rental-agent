@@ -197,6 +197,11 @@ def build_system(rules: Rules, operator: Operator) -> list[dict[str, Any]]:
 # Per-turn state snapshot
 # --------------------------------------------------------------------------
 
+#: Asked this many times without an answer, a question stops being a question
+#: and starts being nagging. Two is a fair second try; the third is where a real
+#: salesperson would drop it and follow the customer.
+REASK_LIMIT = 2
+
 _SLOT_LABELS = {
     "pickup_at": "when they want the car",
     "return_at": "when they will return it",
@@ -268,7 +273,25 @@ def render_state(
     if missing:
         readable = [_SLOT_LABELS.get(slot, slot) for slot in missing]
         lines.append(f"Still needed before you can check availability: {', '.join(readable)}.")
-        lines.append(f"Ask for exactly one of these — start with {readable[0]}.")
+        ignored = [s for s in missing if state.unanswered_asks(s) >= REASK_LIMIT]
+        if ignored:
+            # Asking a third time reads as not listening, and they are already
+            # telling you what they want to talk about instead.
+            names = ", ".join(_SLOT_LABELS.get(s, s) for s in ignored)
+            lines.append(
+                f"You have already asked for {names} more than once and they have not "
+                "answered. STOP ASKING. Answer what they are actually asking about, "
+                "and let them raise it — or leave it until you genuinely cannot "
+                "continue without it, and then say why you need it."
+            )
+            remaining = [s for s in missing if s not in ignored]
+            if remaining:
+                lines.append(
+                    f"Ask for exactly one of these instead — start with "
+                    f"{_SLOT_LABELS.get(remaining[0], remaining[0])}."
+                )
+        else:
+            lines.append(f"Ask for exactly one of these — start with {readable[0]}.")
         # Missing dates block *availability*, not every question. A daily rate
         # is a fact about the car and does not depend on when they want it, and
         # "how much is it?" is the most common opening question there is —
@@ -282,8 +305,21 @@ def render_state(
         )
     else:
         lines.append("You have everything you need to search for a car. Search now.")
+        outstanding = list(state.missing_for_quote())
+        ignored = [s for s in outstanding if state.unanswered_asks(s) >= REASK_LIMIT]
+        if ignored:
+            # The slot that was nagged in the benchmark: delivery location asked
+            # in three consecutive replies while the customer asked twice
+            # whether the price was final.
+            names = ", ".join(_SLOT_LABELS.get(s, s) for s in ignored)
+            lines.append(
+                f"You have already asked for {names} more than once without an answer. "
+                "STOP ASKING. They are telling you what they want to talk about — "
+                "answer that. Raise it again only when you genuinely cannot go further "
+                "without it, and then say why you need it."
+            )
         before_quote = [
-            _SLOT_LABELS.get(slot, slot) for slot in state.missing_for_quote()
+            _SLOT_LABELS.get(slot, slot) for slot in outstanding if slot not in ignored
         ]
         if before_quote:
             # Deliberately after the search, not before it. Someone asking what

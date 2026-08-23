@@ -290,6 +290,17 @@ class ConversationState(Base):
     #: repeated-question failure, and it can only be detected at ask time —
     #: by evaluation time the value is present either way.
     redundant_asks: list[str] = Field(default_factory=list)
+
+    def unanswered_asks(self, slot: str) -> int:
+        """How many times this has been asked while still not supplied.
+
+        A customer who keeps steering back to price is not going to produce a
+        delivery address because they were asked a third time. They are telling
+        you what they care about, and a salesperson follows that.
+        """
+        if getattr(self, slot, None) is not None:
+            return 0
+        return self.asked_slots.count(slot)
     #: Turns in a row the model could not be reached for. One is bad luck; a
     #: second means the customer is stuck behind an outage and needs a person,
     #: not another apology.

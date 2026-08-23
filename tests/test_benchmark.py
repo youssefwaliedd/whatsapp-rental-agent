@@ -78,3 +78,96 @@ def test_the_real_corpus_parses_into_exchanges():
         total += len(exchanges)
     # Thirteen real conversations; anything near zero means the format moved.
     assert total > 100, total
+
+
+# --- nagging ----------------------------------------------------------------
+#
+# From the benchmark against chat-11: the agent asked where to deliver the car in
+# three consecutive replies while the customer asked, twice, whether the price
+# was final. Their salesperson asked once and followed the customer. A person who
+# keeps steering back to price is not going to produce an address because they
+# were asked a third time — they are telling you what they care about.
+
+
+from dataclasses import dataclass, field  # noqa: E402
+
+from rental_agent.evaluation.checks import check_nagging  # noqa: E402
+
+
+@dataclass
+class NagState:
+    asked_slots: list[str] = field(default_factory=list)
+    redundant_asks: list[str] = field(default_factory=list)
+    delivery_location: str | None = None
+    pickup_at: str | None = None
+
+
+def test_asking_a_third_time_for_something_never_given_is_a_finding():
+    state = NagState(asked_slots=["delivery_location"] * 3)
+    assert [f.type for f in check_nagging(state)] == ["nagging"]
+
+
+def test_asking_twice_is_a_fair_second_try():
+    assert check_nagging(NagState(asked_slots=["delivery_location"] * 2)) == []
+
+
+def test_asking_repeatedly_and_getting_it_is_not_nagging():
+    state = NagState(asked_slots=["delivery_location"] * 3, delivery_location="Dubai Marina")
+    assert check_nagging(state) == []
+
+
+def test_each_ignored_question_is_reported_once():
+    state = NagState(asked_slots=["delivery_location"] * 3 + ["pickup_at"] * 4)
+    findings = check_nagging(state)
+    assert len(findings) == 2
+    assert {f.evidence["times_asked"] for f in findings} == {3, 4}
+
+
+def test_the_prompt_tells_the_agent_to_stop_asking():
+    from rental_agent.agent.prompt import REASK_LIMIT
+    from rental_agent.domain.models import ConversationState
+
+    state = ConversationState(conversation_id="conv_x", customer_id="cus_x")
+    state.asked_slots = ["delivery_location"] * REASK_LIMIT
+    assert state.unanswered_asks("delivery_location") >= REASK_LIMIT
+
+    state.delivery_location = "Dubai Marina"
+    assert state.unanswered_asks("delivery_location") == 0
+
+
+def test_the_state_block_stops_asking_once_they_have_ignored_it_twice():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from rental_agent.agent.prompt import render_state
+    from rental_agent.domain.models import ConversationState
+
+    now = datetime(2026, 9, 1, 10, tzinfo=ZoneInfo("Asia/Dubai"))
+    state = ConversationState(conversation_id="c", customer_id="u")
+    state.pickup_at, state.return_at = now, now
+
+    state.asked_slots = ["delivery_location"]
+    once = render_state(state, now=now)
+    assert "STOP ASKING" not in once
+    assert "You will need" in once
+
+    state.asked_slots = ["delivery_location", "delivery_location"]
+    twice = render_state(state, now=now)
+    assert "STOP ASKING" in twice
+    # And it stops listing it as the thing to ask for.
+    assert "ask once they are interested" not in twice
+
+
+def test_a_supplied_answer_clears_the_stop_notice():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from rental_agent.agent.prompt import render_state
+    from rental_agent.domain.models import ConversationState
+
+    now = datetime(2026, 9, 1, 10, tzinfo=ZoneInfo("Asia/Dubai"))
+    state = ConversationState(conversation_id="c", customer_id="u")
+    state.pickup_at, state.return_at = now, now
+    state.asked_slots = ["delivery_location"] * 4
+    state.delivery_location = "Dubai Marina"
+    assert "STOP ASKING" not in render_state(state, now=now)

@@ -462,6 +462,44 @@ def check_repeated_questions(state) -> list[Finding]:
     ]
 
 
+#: Asked this many times with no answer, it is nagging rather than persistence.
+NAG_LIMIT = 3
+
+
+def check_nagging(state) -> list[Finding]:
+    """Asking for the same thing over and over while they answer something else.
+
+    Different from asking for what they already gave — that is
+    check_repeated_questions and it is a memory failure. This one is a listening
+    failure: the value genuinely is missing, and the customer genuinely is not
+    providing it, because they are busy asking about the price.
+
+    Seen against Delta's own conversations: the agent asked where to deliver the
+    car in three consecutive replies while the customer asked twice whether the
+    price was final. Their salesperson asked once and followed the customer.
+    """
+    asked = list(getattr(state, "asked_slots", []) or [])
+    findings: list[Finding] = []
+    for slot in sorted(set(asked)):
+        # Still missing, and asked well past the point of a fair second try.
+        if getattr(state, slot, None) is not None or asked.count(slot) < NAG_LIMIT:
+            continue
+        findings.append(
+            Finding(
+                type="nagging",
+                severity="medium",
+                situation="the customer kept talking about something else",
+                bad_behavior=f"asked for '{slot}' {asked.count(slot)} times and never got it",
+                correct_behavior=(
+                    "ask twice at most, then answer what they are actually asking and "
+                    "let them raise it — or say plainly why you cannot continue without it"
+                ),
+                evidence={"slot": slot, "times_asked": asked.count(slot)},
+            )
+        )
+    return findings
+
+
 def check_unavailable_without_alternatives(messages, tool_calls) -> list[Finding]:
     """Telling a customer no without having anything to offer instead."""
     if any(call.tool_name == "find_alternatives" for call in tool_calls):
@@ -593,6 +631,7 @@ def run_all(messages, tool_calls, state, escalated: bool, owner_decisions=None) 
         *check_missed_escalation(messages, tool_calls, escalated),
         *check_discount_without_authority(messages, tool_calls, owner_decisions),
         *check_repeated_questions(state),
+        *check_nagging(state),
         *check_unavailable_without_alternatives(messages, tool_calls),
         *check_option_overload(messages),
     ]
