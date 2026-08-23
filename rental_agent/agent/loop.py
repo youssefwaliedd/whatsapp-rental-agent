@@ -91,6 +91,10 @@ class AgentTurn:
     #: Photos the agent chose to show, resolved to fleet image paths by the
     #: engine. The model picks the moment; it never picks the file.
     media: list[dict[str, Any]] = field(default_factory=list)
+    #: Figures rendered by the engine — a quote breakdown — to be sent after the
+    #: reply. The model chooses when a quote happens; it does not get to decide
+    #: which parts of it the customer sees.
+    cards: list[str] = field(default_factory=list)
     duplicate: bool = False
     escalated: bool = False
     refusal: bool = False
@@ -521,6 +525,7 @@ class Agent:
                     tool_calls=called,
                     tools_succeeded=succeeded,
                     media=ctx.take_media(),
+            cards=ctx.take_cards(),
                     refusal=True,
                     escalated=True,
                     iterations=iterations,
@@ -534,6 +539,7 @@ class Agent:
                     tool_calls=called,
                     tools_succeeded=succeeded,
                     media=ctx.take_media(),
+            cards=ctx.take_cards(),
                     escalated=ctx.load_state().escalated,
                     iterations=iterations,
                     stop_reason=stop_reason,
@@ -572,6 +578,7 @@ class Agent:
             tool_calls=called,
             tools_succeeded=succeeded,
             media=ctx.take_media(),
+            cards=ctx.take_cards(),
             escalated=True,
             iterations=iterations,
         )

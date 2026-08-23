@@ -176,6 +176,14 @@ def create_demo_quote(
         stage=Stage.QUOTED,
     )
 
+    # The engine renders the figures; the model writes the sentence around them.
+    # Without this the customer only ever sees the model's prose summary of a
+    # JSON payload — which on 23 Aug quoted a total and never mentioned the
+    # deposit at all, one message before the customer would have booked.
+    from ..formatting import quote_message
+
+    ctx.queue_card(quote_message(quote, ctx.engine.rules))
+
     return {
         "quote_id": quote.quote_id,
         "is_demo": True,
@@ -184,7 +192,18 @@ def create_demo_quote(
         "billable_days": quote.billable_days,
         "total_charge": str(quote.total_charge),
         "deposit": str(quote.deposit) if quote.deposit is not None else None,
-        "total_due_at_delivery": str(quote.total_due_at_delivery),
+        "total_due_at_delivery": (
+            str(quote.total_due_at_delivery)
+            if quote.total_due_at_delivery is not None
+            else None
+        ),
+        "card_sent": True,
+        "card_note": (
+            "The figures have already been sent to the customer as a separate "
+            "message, deposit line included. Write the sentence around it — do not "
+            "repeat the breakdown, and do not restate the total as if it were the "
+            "only amount."
+        ),
         "currency": quote.currency,
         "expires_at": quote.expires_at.isoformat(),
         "demo_notice": ctx.engine.rules.demo_disclosure["required_footer"],

@@ -33,6 +33,11 @@ class ToolContext:
     #: after the reply is built — kept here rather than in `ConversationState`
     #: because it describes one turn's delivery, not anything the agent knows.
     _pending_media: list[dict] = field(default_factory=list, repr=False)
+    #: Figures rendered by the engine for this turn, to be sent after the
+    #: reply. The model writes the sentence; this is the part it must not be
+    #: trusted to reproduce from a JSON payload — it once quoted a total and
+    #: never mentioned the deposit at all.
+    _pending_cards: list[str] = field(default_factory=list, repr=False)
 
     # -- construction ----------------------------------------------------
 
@@ -54,6 +59,17 @@ class ToolContext:
         """Drain the queue. Draining rather than reading means a turn that is
         retried or abandoned cannot send the same photos twice."""
         queued, self._pending_media = list(self._pending_media), []
+        return queued
+
+    def queue_card(self, text: str) -> None:
+        """Send engine-rendered figures alongside this turn's reply."""
+        if text:
+            self._pending_cards.append(text)
+
+    def take_cards(self) -> list[str]:
+        """Drain, for the same reason media drains: an abandoned turn must not
+        send the same quote twice."""
+        queued, self._pending_cards = list(self._pending_cards), []
         return queued
 
     def documents_received(self) -> int:

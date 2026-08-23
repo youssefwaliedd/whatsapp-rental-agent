@@ -376,6 +376,7 @@ def create_app(
                 client.send_reaction(message.from_number, message.message_id, emoji)
 
             client.send_text(message.from_number, turn.reply, typing_for=message.message_id)
+            _send_cards(message, turn)
             _send_photos(message, turn)
 
             if turn.escalated:
@@ -421,6 +422,20 @@ def create_app(
             client.send_typing(message.message_id)
         else:
             client.mark_read(message.message_id)
+
+    def _send_cards(message: InboundMessage, turn: Any) -> None:
+        """The engine's own figures, after the sentence and before the photos.
+
+        A quote is the one message where wording is not the model's to choose.
+        It writes what it likes around this; the breakdown itself — the total,
+        the deposit line, what is due at delivery, the demonstration notice —
+        is rendered from the quote that was actually stored.
+        """
+        for card in getattr(turn, "cards", []):
+            result = client.send_text(message.from_number, card)
+            if not result.ok:
+                log.error("failed to send the quote breakdown: %s", result.error)
+
 
     def _send_photos(message: InboundMessage, turn: Any) -> None:
         """Deliver whatever the agent asked to show, after the words.
