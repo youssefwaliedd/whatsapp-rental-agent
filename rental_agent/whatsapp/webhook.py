@@ -177,7 +177,7 @@ def create_app(
                 return
 
             outcome = handover.outcome_of(
-                ctx, button_id=message.button_id, text=message.text
+                ctx, button_id=message.button_id, text=message.text, reason=case.reason
             )
             if outcome is None:
                 # "No" and "no problem" mean opposite things. Rather than guess
@@ -220,10 +220,16 @@ def create_app(
         )
 
     def _ask_owner_again(ctx: ToolContext, case: Escalation) -> None:
+        # An answer case can only land here on an empty reply, so asking for a
+        # yes or a no would be nonsense — it never wanted one.
+        trouble = (
+            "Sorry — I didn't catch a figure in that."
+            if handover.needs_an_answer(ctx, case.reason)
+            else "Sorry — I couldn't read that as a yes or a no."
+        )
         client.send_buttons(
             settings.staff_number,
-            f"Sorry — I couldn't read that as a yes or a no. Case {case.case_code}:\n\n"
-            f"{case.question or case.detail or ''}",
+            f"{trouble} Case {case.case_code}:\n\n{case.question or case.detail or ''}",
             _decision_buttons(ctx, case),
         )
 
@@ -495,7 +501,9 @@ def create_app(
         who = customer.name or message.from_number
         deciding = handover.needs_a_decision(ctx, raw_reason)
 
-        if deciding:
+        if handover.needs_an_answer(ctx, raw_reason):
+            ask = handover.answer_prompt(ctx)
+        elif deciding:
             ask = "What should I tell them?"
         else:
             # No answer to choose between — someone has to take this over. The

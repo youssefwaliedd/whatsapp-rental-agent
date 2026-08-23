@@ -296,3 +296,83 @@ def test_an_accident_escalation_is_never_second_guessed():
         [Msg("inbound", "I crashed the car", 1)], [accident], State([], []), escalated=True,
     )
     assert "escalated_before_answering" not in [f.type for f in findings]
+
+
+# --- an answer is not a decision --------------------------------------------
+#
+# Observed in play on 23 Aug: the owner was asked "is there a deposit", replied
+# "the deposit on the Roma is 5,000 AED, refundable", and the system answered
+# "I couldn't read that as a yes or a no" — discarding the one thing only they
+# could supply. A figure the operator has never published has no two sides to
+# pick between, so it is a third kind of case: the reply is the value.
+
+
+@pytest.fixture
+def ctx_with_rules(engine):
+    """A context stub carrying only what handover reads: the rules."""
+    from types import SimpleNamespace
+    return SimpleNamespace(engine=engine)
+
+
+def test_a_figure_question_wants_an_answer_not_a_decision(ctx_with_rules):
+    from rental_agent.services import handover
+    assert handover.needs_an_answer(ctx_with_rules, "unconfirmed_figure") is True
+    assert handover.needs_a_decision(ctx_with_rules, "unconfirmed_figure") is False
+    # And the shapes that already existed are untouched.
+    assert handover.needs_a_decision(ctx_with_rules, "fee_dispute") is True
+    assert handover.needs_an_answer(ctx_with_rules, "accident") is False
+
+
+def test_the_owner_is_not_shown_approve_and_decline_for_a_deposit(ctx_with_rules):
+    from rental_agent.services import handover
+    labels = [o["label"] for o in handover.decision_options(ctx_with_rules, "unconfirmed_figure")]
+    assert "Approve" not in labels and "Decline" not in labels
+
+
+@pytest.mark.parametrize("reply", [
+    "the deposit on the Roma is 5,000 AED, refundable",
+    "AED 5,000",
+    "5000 for that one",
+])
+def test_the_owners_figure_is_taken_as_the_answer(ctx_with_rules, reply):
+    from rental_agent.services import handover
+    assert handover.outcome_of(
+        ctx_with_rules, button_id=None, text=reply, reason="unconfirmed_figure"
+    ) == "owner_answered"
+
+
+def test_an_owner_stepping_out_is_still_understood(ctx_with_rules):
+    from rental_agent.services import handover
+    assert handover.outcome_of(
+        ctx_with_rules, button_id=None, text="I'll call them", reason="unconfirmed_figure"
+    ) == "owner_calling"
+    assert handover.outcome_of(
+        ctx_with_rules, button_id=None, text="handled", reason="unconfirmed_figure"
+    ) == "owner_handled"
+
+
+def test_a_decision_case_still_refuses_an_ambiguous_reply(ctx_with_rules):
+    from rental_agent.services import handover
+    assert handover.outcome_of(
+        ctx_with_rules, button_id=None, text="maybe later", reason="fee_dispute"
+    ) is None
+
+
+def test_the_relay_carries_the_figure_verbatim():
+    from types import SimpleNamespace
+    from rental_agent.services import handover
+    case = SimpleNamespace(decision="owner_answered", question="deposit on the Roma",
+                           detail=None, decision_note="AED 5,000, refundable")
+    directive = handover.relay_directive(case)
+    assert "AED 5,000, refundable" in directive
+    assert "exactly as written" in directive
+    assert "carry on with the conversation" in directive
+
+
+def test_a_figure_the_owner_supplied_is_not_reported_as_invented():
+    from rental_agent.evaluation.checks import owner_authorised_numbers
+    from decimal import Decimal
+    authorised = owner_authorised_numbers(
+        [{"decision": "owner_answered", "note": "the deposit is AED 5,000", "question": ""}]
+    )
+    assert Decimal("5000") in authorised

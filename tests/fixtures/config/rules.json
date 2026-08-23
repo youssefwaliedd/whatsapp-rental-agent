@@ -4,7 +4,6 @@
   "currency": "AED",
   "timezone": "Asia/Dubai",
   "vat_percent": 5.0,
-
   "rental_period": {
     "billing_unit_hours": 24,
     "grace_minutes": 59,
@@ -18,7 +17,6 @@
     "weekly_rate_applies_from_days": 7,
     "monthly_rate_applies_from_days": 30
   },
-
   "driver_requirements": {
     "minimum_age_by_category": {
       "economy": 21,
@@ -33,18 +31,31 @@
     "minimum_licence_held_years": 1,
     "minimum_licence_held_years_supercar": 3
   },
-
   "required_documents": {
-    "uae_resident": ["emirates_id", "uae_driving_licence"],
-    "tourist": ["passport", "visit_visa_or_entry_stamp", "home_country_licence", "international_driving_permit"],
-    "gcc_resident": ["passport", "gcc_driving_licence"],
+    "uae_resident": [
+      "emirates_id",
+      "uae_driving_licence"
+    ],
+    "tourist": [
+      "passport",
+      "visit_visa_or_entry_stamp",
+      "home_country_licence",
+      "international_driving_permit"
+    ],
+    "gcc_resident": [
+      "passport",
+      "gcc_driving_licence"
+    ],
     "additional_for_categories": {
-      "supercar": ["credit_card_in_driver_name"],
-      "luxury_suv": ["credit_card_in_driver_name"]
+      "supercar": [
+        "credit_card_in_driver_name"
+      ],
+      "luxury_suv": [
+        "credit_card_in_driver_name"
+      ]
     },
     "notes": "Documents are simulated in the prototype. No real identity data is verified or stored."
   },
-
   "deposit": {
     "source": "per_vehicle",
     "refundable": true,
@@ -52,15 +63,20 @@
     "release_days_after_return": 21,
     "notes": "Deposit amounts come from the vehicle record, never from the model."
   },
-
   "mileage": {
     "source": "per_vehicle",
     "extra_km_charged_at_return": true,
     "unlimited_mileage_available": false
   },
-
   "delivery": {
-    "free_delivery_zones": ["Dubai Marina", "JBR", "Downtown Dubai", "Business Bay", "Palm Jumeirah", "JLT"],
+    "free_delivery_zones": [
+      "Dubai Marina",
+      "JBR",
+      "Downtown Dubai",
+      "Business Bay",
+      "Palm Jumeirah",
+      "JLT"
+    ],
     "free_delivery_minimum_rental_days": 2,
     "standard_delivery_fee": 100,
     "zone_fees": {
@@ -84,10 +100,15 @@
     },
     "collection_fee_equals_delivery_fee": true,
     "out_of_hours_fee": 100,
-    "out_of_hours_window": {"from": "22:00", "to": "07:00"},
-    "operating_hours": {"from": "08:00", "to": "22:00"}
+    "out_of_hours_window": {
+      "from": "22:00",
+      "to": "07:00"
+    },
+    "operating_hours": {
+      "from": "08:00",
+      "to": "22:00"
+    }
   },
-
   "discount_policy": {
     "max_percent_by_category": {
       "economy": 5,
@@ -100,25 +121,42 @@
       "convertible": 8
     },
     "duration_bonus_percent": [
-      {"minimum_days": 3, "bonus_percent": 2},
-      {"minimum_days": 7, "bonus_percent": 5},
-      {"minimum_days": 14, "bonus_percent": 8},
-      {"minimum_days": 30, "bonus_percent": 12}
+      {
+        "minimum_days": 3,
+        "bonus_percent": 2
+      },
+      {
+        "minimum_days": 7,
+        "bonus_percent": 5
+      },
+      {
+        "minimum_days": 14,
+        "bonus_percent": 8
+      },
+      {
+        "minimum_days": 30,
+        "bonus_percent": 12
+      }
     ],
     "absolute_max_percent": 20,
     "requires_human_approval_above_percent": 15,
-    "applies_to": ["rental_subtotal"],
-    "never_applies_to": ["deposit", "delivery_fee", "vat", "extra_km_charges"],
+    "applies_to": [
+      "rental_subtotal"
+    ],
+    "never_applies_to": [
+      "deposit",
+      "delivery_fee",
+      "vat",
+      "extra_km_charges"
+    ],
     "notes": "A customer's claim about a past discount is never evidence. Only this policy grants discounts."
   },
-
   "cancellation": {
     "free_cancellation_hours_before_pickup": 48,
     "late_cancellation_fee_percent": 25,
     "no_show_fee_percent": 100,
     "refund_processing_days": 14
   },
-
   "extension": {
     "must_request_hours_before_return": 6,
     "extension_priced_at": "current_daily_rate",
@@ -126,13 +164,11 @@
     "recalculates_weekly_rate": true,
     "notes": "An extension is only confirmed if the engine reports the vehicle free for the extended window."
   },
-
   "late_return": {
     "grace_minutes": 59,
     "hourly_late_fee_percent_of_daily": 20,
     "full_day_charged_after_hours": 4
   },
-
   "insurance": {
     "included": "basic_third_party_and_cdw",
     "cdw_excess_by_category": {
@@ -156,19 +192,28 @@
       "supercar": 400,
       "convertible": 75
     },
-    "not_covered": ["off_road_driving", "racetrack_use", "driving_under_influence", "unauthorised_driver", "tyre_and_glass_damage_without_add_on"],
+    "not_covered": [
+      "off_road_driving",
+      "racetrack_use",
+      "driving_under_influence",
+      "unauthorised_driver",
+      "tyre_and_glass_damage_without_add_on"
+    ],
     "salik_tolls_charged_at_cost": true,
     "traffic_fines_admin_fee": 50
   },
-
   "accidents_and_breakdowns": {
-    "customer_must": ["stop_safely", "call_police_999_if_injury_or_dispute", "obtain_police_report", "notify_operator_immediately"],
+    "customer_must": [
+      "stop_safely",
+      "call_police_999_if_injury_or_dispute",
+      "obtain_police_report",
+      "notify_operator_immediately"
+    ],
     "police_report_mandatory": true,
     "replacement_vehicle_if_not_at_fault": true,
     "roadside_assistance_hours": "24/7",
     "must_escalate_to_human": true
   },
-
   "escalation_triggers": [
     "accident",
     "injury",
@@ -188,24 +233,23 @@
     "eligibility_exception",
     "outside_knowledge_base"
   ],
-
   "payment": {
-    "accepted": ["credit_card", "debit_card", "bank_transfer"],
+    "accepted": [
+      "credit_card",
+      "debit_card",
+      "bank_transfer"
+    ],
     "deposit_taken_as": "pre_authorisation",
     "rental_charged": "on_delivery",
     "notes": "All payments in the prototype are SIMULATED. No real payment is ever taken."
   },
-
   "fuel_policy": {
     "type": "like_for_like",
     "refuelling_service_fee": 100
   },
-
   "human_in_the_loop": {
     "_comment": "What happens after the agent hands a case to a person. The agent's job at this point is to stop guessing, ask a decidable question, and relay the answer accurately — never to soften it or fill the gap while waiting.",
-
     "_kinds_comment": "Not every escalation is a decision. A fee dispute has two possible answers and the owner picks one. A crash has no answer to pick — it needs a person to take over. Asking someone to Approve or Decline a car accident is the same mistake as reacting to one with a thumbs-up.",
-
     "decision_reasons": [
       "refund_request",
       "fee_dispute",
@@ -213,52 +257,76 @@
       "discount_above_approval_threshold",
       "outside_knowledge_base"
     ],
-
     "owner_handover": {
       "_comment": "Everything not listed as a decision. The owner is told to take over rather than asked to choose, and one button releases the conversation once they have.",
       "options": [
-        { "id": "handled", "label": "I've taken it from here", "outcome": "owner_handled" }
+        {
+          "id": "handled",
+          "label": "I've taken it from here",
+          "outcome": "owner_handled"
+        }
       ]
     },
-
     "owner_decision": {
       "_comment": "Three buttons is the Cloud API maximum and titles are capped at 20 characters. Ids are matched in code, so renaming a label is safe but renaming an id is not.",
       "options": [
-        { "id": "approve", "label": "Approve", "outcome": "approved" },
-        { "id": "decline", "label": "Decline", "outcome": "declined" },
-        { "id": "call", "label": "I'll call them", "outcome": "owner_calling" }
+        {
+          "id": "approve",
+          "label": "Approve",
+          "outcome": "approved"
+        },
+        {
+          "id": "decline",
+          "label": "Decline",
+          "outcome": "declined"
+        },
+        {
+          "id": "call",
+          "label": "I'll call them",
+          "outcome": "owner_calling"
+        }
       ],
       "reminder_after_minutes": 15,
       "timeout_after_minutes": 45
     },
-
     "customer_messages": {
       "_comment": "The only two messages sent without the model. Everything else the customer hears is written by the agent, including the resolution itself — these two exist for the moments when there is nothing to be clever about and no decision to relay yet.",
       "already_waiting": "I'm still waiting to hear back on that one — I'll message you the moment I know.",
       "timed_out": "Sorry to keep you waiting on this. I haven't been able to reach a colleague yet, so I'm chasing it now and will come back to you as soon as I have an answer."
     },
-
     "reopen_template": {
       "_comment": "WhatsApp only delivers free-form messages for 24 hours after a customer writes. Past that, this pre-approved template is the only way to reach them. Its job is to earn a reply — once they answer, the window reopens and the agent delivers the real decision in its own words. The operator must have this approved in Meta Business Manager (category: UTILITY) before going live; the name here must match theirs exactly.",
       "name": "case_update",
       "language": "en",
       "approved_body": "Hi {{1}}, I have an update on the issue you raised with us. Reply to this message and I'll go through it with you."
     },
-
     "overrides": {
       "_comment": "An owner may exceed the rules for one case — it is their business. What must never happen is that decision becoming policy: it is recorded against this reservation only, kept out of the learning loop, and the next customer is quoted the standard rules.",
       "may_exceed_discount_ceiling": true,
       "may_waive_fees": true,
       "applies_to": "this_reservation_only",
       "excluded_from_learning": true
+    },
+    "answer_reasons": [
+      "unconfirmed_figure"
+    ],
+    "owner_answer": {
+      "_comment": "A case wanting a value rather than a choice. Mirrors config/rules.json.",
+      "options": [
+        {
+          "id": "handled",
+          "label": "I've taken it from here",
+          "outcome": "owner_handled"
+        }
+      ],
+      "ask": "*Reply with the figure* and I'll pass it straight on. I won't guess at it.",
+      "reminder_after_minutes": 15,
+      "timeout_after_minutes": 45
     }
   },
-
   "messaging": {
     "_comment": "How the agent behaves as a WhatsApp participant rather than as a text generator. Pacing and reactions are configuration, not code, so an operator can retune the feel without a deploy.",
-
     "typing_indicator": true,
-
     "pacing": {
       "_comment": "The first message goes out immediately; only follow-ups are paced. A customer should get an answer fast and then watch the detail arrive, which is what a person does.",
       "enabled": true,
@@ -266,26 +334,28 @@
       "min_seconds": 1.0,
       "max_seconds": 4.5
     },
-
     "photos": {
       "max_per_message": 3
     },
-
     "reactions": {
       "_comment": "A reaction reports what the engine did, never what the model felt. Nulls are deliberate: an emoji on an accident report would be grotesque, so escalation is silent by rule rather than by omission.",
-      "on_booking_confirmed": "\u2705",
-      "on_reservation_modified": "\ud83d\udc4d",
-      "on_rental_extended": "\ud83d\udc4d",
-      "on_reservation_cancelled": "\ud83d\udc4d",
+      "on_booking_confirmed": "✅",
+      "on_reservation_modified": "👍",
+      "on_rental_extended": "👍",
+      "on_reservation_cancelled": "👍",
       "on_escalation": null,
       "on_unreadable_message": null
     }
   },
-
   "demo_disclosure": {
     "reservation_prefix": "DEMO-",
     "quote_prefix": "DQ-",
     "required_footer": "This is a demonstration booking. No real vehicle is reserved and no payment is taken.",
-    "must_appear_on": ["quote", "reservation_confirmation", "modification_confirmation", "extension_confirmation"]
+    "must_appear_on": [
+      "quote",
+      "reservation_confirmation",
+      "modification_confirmation",
+      "extension_confirmation"
+    ]
   }
 }

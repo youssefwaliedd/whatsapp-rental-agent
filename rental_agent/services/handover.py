@@ -49,7 +49,7 @@ TIMED_OUT = "timed_out"
 OPEN_STATUSES = ("open", AWAITING, TIMED_OUT, DECIDED)
 
 #: Outcomes an owner may return. Anything else is refused rather than guessed at.
-OUTCOMES = ("approved", "declined", "owner_calling", "owner_handled")
+OUTCOMES = ("approved", "declined", "owner_calling", "owner_handled", "owner_answered")
 
 
 def _config(ctx: ToolContext) -> dict[str, Any]:
@@ -67,6 +67,18 @@ def needs_a_decision(ctx: ToolContext, reason: str) -> bool:
     return reason in _config(ctx).get("decision_reasons", [])
 
 
+def needs_an_answer(ctx: ToolContext, reason: str) -> bool:
+    """Whether this escalation wants a value rather than a choice.
+
+    A figure the operator has never published — the deposit on a given car, the
+    fee for their no-deposit option — has no two sides to pick between. The owner
+    simply knows it and nobody else does. Treating that as a decision puts
+    Approve and Decline in front of "what is the deposit?", and then throws away
+    the owner's actual answer for not being a yes or a no.
+    """
+    return reason in _config(ctx).get("answer_reasons", [])
+
+
 def decision_options(ctx: ToolContext, reason: str | None = None) -> list[dict[str, str]]:
     """The buttons put in front of the owner, which depend on what is being asked.
 
@@ -74,9 +86,18 @@ def decision_options(ctx: ToolContext, reason: str | None = None) -> list[dict[s
     passing None gives the decision buttons, which is the older behaviour.
     """
     block = "owner_decision"
-    if reason is not None and not needs_a_decision(ctx, reason):
+    if reason is not None and needs_an_answer(ctx, reason):
+        block = "owner_answer"
+    elif reason is not None and not needs_a_decision(ctx, reason):
         block = "owner_handover"
     return _config(ctx).get(block, {}).get("options", [])
+
+
+def answer_prompt(ctx: ToolContext) -> str:
+    """What the owner is asked when the case wants a value."""
+    return _config(ctx).get("owner_answer", {}).get(
+        "ask", "*Reply with the figure* and I'll pass it straight on."
+    )
 
 
 def customer_message(ctx: ToolContext, key: str, default: str = "") -> str:
@@ -181,7 +202,9 @@ def find_case(
     return cases[0] if len(cases) == 1 else None
 
 
-def outcome_of(ctx: ToolContext, *, button_id: str | None, text: str | None) -> str | None:
+def outcome_of(
+    ctx: ToolContext, *, button_id: str | None, text: str | None, reason: str | None = None
+) -> str | None:
     """The decision an owner reply carries, or None if it is not decidable.
 
     A button is unambiguous. Free text is only accepted when it is unambiguous
@@ -192,7 +215,7 @@ def outcome_of(ctx: ToolContext, *, button_id: str | None, text: str | None) -> 
     if button_id:
         chosen = button_id.split(":")[0]
         config = _config(ctx)
-        for block in ("owner_decision", "owner_handover"):
+        for block in ("owner_decision", "owner_handover", "owner_answer"):
             for option in config.get(block, {}).get("options", []):
                 if option["id"] == chosen:
                     return option.get("outcome")
@@ -200,6 +223,19 @@ def outcome_of(ctx: ToolContext, *, button_id: str | None, text: str | None) -> 
     words = (text or "").strip().lower()
     if not words:
         return None
+
+    if reason is not None and needs_an_answer(ctx, reason):
+        # The reply *is* the answer. Only the two ways of stepping out of the
+        # case are read as anything else — everything else is the figure, and
+        # refusing it because it is not a yes or a no discards the one thing
+        # nobody but the owner could supply.
+        for name, options in (
+            ("owner_handled", ("handled", "done", "sorted", "dealt with", "taken care of")),
+            ("owner_calling", ("call", "i'll call", "ill call", "phone them", "ring them")),
+        ):
+            if any(re.search(rf"\b{re.escape(o)}\b", words) for o in options):
+                return name
+        return "owner_answered"
 
     affirmative = ("approve", "approved", "yes", "yep", "yeah", "ok", "okay",
                    "go ahead", "do it", "fine", "agreed", "sure",
@@ -273,6 +309,24 @@ def relay_directive(case: Escalation) -> str:
             "and ask if there is anything else you can help with.",
             "Do not restate what was decided or agreed — you were not part of that "
             "conversation and do not know what was said.",
+        ])
+
+    if case.decision == "owner_answered":
+        # The colleague supplied a figure nobody else had. It is now the only
+        # authority for that number, so it goes across exactly as given — a
+        # rounded or "approximately" version of an owner's figure is an invented
+        # figure wearing their authority.
+        return "\n".join([
+            "A colleague has supplied the figure the customer asked for.",
+            f"What was asked: {case.question or case.detail or 'the escalated question'}",
+            f"Their answer, exactly: {case.decision_note or '(no answer recorded)'}",
+            "Give the customer this figure exactly as written. Do not round it, do not "
+            "convert it, do not add 'approximately', and do not add conditions they did "
+            "not state.",
+            "Then carry on with the conversation where it left off — this was a question "
+            "you could not answer, not a problem someone else has taken over.",
+            "It applies to this customer and this car. It is not a price list, so do not "
+            "describe it as what you normally charge.",
         ])
 
     outcome = {

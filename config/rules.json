@@ -237,14 +237,13 @@
   },
   "human_in_the_loop": {
     "_comment": "What happens after the agent hands a case to a person. The agent's job at this point is to stop guessing, ask a decidable question, and relay the answer accurately — never to soften it or fill the gap while waiting.",
-    "_kinds_comment": "Not every escalation is a decision. A fee dispute has two possible answers and the owner picks one. A crash has no answer to pick — it needs a person to take over. Asking someone to Approve or Decline a car accident is the same mistake as reacting to one with a thumbs-up.",
+    "_kinds_comment": "Three kinds, not two. A fee dispute is a DECISION: two answers exist and the owner picks one. A crash is a HANDOVER: nothing to pick, a person takes over. A deposit the operator has never published is an ANSWER: the owner knows the figure and nobody else does, so the reply is a value rather than a choice. Putting Approve/Decline in front of 'what is the deposit?' is the same mistake as putting them in front of a car accident.",
     "decision_reasons": [
       "refund_request",
       "fee_dispute",
       "eligibility_exception",
       "discount_above_approval_threshold",
-      "outside_knowledge_base",
-      "unconfirmed_figure"
+      "outside_knowledge_base"
     ],
     "owner_handover": {
       "_comment": "Everything not listed as a decision. The owner is told to take over rather than asked to choose, and one button releases the conversation once they have.",
@@ -296,7 +295,23 @@
       "applies_to": "this_reservation_only",
       "excluded_from_learning": true
     },
-    "_unconfirmed_figure_comment": "A customer asking for a figure the operator has not confirmed — the deposit, the no-deposit service fee, a per-km rate. The agent has no way to reach it, so without somewhere to send the question it invents a future in which the figure appears: 'the system calculates it at the final stage', 'we lock it in at the reservation stage'. There is no such stage. Ask a person once, and tell the customer that is what you did."
+    "_unconfirmed_figure_comment": "A customer asking for a figure the operator has not confirmed — the deposit, the no-deposit service fee, a per-km rate. The agent has no way to reach it, so without somewhere to send the question it invents a future in which the figure appears: 'the system calculates it at the final stage', 'we lock it in at the reservation stage'. There is no such stage. Ask a person once, and tell the customer that is what you did.",
+    "answer_reasons": [
+      "unconfirmed_figure"
+    ],
+    "owner_answer": {
+      "_comment": "The owner is asked for the figure itself. Their free text becomes the answer and is relayed verbatim, so it is treated as authorised evidence and the agent may state it. One button remains, for an owner who would rather deal with the customer directly.",
+      "options": [
+        {
+          "id": "handled",
+          "label": "I've taken it from here",
+          "outcome": "owner_handled"
+        }
+      ],
+      "ask": "*Reply with the figure* and I'll pass it straight on. I won't guess at it.",
+      "reminder_after_minutes": 15,
+      "timeout_after_minutes": 45
+    }
   },
   "messaging": {
     "_comment": "How the agent behaves as a WhatsApp participant rather than as a text generator. Pacing and reactions are configuration, not code, so an operator can retune the feel without a deploy.",

@@ -161,7 +161,11 @@ def owner_authorised_numbers(owner_decisions) -> set[Decimal]:
     """
     numbers: set[Decimal] = set()
     for decision in owner_decisions or []:
-        if decision.get("decision") != "approved":
+        # An answered case carries a figure the owner supplied because nobody
+        # else had it — the deposit on a car the operator never published. That
+        # is the *only* authority for that number, so the agent repeating it is
+        # the correct outcome rather than an unsupported claim.
+        if decision.get("decision") not in ("approved", "owner_answered"):
             continue
         for text in (decision.get("note") or "", decision.get("question") or ""):
             numbers |= _decimals(text)
