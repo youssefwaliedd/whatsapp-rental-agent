@@ -336,6 +336,59 @@ def check_deferred_promise_for_unconfirmed(messages, tool_calls) -> list[Finding
     return findings
 
 
+#: Words a customer uses when asking about a figure the operator has not
+#: confirmed. Used to count how many times they have actually asked.
+_FIGURE_WORDS = re.compile(r"\b(deposit|service fee|per[- ]?km|extra km|excess|fee)\b", re.I)
+
+
+def check_escalated_before_answering(messages, tool_calls) -> list[Finding]:
+    """Handing a routine question to a person on the first ask.
+
+    Nearly every customer asks about the deposit. The honest answer — it applies,
+    and the amount is confirmed for their car — is one the agent can give, and it
+    keeps the conversation going. Escalating there ends a sale over a question
+    that was never a problem, and buries the owner in cases they cannot act on
+    any better than the agent could.
+
+    The right shape is: answer once, escalate when they press. So this fires only
+    where the customer had asked a single time.
+    """
+    escalated_for_figure = any(
+        "unconfirmed_figure" in str((call.arguments or {}).get("reason", ""))
+        or (call.result or {}).get("reason") == "unconfirmed_figure"
+        for call in tool_calls
+        if call.tool_name == "escalate_conversation"
+    )
+    if not escalated_for_figure:
+        return []
+
+    asks = sum(
+        1
+        for m in messages
+        if m.direction == "inbound" and _FIGURE_WORDS.search(m.content or "")
+    )
+    if asks > 1:
+        return []
+
+    return [
+        Finding(
+            type="escalated_before_answering",
+            severity="medium",
+            situation="the customer asked once about a figure the operator has not confirmed",
+            bad_behavior=(
+                f"escalated to a person after {asks} ask"
+                f"{'' if asks == 1 else 's'}, ending the conversation"
+            ),
+            correct_behavior=(
+                "say a deposit applies and the amount is confirmed for that car, carry on "
+                "selling, and escalate only if they ask again or will not proceed without "
+                "the number"
+            ),
+            evidence={"asks": asks},
+        )
+    ]
+
+
 def check_repeated_questions(state) -> list[Finding]:
     """Asking for something the customer had already supplied.
 
@@ -472,6 +525,7 @@ def run_all(messages, tool_calls, state, escalated: bool, owner_decisions=None) 
         *check_unsupported_claims(messages, tool_calls, owner_decisions),
         *check_absence_claimed_for_unconfirmed(messages, tool_calls),
         *check_deferred_promise_for_unconfirmed(messages, tool_calls),
+        *check_escalated_before_answering(messages, tool_calls),
         *check_missed_escalation(messages, tool_calls, escalated),
         *check_discount_without_authority(messages, tool_calls, owner_decisions),
         *check_repeated_questions(state),

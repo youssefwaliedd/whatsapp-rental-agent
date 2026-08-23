@@ -255,3 +255,44 @@ def test_an_operator_whose_system_really_does_calculate_it_is_unaffected():
         confirmed, State([], []), escalated=False,
     )
     assert "deferred_promise_for_unconfirmed_figure" not in [f.type for f in findings]
+
+
+# --- escalating too early is its own failure --------------------------------
+#
+# Observed in play on 23 Aug: asked "Ferrari Roma. Is there a deposit" — the
+# first mention — the agent escalated, told the customer a colleague was taking
+# over, and stopped replying. Every customer asks that question. The honest
+# answer is one it can give.
+
+
+ESCALATED = Call("escalate_conversation", {"escalated": True, "reason": "unconfirmed_figure"},
+                 {"reason": "unconfirmed_figure"})
+
+
+def test_escalating_on_the_first_ask_is_a_finding():
+    findings = run_all(
+        [Msg("inbound", "Ferrari Roma. Is there a deposit", 1),
+         Msg("outbound", "I've asked a colleague to confirm the exact figure.", 2)],
+        [ESCALATED], State([], []), escalated=True,
+    )
+    assert "escalated_before_answering" in [f.type for f in findings]
+
+
+def test_escalating_after_they_press_is_correct():
+    findings = run_all(
+        [Msg("inbound", "is there a deposit?", 1),
+         Msg("outbound", "A deposit applies; the amount is confirmed for that car.", 2),
+         Msg("inbound", "how much is the deposit though, roughly?", 3),
+         Msg("outbound", "Let me check with the team.", 4)],
+        [ESCALATED], State([], []), escalated=True,
+    )
+    assert "escalated_before_answering" not in [f.type for f in findings]
+
+
+def test_an_accident_escalation_is_never_second_guessed():
+    accident = Call("escalate_conversation", {"escalated": True, "reason": "accident"},
+                    {"reason": "accident"})
+    findings = run_all(
+        [Msg("inbound", "I crashed the car", 1)], [accident], State([], []), escalated=True,
+    )
+    assert "escalated_before_answering" not in [f.type for f in findings]

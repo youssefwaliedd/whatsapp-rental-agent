@@ -216,7 +216,8 @@
     "refund_request",
     "fee_dispute",
     "eligibility_exception",
-    "outside_knowledge_base"
+    "outside_knowledge_base",
+    "unconfirmed_figure"
   ],
   "payment": {
     "accepted": [
