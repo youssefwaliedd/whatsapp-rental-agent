@@ -222,6 +222,12 @@ UNCONFIRMED_DEPOSIT = [Call("create_demo_quote", {"deposit": None, "unconfirmed"
 
 
 @pytest.mark.parametrize("said", [
+    # Passive, no actor, no number — the earlier pattern missed this one, seen in
+    # play on 23 Aug after the escalation route was already in.
+    "Regarding the deposit, that figure is confirmed specifically for this car at the "
+    "final booking stage, and I'll be able to give you the exact amount then.",
+    "I'm unable to provide an estimate for the deposit as it's something that's only "
+    "confirmed for your specific rental at the final stage.",
     "It involves a non-refundable service fee, which I can confirm for you once we "
     "move to the final booking stage.",
     "The no-deposit service fee is specific to your booking and is calculated by the "

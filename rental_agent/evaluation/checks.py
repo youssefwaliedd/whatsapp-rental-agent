@@ -292,7 +292,12 @@ _DEFERRED_PROMISE = re.compile(
     r"\b(?:later|once we|when we|at the (?:final|booking|reservation|last)|final stage|"
     r"final figures|next stage|that stage|at checkout|at the end)\b"
     r"|\bthe system (?:will |can )?(?:calculate|generate|work out|produce)s?\b"
-    r"|\bcalculated by the system\b",
+    r"|\bcalculated by the system\b"
+    # The milestone itself, whoever is said to reach it. "That figure is
+    # confirmed at the final booking stage" names no actor and promises no
+    # number, so the patterns above miss it — and there is no such stage.
+    r"|\b(?:at|by|during|in|before|until) the (?:final |last )?"
+    r"(?:booking|reservation|checkout|payment|final|last)\s*(?:booking\s*|payment\s*)?stage\b",
     re.I | re.S,
 )
 
