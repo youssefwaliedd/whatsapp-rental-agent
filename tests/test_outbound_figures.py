@@ -134,3 +134,102 @@ def test_an_honest_reply_is_sent_untouched(booking_ctx):
 
     assert turn.reply == "Happy to help — when would you like the car?"
     assert turn.invented_figures == ()
+
+
+# --- and not saying a car is free until something has looked ----------------
+#
+# Observed: "the Audi RS3 is available for those dates", and two messages later,
+# "the specific unit I initially looked at is unavailable". Nothing checked in
+# between. The customer had already chosen on the strength of the first sentence.
+#
+# Availability is the one fact this operator publishes nowhere, which makes it
+# the one the model has least business inferring.
+
+from datetime import datetime  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
+
+from rental_agent.agent import availability  # noqa: E402
+
+TZ = ZoneInfo("Asia/Dubai")
+PICKUP = datetime(2026, 9, 4, 17, tzinfo=TZ)
+RETURN = datetime(2026, 9, 6, 17, tzinfo=TZ)
+
+
+def searched(pickup=PICKUP, ret=RETURN, *, found=True):
+    return Call(
+        "search_available_vehicles",
+        {"count": 1 if found else 0, "vehicles": [{"vehicle_id": "veh_01"}] if found else []},
+        {"pickup_at": pickup.isoformat(), "return_at": ret.isoformat()},
+    )
+
+
+@pytest.mark.parametrize("said", [
+    "The Audi RS3 is available for those dates.",
+    "Good news, the BMW M4 Competition is available!",
+    "Yes it is available now.",
+    "We do have it for that weekend.",
+])
+def test_asserting_availability_is_recognised(said):
+    assert availability.claims_available(said) is True
+
+
+@pytest.mark.parametrize("said", [
+    "Let me check whether it is available for those dates.",
+    "I am checking availability now.",
+    "I will confirm availability and come back to you.",
+    "The total is AED 1,887.90.",
+])
+def test_saying_you_will_check_is_not_a_claim(said):
+    # Blocking this would stop the agent saying what it is about to do.
+    assert availability.claims_available(said) is False
+
+
+def test_a_search_for_these_dates_supports_the_claim():
+    assert availability.checked_for([searched()], PICKUP, RETURN) is True
+
+
+def test_a_search_for_different_dates_does_not():
+    # How "available" and "booked out" ended up two messages apart.
+    other = datetime(2026, 9, 20, 17, tzinfo=TZ)
+    assert availability.checked_for([searched(other, other)], PICKUP, RETURN) is False
+
+
+def test_a_search_that_found_nothing_does_not():
+    assert availability.checked_for([searched(found=False)], PICKUP, RETURN) is False
+
+
+def test_a_quote_counts_as_a_check():
+    # The engine validates availability before it will price anything.
+    quote = Call("create_demo_quote", {"quote_id": "DQ-1", "total_charge": "1887.90"},
+                 {"pickup_at": PICKUP.isoformat(), "return_at": RETURN.isoformat()})
+    assert availability.checked_for([quote], PICKUP, RETURN) is True
+
+
+def test_a_failed_quote_does_not():
+    failed = Call("create_demo_quote", {"error": "vehicle_unavailable"},
+                  {"pickup_at": PICKUP.isoformat(), "return_at": RETURN.isoformat()})
+    assert availability.checked_for([failed], PICKUP, RETURN) is False
+
+
+def test_an_unchecked_claim_is_rewritten(booking_ctx):
+    booking_ctx.save_state(
+        booking_ctx.load_state().model_copy(update={"pickup_at": PICKUP, "return_at": RETURN})
+    )
+    agent = _agent("The Audi RS3 is available for those dates.",
+                   "Let me confirm that for you and come right back.")
+    turn = agent.respond(booking_ctx, "is the RS3 free on the 4th?")
+
+    assert "is available" not in turn.reply
+    assert turn.unchecked_availability is True
+
+
+def test_a_model_that_insists_does_not_get_to_promise_a_car(booking_ctx):
+    booking_ctx.save_state(
+        booking_ctx.load_state().model_copy(update={"pickup_at": PICKUP, "return_at": RETURN})
+    )
+    agent = _agent("The Audi RS3 is available for those dates.",
+                   "It is available, yes.")
+    turn = agent.respond(booking_ctx, "is the RS3 free on the 4th?")
+
+    assert turn.reply == availability.SAFE_REPLY
+    assert turn.unchecked_availability is True

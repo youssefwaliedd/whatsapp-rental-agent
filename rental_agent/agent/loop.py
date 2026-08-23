@@ -29,7 +29,7 @@ from .providers.errors import ProviderUnavailable
 import logging
 
 from . import extraction as extraction_mod
-from . import figures
+from . import availability, figures
 from .prompt import build_system, render_state
 from .schemas import TOOLS
 from .settings import FALLBACK_BETA, AgentSettings
@@ -112,6 +112,8 @@ class AgentTurn:
     #: Figures the model stated that no tool produced, caught on the way out.
     #: Recorded even when the retry succeeded, because it happened.
     invented_figures: tuple[str, ...] = ()
+    #: Set when the model said a car was free with nothing having checked.
+    unchecked_availability: bool = False
 
 
 #: Extraction runs here while the first conversation call is in flight. Small
@@ -263,7 +265,7 @@ class Agent:
             pending.cancel()
             turn = self._provider_unavailable(ctx, exc, message)
         turn.extraction_error = pending.error
-        turn = self._refuse_invented_figures(ctx, turn, state, now, customer, active_reservation)
+        turn = self._guard_outbound(ctx, turn, state, now, customer, active_reservation)
 
         ctx.messages.record(
             conversation_id=ctx.conversation_id or "",
@@ -272,6 +274,60 @@ class Agent:
             now=ctx.now(),
         )
         self._record_asked_slots(ctx, turn.reply)
+        return turn
+
+    def _guard_outbound(
+        self, ctx: ToolContext, turn: AgentTurn, state: Any, now: Any,
+        customer: Any, active_reservation: Any,
+    ) -> AgentTurn:
+        """The last two things checked before a message goes out.
+
+        Both are rules the prompt already states and the model does not reliably
+        follow, and both are wrong in a way the customer acts on: a price they
+        plan around, and a car they choose.
+        """
+        turn = self._refuse_invented_figures(ctx, turn, state, now, customer, active_reservation)
+        return self._refuse_unchecked_availability(
+            ctx, turn, state, now, customer, active_reservation
+        )
+
+    def _refuse_unchecked_availability(
+        self, ctx: ToolContext, turn: AgentTurn, state: Any, now: Any,
+        customer: Any, active_reservation: Any,
+    ) -> AgentTurn:
+        """Do not tell a customer a car is free until something has looked.
+
+        Said once and corrected two messages later, after the customer had
+        already chosen on the strength of it. This operator publishes
+        availability nowhere, which makes it the fact the model has least
+        business inferring.
+        """
+        if not availability.claims_available(turn.reply):
+            return turn
+
+        calls = self._turn_calls(ctx)
+        if availability.checked_for(calls, state.pickup_at, state.return_at):
+            return turn
+
+        _log.warning("reply claimed availability with nothing having checked — asking again")
+        try:
+            retried = self._run_tool_loop(
+                ctx, state, now, customer, active_reservation,
+                directive=availability.CORRECTION,
+            )
+        except ProviderUnavailable:
+            retried = None
+
+        if retried is not None:
+            recheck = self._turn_calls(ctx)
+            if not availability.claims_available(retried.reply) or availability.checked_for(
+                recheck, state.pickup_at, state.return_at
+            ):
+                retried.unchecked_availability = True
+                return retried
+
+        turn.reply = availability.SAFE_REPLY
+        turn.unchecked_availability = True
         return turn
 
     def _refuse_invented_figures(
