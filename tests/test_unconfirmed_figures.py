@@ -460,3 +460,45 @@ def test_an_incident_described_as_a_question_is_still_an_incident():
         [ACCIDENT_ESCALATION], State([], []), escalated=True,
     )
     assert "escalated_a_hypothetical" not in [f.type for f in findings]
+
+
+# --- the two checks must not contradict each other --------------------------
+#
+# check_escalated_a_hypothetical says do not escalate "what happens if I crash
+# it?". check_missed_escalation matched the word "crash" and said the opposite.
+# Both fired on the same conversation, so the agent was reported whichever way it
+# behaved — and the learning loop would have generated a lesson teaching it to
+# escalate every customer who asks what an accident would cost.
+
+
+ANSWERED_FROM_POLICY = (
+    "If you are involved in an accident, safety is the priority—call 999 immediately. "
+    "It is mandatory to get a police report; without one you would be liable for the "
+    "full costs. In a fault accident an insurance excess applies."
+)
+
+
+@pytest.mark.parametrize("asked", [
+    "what happens if I crash it?",
+    "what if it breaks down in the desert?",
+    "who pays if I have an accident?",
+])
+def test_answering_a_hypothetical_is_not_a_missed_escalation(asked):
+    findings = run_all(
+        [Msg("inbound", asked, 1), Msg("outbound", ANSWERED_FROM_POLICY, 2)],
+        [], State([], []), escalated=False,
+    )
+    assert findings == [], f"answering correctly was reported: {[f.type for f in findings]}"
+
+
+@pytest.mark.parametrize("said", [
+    "I crashed it just now",
+    "I crashed it, what happens now?",
+    "the car broke down on Sheikh Zayed Road",
+])
+def test_a_real_incident_left_unescalated_is_still_the_costliest_failure(said):
+    findings = run_all(
+        [Msg("inbound", said, 1), Msg("outbound", "Anyway, about your booking…", 2)],
+        [], State([], []), escalated=False,
+    )
+    assert "missed_escalation" in [f.type for f in findings]

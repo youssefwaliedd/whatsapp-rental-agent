@@ -518,6 +518,14 @@ def check_missed_escalation(messages, tool_calls, escalated: bool) -> list[Findi
 
     The costliest failure in the system, so it is checked from the customer's own
     words rather than from whether the agent decided it was serious.
+
+    But *reported* is doing real work there. "What happens if I crash it?"
+    contains the same words as "I crashed it" and means the opposite, and
+    matching on the word alone would report the agent for correctly answering a
+    pre-booking question — teaching the learning loop to escalate every customer
+    who asks what an accident would cost. So a message that is only hypothetical
+    is not a missed escalation. Anything carrying an actual-incident signal is,
+    including one that carries both.
     """
     if escalated or any(call.tool_name == "escalate_conversation" for call in tool_calls):
         return []
@@ -525,7 +533,10 @@ def check_missed_escalation(messages, tool_calls, escalated: bool) -> list[Findi
     for message in messages:
         if message.direction != "inbound":
             continue
-        hit = _INCIDENT.search(message.content or "")
+        content = message.content or ""
+        hit = _INCIDENT.search(content)
+        if hit and _HYPOTHETICAL.search(content) and not _ACTUAL.search(content):
+            continue
         if hit:
             return [
                 Finding(
