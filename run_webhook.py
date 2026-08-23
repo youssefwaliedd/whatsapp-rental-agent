@@ -20,10 +20,13 @@ import uvicorn
 
 from rental_agent.agent.loop import build_agent
 from rental_agent.store.db import create_db_engine, init_db
+from rental_agent.whatsapp.port import refuse_if_taken
 from rental_agent.whatsapp.settings import WhatsAppSettings
 from rental_agent.whatsapp.webhook import create_app
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
+
+PORT = 8000
 
 settings = WhatsAppSettings()
 session_factory = init_db(create_db_engine())
@@ -47,6 +50,11 @@ app = create_app(
 )
 
 if __name__ == "__main__":
+    # Before anything else: a stale process on this port answers every request
+    # with whatever code it started with, and uvicorn's bind error is easy to
+    # lose in the startup logging.
+    refuse_if_taken(PORT)
+
     missing = settings.missing()
     if missing:
         print("  Not yet configured — set these in .env before going live:")
@@ -68,4 +76,4 @@ if __name__ == "__main__":
     took = agent_factory().warm_up()
     print(f"  Model warm ({took:.1f}s)\n" if took else "  Model unreachable — will retry live\n")
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")

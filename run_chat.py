@@ -19,6 +19,7 @@ import uvicorn
 from rental_agent.agent.loop import build_agent
 from rental_agent.store.db import create_db_engine, init_db
 from rental_agent.webchat.app import DEFAULT_HANDLE, create_app
+from rental_agent.whatsapp.port import refuse_if_taken
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -28,6 +29,8 @@ logging.basicConfig(level=logging.WARNING)
 TZ = ZoneInfo("Asia/Dubai")
 REFERENCE_DATE = date(2026, 9, 1)
 FROZEN_NOW = datetime(2026, 9, 1, 10, 0, tzinfo=TZ)
+
+PORT = 8100
 
 _agent = None
 
@@ -75,6 +78,8 @@ def close_open_conversation(session_factory) -> bool:
 
 
 if __name__ == "__main__":
+    refuse_if_taken(PORT)
+
     print("\n  Sandline Rentals — test chat")
     # Pay the provider's first-call cost now rather than making the first
     # message of the session absorb it.
@@ -86,4 +91,4 @@ if __name__ == "__main__":
     elif close_open_conversation(session_factory):
         print("  fresh conversation — the last one is kept; --continue resumes it")
     print("  http://localhost:8100\n")
-    uvicorn.run(app, host="127.0.0.1", port=8100, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
