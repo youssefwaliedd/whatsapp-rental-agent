@@ -236,16 +236,47 @@ def test_a_replay_that_avoids_the_mistake_passes(booking_ctx):
 
 
 def test_a_replay_that_repeats_the_mistake_fails(booking_ctx):
-    make_conversation(booking_ctx, [("inbound", "how much?"), ("outbound", "AED 4,321.")])
-    case = replay_mod.capture_case(booking_ctx, booking_ctx.conversation_id, "unsupported_claim")
+    # Deliberately not an invented figure. Those can no longer reach a
+    # transcript — the outbound guard refuses the message and asks for it again
+    # — so a regression case for one would always pass and prove nothing about
+    # the harness. Listing seven cars in a message is a mistake the agent is
+    # still perfectly able to make.
+    listed = " ".join(f"*Brand Model {2020 + n} — {2020 + n}*" for n in range(7))
+    make_conversation(booking_ctx, [("inbound", "what do you have?"), ("outbound", listed)])
+    case = replay_mod.capture_case(booking_ctx, booking_ctx.conversation_id, "too_many_options")
 
     agent = Agent(
-        FakeClient(script=[says("That will be AED 8,765 all in.")]),
+        FakeClient(script=[says(listed)]),
         AgentSettings(extraction_enabled=False),
     )
     result = replay_mod.replay_case(booking_ctx, case, agent, [])
     assert result.passed is False
-    assert "unsupported_claim" in result.findings
+    assert "too_many_options" in result.findings
+
+
+def test_an_invented_figure_never_reaches_the_transcript(booking_ctx):
+    """What the case above used to test, now prevented rather than detected.
+
+    A model that states a figure no tool produced is asked to write the message
+    again with the real ones in front of it. This one insists, so the reply falls
+    back to something that promises no number at all.
+    """
+    from rental_agent.agent.figures import SAFE_REPLY
+
+    make_conversation(booking_ctx, [("inbound", "how much?"), ("outbound", "AED 4,321.")])
+    case = replay_mod.capture_case(booking_ctx, booking_ctx.conversation_id, "unsupported_claim")
+
+    agent = Agent(
+        FakeClient(script=[says("That will be AED 8,765 all in."),
+                           says("Sorry — AED 8,765 all in.")]),
+        AgentSettings(extraction_enabled=False),
+    )
+    result = replay_mod.replay_case(booking_ctx, case, agent, [])
+
+    assert "unsupported_claim" not in result.findings
+    last = booking_ctx.session.query(type(case)).count() >= 0  # session still usable
+    assert last is True
+    assert result.passed is True
 
 
 def test_a_replay_runs_under_the_candidates_lessons_not_the_active_ones(booking_ctx):

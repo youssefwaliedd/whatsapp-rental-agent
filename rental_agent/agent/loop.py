@@ -26,10 +26,15 @@ from ..context import ToolContext
 from ..domain.enums import Stage
 from ..tools.registry import execute_tool
 from .providers.errors import ProviderUnavailable
+import logging
+
 from . import extraction as extraction_mod
+from . import figures
 from .prompt import build_system, render_state
 from .schemas import TOOLS
 from .settings import FALLBACK_BETA, AgentSettings
+
+_log = logging.getLogger("rental_agent.agent")
 
 #: Which requirement a question is about. Deliberately loose — a false negative
 #: costs the evaluator one signal, while a false positive would accuse the agent
@@ -104,6 +109,9 @@ class AgentTurn:
     provider_error: str | None = None
     #: Set when the extraction pass failed; the turn still ran without it.
     extraction_error: str | None = None
+    #: Figures the model stated that no tool produced, caught on the way out.
+    #: Recorded even when the retry succeeded, because it happened.
+    invented_figures: tuple[str, ...] = ()
 
 
 #: Extraction runs here while the first conversation call is in flight. Small
@@ -255,6 +263,7 @@ class Agent:
             pending.cancel()
             turn = self._provider_unavailable(ctx, exc, message)
         turn.extraction_error = pending.error
+        turn = self._refuse_invented_figures(ctx, turn, state, now, customer, active_reservation)
 
         ctx.messages.record(
             conversation_id=ctx.conversation_id or "",
@@ -264,6 +273,55 @@ class Agent:
         )
         self._record_asked_slots(ctx, turn.reply)
         return turn
+
+    def _refuse_invented_figures(
+        self, ctx: ToolContext, turn: AgentTurn, state: Any, now: Any,
+        customer: Any, active_reservation: Any,
+    ) -> AgentTurn:
+        """Do not send a price no tool produced.
+
+        The evaluator already finds these, afterwards, once the customer has the
+        number. This is the same rule applied while there is still time to do
+        something about it.
+
+        One retry. Each costs a model call against a 2-5 second target, and a
+        model that has invented a figure with the real ones in front of it will
+        not do better on a third pass. If the retry also fails, the reply says
+        nothing about money at all: a customer told "let me confirm that" is
+        inconvenienced, and a customer told the wrong total is misled.
+        """
+        verdict = figures.inspect(turn.reply, self._turn_calls(ctx))
+        if verdict.ok:
+            return turn
+
+        _log.warning(
+            "reply stated %s, which no tool produced — asking for it again",
+            ", ".join(str(v) for v in verdict.unsupported),
+        )
+        try:
+            retried = self._run_tool_loop(
+                ctx, state, now, customer, active_reservation,
+                directive=figures.correction(verdict),
+            )
+        except ProviderUnavailable:
+            retried = None
+
+        if retried is not None:
+            second = figures.inspect(retried.reply, self._turn_calls(ctx))
+            if second.ok:
+                retried.invented_figures = tuple(str(v) for v in verdict.unsupported)
+                return retried
+
+        turn.reply = figures.SAFE_REPLY
+        turn.invented_figures = tuple(str(v) for v in verdict.unsupported)
+        return turn
+
+    @staticmethod
+    def _turn_calls(ctx: ToolContext) -> list[Any]:
+        """What the tools returned in this conversation, as the evaluator sees it."""
+        if ctx.session is None or not ctx.conversation_id:
+            return []
+        return list(ctx.tool_calls.for_conversation(ctx.conversation_id))
 
     def warm_up(self) -> float | None:
         """Pay the first-call cost before a customer is waiting on it.
