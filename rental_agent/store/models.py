@@ -72,8 +72,15 @@ class Conversation(Base):
     strategy_version: Mapped[str | None] = mapped_column(String, default=None)
     escalated: Mapped[bool] = mapped_column(Boolean, default=False)
     escalation_reason: Mapped[str | None] = mapped_column(String, default=None)
-    #: Set when the conversation closes; the evaluator reads it.
+    #: Set when the conversation closes; the evaluator reads it. Null means
+    #: open, and `open_for_customer` relies on that — so how a *sale* ended
+    #: cannot live here. Writing "booked" into it would close the thread and
+    #: greet the same customer as a stranger on their next message.
     outcome: Mapped[str | None] = mapped_column(String, default=None)
+    #: How the sale went: booked, dropped or escalated. Their brief's section 4,
+    #: and the thing that makes a pile of transcripts searchable — "show me
+    #: everyone who went quiet after a quote" is the question worth asking.
+    sales_outcome: Mapped[str | None] = mapped_column(String, default=None, index=True)
 
     created_at: Mapped[datetime] = mapped_column(AwareDateTime)
     updated_at: Mapped[datetime] = mapped_column(AwareDateTime)

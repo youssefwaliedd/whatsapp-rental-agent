@@ -105,6 +105,10 @@ def escalate_conversation(
         conversation.escalated = True
         conversation.escalation_reason = classified
 
+    from . import outcomes
+
+    outcomes.mark_escalated(ctx)
+
     state = ctx.load_state()
     if not state.escalated:
         # Only on the way in. Escalating twice must not overwrite this with

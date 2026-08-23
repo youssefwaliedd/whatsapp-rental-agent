@@ -26,7 +26,7 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 from ..config import load_rules
 from ..context import ToolContext
 from ..formatting import photo_caption
-from ..services import handover
+from ..services import handover, outcomes
 from ..sources import refresh as refresh_mod
 from ..store.models import Escalation
 from . import reactions as reactions_mod
@@ -128,6 +128,13 @@ def create_app(
         anything at all is happening and honest about what it is.
         """
         ctx = ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)
+        # Same opportunity, same reason: an inbound message is when we notice
+        # things that became true while nothing was happening.
+        try:
+            outcomes.sweep_dropped(ctx)
+        except Exception:  # noqa: BLE001 - reporting must never break a turn
+            log.exception("failed to sweep dropped conversations")
+
         for case in handover.overdue_cases(ctx):
             try:
                 if handover.needs_reminder(ctx, case):

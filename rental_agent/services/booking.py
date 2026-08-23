@@ -23,6 +23,7 @@ from typing import Any
 
 from ..context import ToolContext
 from ..domain.enums import Stage
+from . import outcomes
 from ..domain.models import Quote as QuoteModel
 from ..engine.engine import VehicleNotFound, VehicleUnavailable
 from ..engine.locations import normalise_location
@@ -289,6 +290,7 @@ def create_demo_reservation(
         history=[{"event": "created", "quote_id": quote.quote_id, "at": now.isoformat()}],
     )
     ctx.quotes.mark_converted(quote.quote_id)
+    outcomes.mark_booked(ctx)
     _update_state(
         ctx,
         reservation_id=reservation.reservation_id,
