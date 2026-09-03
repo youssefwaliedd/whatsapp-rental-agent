@@ -221,6 +221,52 @@ def activate(
     return ActivationResult(candidate.version, True, passed, failed)
 
 
+def rollback(ctx: ToolContext, version: str | None = None) -> ActivationResult:
+    """Put a previous version back in front of customers.
+
+    The step the loop was missing. Proving a candidate says it broke nothing
+    that had already gone wrong; it cannot say the lessons read well to a real
+    customer, and the first place anyone finds that out is in a live
+    conversation. Without a way back, the only remedy was to write a new
+    candidate and replay it — an hour, with the bad version still serving.
+
+    Rolling back is deliberately not a decision the system makes. Nothing here
+    watches for a version behaving badly, because a machine that could withdraw
+    lessons on its own could also withdraw the ones keeping it honest.
+
+    Without `version`, goes back to whatever was serving before the current one.
+    """
+    session = ctx._require_session()
+    current = active_strategy(ctx)
+
+    if version is None:
+        if current is None or not current.parent_version:
+            return ActivationResult(
+                current.version if current else "", False, 0, 0,
+                "nothing to go back to — this is the version everything started from",
+            )
+        version = current.parent_version
+
+    target = session.scalar(select(StrategyRow).where(StrategyRow.version == version))
+    if target is None:
+        return ActivationResult(version, False, 0, 0, f"no strategy called {version}")
+    if current is not None and target.version == current.version:
+        return ActivationResult(version, False, 0, 0, "already active")
+
+    now = ctx.now()
+    if current is not None:
+        current.status = "rolled_back"
+        current.rejection_reason = f"rolled back to {target.version} on {now:%d %b %Y}"
+
+    # Straight back to active. A version that was live once has already been
+    # replayed, and making a rollback wait for another hour of proving would
+    # leave the bad one serving for that hour.
+    target.status = "active"
+    target.activated_at = now
+    session.flush()
+    return ActivationResult(target.version, True, target.replay_passed, target.replay_failed)
+
+
 def history(ctx: ToolContext) -> list[StrategyRow]:
     session = ctx._require_session()
     return list(session.scalars(select(StrategyRow).order_by(StrategyRow.id)))

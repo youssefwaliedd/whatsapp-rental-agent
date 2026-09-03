@@ -3,6 +3,7 @@
     .venv/bin/python run_learning.py              # what it would learn. Free.
     .venv/bin/python run_learning.py --replay     # prove it breaks nothing. Costs quota.
     .venv/bin/python run_learning.py --promote strategy_1.3
+    .venv/bin/python run_learning.py --rollback
     .venv/bin/python run_learning.py --asked
     .venv/bin/python run_learning.py --lost
     .venv/bin/python run_learning.py --status
@@ -19,6 +20,12 @@ lessons and reports whether the old mistakes stay gone. This is the expensive
 step — one model call per turn per case — and it is the one that earns the word
 "verified". Gemini's free tier is the right tier for it: latency does not matter
 to a batch job, and it is the model actually serving customers.
+
+**Roll back** is yours too, and needs no proving: a version that was live once
+has already been replayed, and making a rollback wait an hour would leave the
+bad one serving for that hour. Nothing here decides to roll back on its own — a
+system that could withdraw lessons unprompted could withdraw the ones keeping it
+honest.
 
 **Promote** is yours. A clean replay says the candidate breaks nothing that used
 to work. It does not say these are lessons this operator wants their salesperson
@@ -213,6 +220,8 @@ def main() -> int:
                         help="put a replayed candidate in front of customers")
     parser.add_argument("--cases", type=int, metavar="N",
                         help="replay only the first N cases — diagnosis, settles nothing")
+    parser.add_argument("--rollback", nargs="?", const="", metavar="VERSION",
+                        help="put a previous version back; no argument goes back one")
     parser.add_argument("--asked", action="store_true",
                         help="what customers ask, object to, and escalate over")
     parser.add_argument("--lost", action="store_true",
@@ -238,6 +247,16 @@ def main() -> int:
         if args.status:
             show_status(ctx)
             return 0
+
+        if args.rollback is not None:
+            outcome = strategies.rollback(ctx, args.rollback or None)
+            session.commit()
+            if outcome.activated:
+                print(f"\n  {GOOD}{outcome.version} is serving customers again.{OFF}")
+                print(f"  {DIM}It takes effect on the next message — no restart.{OFF}")
+                return 0
+            print(f"\n  {BAD}Not rolled back:{OFF} {outcome.reason}")
+            return 1
 
         if args.promote:
             outcome = strategies.promote(ctx, args.promote)

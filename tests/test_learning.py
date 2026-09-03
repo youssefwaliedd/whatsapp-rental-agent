@@ -614,3 +614,71 @@ def test_one_outage_does_not_become_twenty_failures(booking_ctx):
     assert summary.inconclusive is True
     assert summary.failed == 0
     assert len(summary.results) == 1
+
+
+# --------------------------------------------------------------------------
+# Going back
+# --------------------------------------------------------------------------
+#
+# Proving a candidate says it broke nothing that had already gone wrong. It
+# cannot say the lessons read well to a real customer, and the first place
+# anyone finds that out is in a live conversation.
+
+
+def _promoted(ctx):
+    candidate = _candidate(ctx)
+    strategies.record_replay(ctx, candidate, passed=3, failed=0)
+    strategies.promote(ctx, candidate.version)
+    return candidate
+
+
+def test_a_bad_version_can_be_withdrawn(booking_ctx):
+    promoted = _promoted(booking_ctx)
+    assert strategies.active_lessons(booking_ctx)
+
+    outcome = strategies.rollback(booking_ctx)
+
+    assert outcome.activated is True
+    assert outcome.version == strategies.BASELINE_VERSION
+    assert strategies.active_lessons(booking_ctx) == []
+    assert promoted.status == "rolled_back"
+    assert "rolled back" in promoted.rejection_reason
+
+
+def test_a_rollback_does_not_need_proving_again(booking_ctx):
+    """A version that was live once has already been replayed. Making it wait an
+    hour would leave the bad one serving for that hour."""
+    _promoted(booking_ctx)
+
+    outcome = strategies.rollback(booking_ctx, strategies.BASELINE_VERSION)
+
+    assert outcome.activated is True
+    assert strategies.active_strategy(booking_ctx).version == strategies.BASELINE_VERSION
+
+
+def test_there_is_nothing_before_the_beginning(booking_ctx):
+    strategies.ensure_baseline(booking_ctx)
+    outcome = strategies.rollback(booking_ctx)
+
+    assert outcome.activated is False
+    assert "nothing to go back to" in outcome.reason
+
+
+def test_rolling_back_to_a_version_that_does_not_exist(booking_ctx):
+    _promoted(booking_ctx)
+    outcome = strategies.rollback(booking_ctx, "strategy_9.9")
+
+    assert outcome.activated is False
+    assert "no strategy" in outcome.reason
+    assert strategies.active_lessons(booking_ctx)      # still serving
+
+
+def test_the_withdrawn_version_can_be_put_back(booking_ctx):
+    """A rollback is a judgement, and judgements get revisited."""
+    promoted = _promoted(booking_ctx)
+    strategies.rollback(booking_ctx)
+
+    outcome = strategies.rollback(booking_ctx, promoted.version)
+
+    assert outcome.activated is True
+    assert strategies.active_strategy(booking_ctx).version == promoted.version
