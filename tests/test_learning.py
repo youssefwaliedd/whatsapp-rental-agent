@@ -682,3 +682,31 @@ def test_the_withdrawn_version_can_be_put_back(booking_ctx):
 
     assert outcome.activated is True
     assert strategies.active_strategy(booking_ctx).version == promoted.version
+
+
+def test_a_dropped_connection_is_not_a_regression(booking_ctx):
+    """Found by running the diagnosis: two of three failures were DNS errors,
+    scored as the lessons having broken something. `ProviderUnavailable` alone
+    was not enough — a raw transport error fell through to the generic handler
+    and counted as a failed case."""
+    import httpx
+
+    make_conversation(booking_ctx, [("inbound", "how much?"), ("outbound", "AED 4,321 total.")])
+    result = evaluate_conversation(booking_ctx, booking_ctx.conversation_id)
+    case = replay_mod.capture_case(
+        booking_ctx, booking_ctx.conversation_id, "unsupported_claim", name="invented a price"
+    )
+
+    class Offline:
+        lessons_override = None
+
+        def respond(self, ctx, message):
+            raise httpx.ConnectError("[Errno 8] nodename nor servname provided, or not known")
+
+    outcome = replay_mod.replay_case(booking_ctx, case, Offline(), ["be careful"])
+
+    assert outcome.inconclusive is True
+    assert outcome.passed is False          # it did not pass — it did not run
+    summary = replay_mod.replay_all(booking_ctx, Offline(), ["be careful"])
+    assert summary.failed == 0              # and nothing is counted against the candidate
+    assert summary.inconclusive is True

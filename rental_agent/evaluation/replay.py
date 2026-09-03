@@ -24,6 +24,20 @@ from ..context import ToolContext
 from ..store.models import RegressionCase as CaseRow
 from .evaluator import evaluate_conversation
 
+#: Anything that means "we could not reach the model", rather than "the lessons
+#: broke something". Belt and braces behind the adapter's own classification:
+#: the diagnosis that found this scored two DNS failures as regressions, and a
+#: verdict about the network recorded as a verdict about the lessons is the one
+#: mistake this gate must not make.
+try:  # pragma: no cover - httpx is a transitive dependency, not a declared one
+    import httpx
+
+    TRANSPORT_FAILURES: tuple[type[BaseException], ...] = (
+        ProviderUnavailable, httpx.TransportError, ConnectionError, TimeoutError, OSError,
+    )
+except ImportError:  # pragma: no cover
+    TRANSPORT_FAILURES = (ProviderUnavailable, ConnectionError, TimeoutError, OSError)
+
 #: Marks a conversation as a replay artefact rather than a real customer.
 REPLAY_OUTCOME = "replay"
 
@@ -168,7 +182,7 @@ def replay_case(ctx: ToolContext, case: CaseRow, agent: Any, lessons: list[str])
             findings=found,
             introduced=introduced,
         )
-    except ProviderUnavailable as exc:
+    except TRANSPORT_FAILURES as exc:
         # The model was unreachable, so this case was never run. Scoring it as a
         # failure would reject a candidate for the free tier's quota running out
         # — a verdict about the weather, recorded permanently as a verdict about

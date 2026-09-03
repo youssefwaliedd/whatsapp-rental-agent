@@ -347,6 +347,20 @@ _RETRYABLE = (
     "500",
     "deadline",
     "timeout",
+    # The network itself. A laptop that loses DNS for a second, a dropped
+    # connection mid-request — nothing to do with the model, and previously
+    # raised straight through: a live turn crashed instead of apologising, and a
+    # replay scored it as the lessons having broken something.
+    "connecterror",
+    "connect error",
+    "connection",
+    "nodename nor servname",
+    "temporary failure in name resolution",
+    "getaddrinfo",
+    "network is unreachable",
+    "ssl",
+    "read timed out",
+    "remote end closed",
 )
 
 
