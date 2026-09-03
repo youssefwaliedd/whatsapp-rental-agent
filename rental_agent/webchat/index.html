@@ -299,9 +299,21 @@ const esc = s => (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'
 
 // WhatsApp renders *bold* and _italic_. The server already normalises markdown
 // into that, so this only has to render what a phone would.
-const fmt = s => esc(s)
+// Markup, but never inside a link. A Stripe checkout URL contains cs_test_...,
+// and italicising _test_ silently drops the underscores — so the link rendered
+// here was not the link that was sent, and Stripe answered "page not found".
+const URL_RE = /(https?:\/\/[^\s<]+)/g;
+
+const markup = s => s
   .replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
   .replace(/_([^_\n]+)_/g, '<i>$1</i>');
+
+const fmt = s => esc(s)
+  .split(URL_RE)
+  .map((piece, index) => index % 2
+    ? `<a href="${piece}" target="_blank" rel="noopener noreferrer">${piece}</a>`
+    : markup(piece))
+  .join('');
 
 const clock = () => new Date().toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
 
