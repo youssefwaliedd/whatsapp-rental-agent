@@ -91,6 +91,19 @@ you a Postgres on the same network:
       ALTER TABLE quotes ALTER COLUMN deposit DROP NOT NULL;
       ALTER TABLE reservations ALTER COLUMN deposit DROP NOT NULL;
       ALTER TABLE conversations ADD COLUMN IF NOT EXISTS sales_outcome VARCHAR;
+      ALTER TABLE strategies ADD COLUMN IF NOT EXISTS replay_detail JSON DEFAULT '[]'::json;
+      CREATE TABLE IF NOT EXISTS booking_operations (
+        id SERIAL PRIMARY KEY,
+        idempotency_key VARCHAR UNIQUE NOT NULL,
+        provider VARCHAR NOT NULL,
+        kind VARCHAR NOT NULL,
+        customer_ref VARCHAR,
+        reference VARCHAR,
+        outcome VARCHAR,
+        detail JSON,
+        created_at TIMESTAMPTZ NOT NULL,
+        settled_at TIMESTAMPTZ
+      );
 
   A brand new database needs none of this — `create_all` builds it correctly.
 - Point Meta's webhook at the deployed URL instead of the tunnel.

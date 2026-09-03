@@ -42,7 +42,8 @@ class CycleReport:
 
 
 def run(
-    ctx: ToolContext, agent: Any | None = None, *, activate: bool = True
+    ctx: ToolContext, agent: Any | None = None, *, activate: bool = True,
+    limit: int | None = None,
 ) -> CycleReport:
     """Run one learning cycle.
 
@@ -92,7 +93,7 @@ def run(
         return report
 
     # 4. Prove it does not break anything already working.
-    summary = replay_mod.replay_all(ctx, agent, candidate.lessons)
+    summary = replay_mod.replay_all(ctx, agent, candidate.lessons, limit=limit)
     report.replay_passed = summary.passed
     report.replay_failed = summary.failed
     report.replay_results = list(summary.results)
@@ -103,6 +104,15 @@ def run(
         report.reason = (
             f"replay could not finish — the model was unreachable after "
             f"{summary.passed} case(s). Nothing was concluded and nothing was rejected."
+        )
+        return report
+
+    if limit:
+        # A sample proves nothing about the whole set, so it must not be able to
+        # settle the candidate either way.
+        report.reason = (
+            f"sampled {summary.passed + summary.failed} case(s) — diagnosis only, "
+            "nothing recorded against the candidate"
         )
         return report
 

@@ -193,7 +193,9 @@ def replay_case(ctx: ToolContext, case: CaseRow, agent: Any, lessons: list[str])
         agent.lessons_override = previous
 
 
-def replay_all(ctx: ToolContext, agent: Any, lessons: list[str]) -> ReplaySummary:
+def replay_all(
+    ctx: ToolContext, agent: Any, lessons: list[str], limit: int | None = None
+) -> ReplaySummary:
     """Every stored case under a candidate's lessons.
 
     Stops at the first case the model could not be reached for. Carrying on
@@ -201,7 +203,12 @@ def replay_all(ctx: ToolContext, agent: Any, lessons: list[str]) -> ReplaySummar
     candidate that was never tested.
     """
     results: list[ReplayResult] = []
-    for case in cases(ctx):
+    chosen = cases(ctx)
+    if limit:
+        # Enough to test a hypothesis without spending the day's quota proving
+        # it twenty times. A partial run can never activate anything.
+        chosen = chosen[:limit]
+    for case in chosen:
         result = replay_case(ctx, case, agent, lessons)
         results.append(result)
         if result.inconclusive:

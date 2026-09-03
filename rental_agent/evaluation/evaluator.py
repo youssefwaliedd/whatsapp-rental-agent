@@ -209,6 +209,54 @@ def evaluate_all(ctx: ToolContext) -> list[EvaluationResult]:
     return results
 
 
+def review_enabled() -> bool:
+    """Whether the reading pass runs.
+
+    Off unless a key exists. Everything else in the loop works without it, and a
+    review that silently did not happen would be worse than one that plainly
+    never ran.
+    """
+    import os
+
+    return bool(os.getenv("ANTHROPIC_API_KEY")) and os.getenv(
+        "RENTAL_AGENT_REVIEW", "1"
+    ) not in ("0", "false", "no")
+
+
+def review_and_record(ctx: ToolContext, conversation_id: str) -> list[Finding]:
+    """Read one conversation for what the checks cannot see, and keep it.
+
+    Runs after the deterministic pass, never instead of it. A failure here loses
+    nothing: the findings that matter were produced without a model.
+    """
+    if not review_enabled():
+        return []
+
+    from ..agent.providers import build_client
+    from .review import review_conversation
+
+    try:
+        client = build_client("anthropic")
+    except Exception as exc:  # noqa: BLE001 - no reviewer is not an error
+        _log.warning("no review model available: %s", exc)
+        return []
+
+    messages = ctx.messages.for_conversation(conversation_id)
+    result = review_conversation(client, messages)
+    if not result.ran:
+        return []
+
+    now = ctx.now()
+    for finding in result.findings:
+        _promote(ctx, finding, conversation_id, now)
+    if result.findings or result.observations:
+        _log.info(
+            "review of %s: %d finding(s), %d observation(s)",
+            conversation_id, len(result.findings), len(result.observations),
+        )
+    return result.findings
+
+
 def evaluate_finished(ctx: ToolContext, now: Any = None) -> list[str]:
     """Evaluate every conversation that has ended and has not been judged yet.
 
@@ -260,6 +308,15 @@ def evaluate_finished(ctx: ToolContext, now: Any = None) -> list[str]:
         from .replay import capture_from_evaluation
 
         capture_from_evaluation(ctx, result)
+
+        # And the reading pass, for what a fixed check cannot see. Its findings
+        # join the same ledger at medium severity and go through the same gate
+        # that refuses a lesson carrying a figure.
+        try:
+            review_and_record(ctx, conversation.conversation_id)
+        except Exception:  # noqa: BLE001 - never lose the deterministic findings
+            _log.exception("review pass failed on %s", conversation.conversation_id)
+
         evaluated.append(conversation.conversation_id)
 
     if evaluated:

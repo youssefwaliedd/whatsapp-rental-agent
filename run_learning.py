@@ -157,6 +157,8 @@ def main() -> int:
                         help="replay every regression case against the candidate (uses the model)")
     parser.add_argument("--promote", metavar="VERSION",
                         help="put a replayed candidate in front of customers")
+    parser.add_argument("--cases", type=int, metavar="N",
+                        help="replay only the first N cases — diagnosis, settles nothing")
     parser.add_argument("--lost", action="store_true",
                         help="review the conversations that did not end in a sale")
     parser.add_argument("--status", action="store_true",
@@ -193,7 +195,7 @@ def main() -> int:
 
             agent = build_agent()
 
-        report = cycle.run(ctx, agent, activate=False)
+        report = cycle.run(ctx, agent, activate=False, limit=args.cases)
         session.commit()
         show_report(report, replayed=bool(agent))
         return 0
