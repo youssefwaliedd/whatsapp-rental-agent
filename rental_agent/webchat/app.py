@@ -150,6 +150,11 @@ def create_app(
                     for i, part in enumerate(parts)
                 ],
                 "reaction": reactions_mod.for_turn(result, ctx.engine.rules),
+                # The engine's own figures, sent after the sentence. On WhatsApp
+                # these go as their own message; a window that dropped them was
+                # showing less than a customer gets, which is the whole reason
+                # the rendered breakdown exists.
+                "cards": [to_whatsapp_markup(card) for card in result.cards],
                 "tools": result.tool_calls,
                 # Served off the mounted /assets directory rather than a public
                 # host: on WhatsApp Meta fetches these itself, here the browser
