@@ -363,3 +363,99 @@ def test_running_the_loop_twice_does_not_stack_up_identical_candidates(booking_c
     assert again is not None
     assert again.version == first.version
     assert len([s for s in strategies.history(booking_ctx) if s.status == "candidate"]) == 1
+
+
+# --------------------------------------------------------------------------
+# The last step is a person's
+# --------------------------------------------------------------------------
+#
+# A clean replay proves a candidate breaks nothing that used to work. It says
+# nothing about whether these are lessons this operator wants their salesperson
+# taught, and no amount of replaying can say that. So proving and promoting are
+# separate, and promoting is a command somebody types.
+
+
+def _candidate(ctx):
+    make_conversation(ctx, [("inbound", "how much?"), ("outbound", "AED 4,321 total.")])
+    record(ctx, evaluate_conversation(ctx, ctx.conversation_id))
+    return strategies.propose(ctx)
+
+
+def test_an_unreplayed_candidate_cannot_be_promoted(booking_ctx):
+    """Nothing has checked whether it breaks what already works."""
+    candidate = _candidate(booking_ctx)
+
+    outcome = strategies.promote(booking_ctx, candidate.version)
+
+    assert outcome.activated is False
+    assert "not replayed" in outcome.reason
+    assert candidate.status == "candidate"
+    assert strategies.active_lessons(booking_ctx) == []
+
+
+def test_a_candidate_that_failed_replay_cannot_be_promoted(booking_ctx):
+    candidate = _candidate(booking_ctx)
+    strategies.record_replay(booking_ctx, candidate, passed=2, failed=1)
+
+    outcome = strategies.promote(booking_ctx, candidate.version)
+
+    assert outcome.activated is False
+    assert candidate.status == "rejected"
+    assert strategies.active_strategy(booking_ctx).version == strategies.BASELINE_VERSION
+
+
+def test_a_proven_candidate_is_promoted_by_hand(booking_ctx):
+    candidate = _candidate(booking_ctx)
+    strategies.record_replay(booking_ctx, candidate, passed=3, failed=0)
+
+    # Proven, and still not serving anyone.
+    assert candidate.status == "candidate"
+    assert strategies.active_lessons(booking_ctx) == []
+
+    outcome = strategies.promote(booking_ctx, candidate.version)
+
+    assert outcome.activated is True
+    assert strategies.active_strategy(booking_ctx).version == candidate.version
+    assert strategies.active_lessons(booking_ctx)
+
+
+def test_promoting_something_that_does_not_exist_says_so(booking_ctx):
+    outcome = strategies.promote(booking_ctx, "strategy_9.9")
+    assert outcome.activated is False
+    assert "no strategy" in outcome.reason
+
+
+def test_promoting_the_version_already_serving_changes_nothing(booking_ctx):
+    strategies.ensure_baseline(booking_ctx)
+    outcome = strategies.promote(booking_ctx, strategies.BASELINE_VERSION)
+
+    assert outcome.activated is False
+    assert outcome.reason == "already active"
+
+
+def test_recording_a_clean_replay_does_not_promote_anything(booking_ctx):
+    candidate = _candidate(booking_ctx)
+
+    assert strategies.record_replay(booking_ctx, candidate, passed=4, failed=0) is None
+    assert candidate.replay_passed == 4
+    assert candidate.status == "candidate"
+    assert strategies.active_strategy(booking_ctx).version == strategies.BASELINE_VERSION
+
+
+def test_the_cycle_can_prove_a_candidate_without_activating_it(booking_ctx):
+    """What `run_learning.py --replay` does: the expensive step runs, the
+    result is recorded, and nothing reaches a customer until a person says so."""
+    from rental_agent.evaluation import cycle
+
+    make_conversation(booking_ctx, [("inbound", "how much?"), ("outbound", "AED 4,321 total.")])
+    agent = Agent(
+        FakeClient(script=[says("Let me check that and come back to you.")] * 40),
+        AgentSettings(extraction_enabled=False),
+    )
+
+    report = cycle.run(booking_ctx, agent, activate=False)
+
+    assert report.candidate_version is not None
+    assert report.activated is False
+    assert strategies.active_strategy(booking_ctx).version == strategies.BASELINE_VERSION
+    assert strategies.active_lessons(booking_ctx) == []
