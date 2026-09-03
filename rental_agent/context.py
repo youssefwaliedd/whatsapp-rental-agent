@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Callable
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -29,6 +29,10 @@ class ToolContext:
     now_fn: Callable[[], datetime] | None = None
     reference_date: date | None = None
     _engine_cache: dict[str | None, RentalEngine] = field(default_factory=dict, repr=False)
+    #: The booking system this context talks to. Built on first use so a
+    #: context that never books never selects one, and cached so the demo's
+    #: injected failures survive across the calls of a single turn.
+    _provider: Any = field(default=None, repr=False)
     #: Photos a tool has asked to be shown this turn. The transport drains it
     #: after the reply is built — kept here rather than in `ConversationState`
     #: because it describes one turn's delivery, not anything the agent knows.
@@ -142,6 +146,24 @@ class ToolContext:
         )
         self._engine_cache[reservation_id] = built
         return built
+
+    @property
+    def provider(self) -> Any:
+        """The booking system. Availability and reservations come from here.
+
+        Deliberately the only way in: a second path that read the engine
+        directly would be a path where a customer could be told a car is free by
+        something that does not decide whether it is.
+        """
+        if self._provider is None:
+            from .booking_provider import build_provider
+
+            self._provider = build_provider(self)
+        return self._provider
+
+    @provider.setter
+    def provider(self, value: Any) -> None:
+        self._provider = value
 
     @property
     def engine(self) -> RentalEngine:

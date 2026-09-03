@@ -24,7 +24,8 @@ from typing import Any
 from ..context import ToolContext
 from ..domain import consent
 from ..domain.enums import ReservationStatus, Stage
-from . import escalation, outcomes
+from . import escalation, idempotency, outcomes
+from ..booking_provider import Outcome
 from ..domain.models import Quote as QuoteModel
 from ..engine.engine import VehicleNotFound, VehicleUnavailable
 from ..engine.locations import normalise_location
@@ -118,9 +119,27 @@ def _price(
     )
 
 
+def _owned_by_this_customer(ctx: ToolContext, reservation: Reservation) -> bool:
+    """Whether this conversation's customer is the one who has this booking.
+
+    There was no such check. A reference is a short guessable string that gets
+    quoted back in messages, and every customer-facing operation looked one up
+    by reference alone — so the wrong reference in the wrong conversation would
+    have modified, cancelled or paid for a stranger's booking.
+
+    The owner's own path does not come through here: a colleague acting on a
+    case is acting for the customer, not as them.
+    """
+    return bool(ctx.customer_id) and reservation.customer_id == ctx.customer_id
+
+
 def _live_reservation(ctx: ToolContext, reservation_id: str) -> Reservation | dict[str, Any]:
     reservation = ctx.reservations.get(reservation_id)
     if reservation is None:
+        return _error("reservation_not_found", f"No demo reservation {reservation_id}")
+    if not _owned_by_this_customer(ctx, reservation):
+        # Deliberately the same answer as a reference that does not exist.
+        # Saying "that booking is not yours" confirms that it is somebody's.
         return _error("reservation_not_found", f"No demo reservation {reservation_id}")
     if reservation.status not in LIVE_STATUSES:
         return _error(
@@ -220,10 +239,15 @@ def create_demo_quote(
 def create_demo_reservation(
     ctx: ToolContext, *, quote_id: str, customer_id: str | None = None
 ) -> dict[str, Any]:
-    """Convert a stored quote into a demo reservation.
+    """Turn an accepted quote into a booking, through the booking provider.
 
-    Quote-only by design: there is no path to a booked total that the engine did
-    not calculate and the customer did not see.
+    Quote-only by design: there is no path to a booked total the engine did not
+    calculate and the customer did not see.
+
+    The provider decides whether a booking exists. Nothing here writes a
+    reservation of its own, and nothing here treats local state as evidence that
+    one was made — which is what makes swapping in Delta's system a new class
+    rather than a rewrite of this function.
     """
     customer_id = customer_id or ctx.customer_id
     if not customer_id:
@@ -241,29 +265,10 @@ def create_demo_reservation(
             "quote_not_found",
             f"No demo quote {quote_id}. Create one with create_demo_quote first.",
         )
-
     quote = QuoteModel.model_validate(stored.payload)
 
-    if quote.expires_at <= ctx.now():
-        return _error(
-            "quote_expired",
-            f"Quote {quote_id} expired at {quote.expires_at.isoformat()}. Re-quote before booking.",
-            expired_at=quote.expires_at.isoformat(),
-        )
-
-    # Re-check at write time: the car may have gone since the quote was shown.
-    availability = ctx.engine.check_availability(
-        quote.vehicle_id, quote.pickup_at, quote.return_at
-    )
-    if not availability.available:
-        return _error(
-            "vehicle_unavailable",
-            "That vehicle was taken while we were talking",
-            vehicle_id=quote.vehicle_id,
-            reason=availability.reason.value if availability.reason else None,
-            hint="Call find_alternatives and offer the customer a substitute.",
-        )
-
+    # Ours to check, not the provider's: it is a rule about who may drive, and
+    # it comes from configuration rather than from inventory.
     customer = ctx.customers.get(customer_id)
     vehicle = ctx.engine.get_vehicle(quote.vehicle_id)
     minimum_age = ctx.engine.minimum_age_for(vehicle.category)
@@ -274,33 +279,60 @@ def create_demo_reservation(
             minimum_age=minimum_age,
         )
 
-    now = ctx.now()
-    # A booking is a claim about a car nobody has looked at, wherever the
-    # operator keeps availability somewhere the engine cannot read. Held, not
-    # confirmed, until a person who can see the fleet says otherwise.
-    held = holds_require_confirmation(ctx)
-    reservation = ctx.reservations.create(
-        reservation_id=ctx.counters.next_reservation_reference(),
-        is_demo=True,
-        customer_id=customer_id,
-        conversation_id=ctx.conversation_id,
-        vehicle_id=quote.vehicle_id,
-        quote_id=quote.quote_id,
-        status=ReservationStatus.HELD.value if held else "confirmed",
-        pickup_at=quote.pickup_at,
-        return_at=quote.return_at,
-        delivery_location=quote.delivery_location,
-        total_charge=quote.total_charge,
-        deposit=quote.deposit,
-        currency=quote.currency,
-        payment_status="none",
-        documents=[],
-        created_at=now,
-        updated_at=now,
-        version=1,
-        history=[{"event": "created", "quote_id": quote.quote_id, "at": now.isoformat()}],
+    provider = ctx.provider
+    key = idempotency.derive_key(ctx, "provider.reserve", {"quote_id": quote_id})
+    answer = provider.reserve(
+        quote_id=quote_id, customer_ref=customer_id, idempotency_key=key
     )
-    ctx.quotes.mark_converted(quote.quote_id)
+
+    if answer.outcome is Outcome.REVISED_QUOTE and answer.reason == "expired":
+        return _error(
+            "quote_expired",
+            f"Quote {quote_id} has expired. Re-quote before booking.",
+            expired_at=quote.expires_at.isoformat(),
+        )
+    if answer.outcome is Outcome.REVISED_QUOTE:
+        revised = answer.revised_quote
+        return _error(
+            "price_changed",
+            "The price for those dates has changed since the quote. Show the customer "
+            "the new total and ask whether to go ahead — do not book at the old one.",
+            previous_total=str(revised.previous_total) if revised else None,
+            total_charge=str(revised.total_charge) if revised else None,
+            quote_id=revised.quote_id if revised else None,
+        )
+    if answer.outcome is Outcome.UNAVAILABLE:
+        return _error(
+            "vehicle_unavailable",
+            answer.message or "That vehicle was taken while we were talking",
+            vehicle_id=quote.vehicle_id,
+            reason=answer.reason,
+            hint="Call find_alternatives and offer the customer a substitute.",
+        )
+    if answer.outcome is Outcome.PROVIDER_UNAVAILABLE:
+        return _error(
+            "booking_system_unreachable",
+            "The booking system could not be reached, so nothing was booked. Tell the "
+            "customer you are having trouble completing it and will come back to them. "
+            "Do not say it is booked and do not say it failed for good.",
+        )
+    if answer.outcome is Outcome.UNKNOWN:
+        return _error(
+            "booking_outcome_unknown",
+            "The booking system did not answer, so it is not known whether the booking "
+            "exists. Tell the customer it is still being confirmed and that you will "
+            "come back to them. Do not claim success and do not try again — a second "
+            "attempt could give them two cars.",
+            idempotency_key=answer.idempotency_key,
+        )
+
+    reservation = ctx.reservations.get(answer.reference or "")
+    if reservation is None:
+        return _error(
+            "booking_outcome_unknown",
+            "The booking system reported a booking that cannot be read back.",
+        )
+
     _update_state(
         ctx,
         reservation_id=reservation.reservation_id,
@@ -308,13 +340,21 @@ def create_demo_reservation(
         stage=Stage.RESERVED,
     )
 
-    payload = _reservation_dict(reservation, ctx)
-    if not held:
+    # A provider that cannot settle availability leaves every booking a request,
+    # and an operator may want a person to confirm even one that can. Either way
+    # the reservation exists and is downgraded here rather than never made, so
+    # the audit trail shows what the provider actually did.
+    wants_person = not getattr(provider, "authoritative", True) or holds_require_confirmation(ctx)
+    if not wants_person:
         outcomes.mark_booked(ctx)
+        payload = _reservation_dict(reservation, ctx)
+        payload["provider"] = getattr(provider, "name", "unknown")
         return payload
 
-    # Not a sale yet — the owner may release it — so it is not tagged booked
-    # here. Confirmation does that.
+    reservation.status = ReservationStatus.HELD.value
+    ctx.reservations.append_history(
+        reservation, {"event": "awaiting_confirmation", "provider": provider.name}, ctx.now()
+    )
     escalation.escalate_conversation(
         ctx,
         reason="booking_hold",
@@ -324,14 +364,16 @@ def create_demo_reservation(
             + (f", delivery {reservation.delivery_location}" if reservation.delivery_location else "")
         ),
     )
+    payload = _reservation_dict(reservation, ctx)
+    payload["provider"] = getattr(provider, "name", "unknown")
     payload["status"] = ReservationStatus.HELD.value
     payload["awaiting_confirmation"] = True
     payload["guidance"] = (
-        "This is a HOLD, not a confirmed booking. Tell them the car is held and a "
-        "colleague is confirming it now, and that you will come straight back. Do "
-        "NOT say it is booked, confirmed, reserved or theirs. Give them the "
-        "reference so they have something to refer to. Carry on with anything else "
-        "they need in the meantime."
+        "This is a REQUEST, not a confirmed booking. Tell them it is awaiting "
+        "confirmation and that you will come straight back. Do NOT say it is booked, "
+        "confirmed, reserved, secured or theirs, and do not say the car is being held "
+        "or kept — nothing is holding it off the market. Give them the reference so "
+        "they have something to refer to."
     )
     return payload
 
@@ -464,6 +506,8 @@ def _hold_awaiting(ctx: ToolContext, reservation_id: str) -> Reservation | None:
     """The booking under this reference, if it is a hold still inside its window."""
     reservation = ctx.reservations.get(reservation_id)
     if reservation is None or reservation.status != ReservationStatus.HELD.value:
+        return None
+    if not _owned_by_this_customer(ctx, reservation):
         return None
     window = hold_expires_after(ctx)
     if window is not None and ctx.now() - reservation.created_at >= window:
@@ -615,16 +659,23 @@ def confirm_hold(ctx: ToolContext, reservation: Reservation) -> dict[str, Any]:
             "message": "The requested return time is not after the pickup time.",
         }
 
+    # Through the provider: it is the thing that decides whether a car is free,
+    # and confirming is the moment that matters most for that to be true.
     try:
-        engine = ctx.engine_excluding(reservation.reservation_id)
-        availability = engine.check_availability(vehicle_id, pickup, ret)
+        answer = ctx.provider.check_availability(vehicle_id, pickup, ret)
     except (VehicleNotFound, ValueError) as exc:
         return {"outcome": "conflict", "reason": "vehicle_unknown", "message": str(exc)}
+    if not answer.usable:
+        return {
+            "outcome": "conflict", "reason": "provider_unavailable",
+            "message": "The booking system could not be reached to check the car.",
+        }
 
+    availability = answer
     if not availability.available:
         return {
             "outcome": "conflict",
-            "reason": availability.reason.value if availability.reason else "unavailable",
+            "reason": availability.reason or "unavailable",
             "message": (
                 "That car is already committed for part of this period — confirming it "
                 "would double-book it."

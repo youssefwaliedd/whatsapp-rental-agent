@@ -235,7 +235,10 @@ def search_available_vehicles(ctx: ToolContext, args: dict[str, Any]) -> dict[st
         if named and not any(v.id in returned for v in named):
             unavailable = []
             for vehicle in named:
-                result = engine.check_availability(
+                # Through the provider. Telling a customer a named car is not
+                # free is an answer about inventory, and inventory has one
+                # source.
+                result = ctx.provider.check_availability(
                     vehicle.id, criteria.pickup_at, criteria.return_at
                 )
                 unavailable.append(
@@ -243,7 +246,7 @@ def search_available_vehicles(ctx: ToolContext, args: dict[str, Any]) -> dict[st
                         "vehicle_id": vehicle.id,
                         "display_name": vehicle.display_name,
                         "daily_price": str(vehicle.daily_price),
-                        "reason": result.reason.value if result.reason else None,
+                        "reason": result.reason,
                         "next_available_from": (
                             result.next_available_from.isoformat()
                             if result.next_available_from

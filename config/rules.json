@@ -413,8 +413,8 @@
     "weekly_monthly_rates": "Listed publicly as 'on request'; the engine bills daily x days."
   },
   "booking": {
-    "_comment": "The operator publishes no availability anywhere, and their team checks it by hand — 'please allow me a moment to check'. So a booking the agent makes is a claim about a car nobody has looked at: someone may have rented it an hour ago by phone. Until there is a feed to read, a booking is a HOLD the owner confirms or releases. A customer arriving for a car that is not there is the worst outcome a rental business has.",
-    "holds_require_confirmation": true,
+    "_comment": "The booking provider decides whether a booking exists (BOOKING_PROVIDER). The simulated provider is authoritative for demo inventory and confirms outright; a provider that cannot settle availability leaves every booking a request a person confirms, whatever this flag says. Set holds_require_confirmation true to force a person into the loop even where the provider could confirm — which is what Delta needs the day a real connector exists but their phone and counter bookings still are not in it.",
+    "holds_require_confirmation": false,
     "hold_expires_after_minutes": 120
   }
 }

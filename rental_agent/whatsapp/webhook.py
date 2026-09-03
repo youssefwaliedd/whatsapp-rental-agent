@@ -27,6 +27,7 @@ from ..config import load_rules
 from ..context import ToolContext
 from ..formatting import photo_caption
 from ..payments import webhook as payments_webhook
+from .. import booking_provider
 from ..evaluation import evaluator
 from ..services import booking, handover, outcomes
 from ..sources import refresh as refresh_mod
@@ -717,6 +718,9 @@ def create_app(
         return {
             "status": "ok",
             "demo": True,
+            # Which booking system is answering. A deployment that thinks it is
+            # connected to Delta and is not should be able to see that here.
+            "booking_provider": booking_provider.provider_name(),
             "whatsapp_configured": settings.configured,
             "signature_verification": settings.can_verify_signatures,
             "missing_settings": settings.missing(),

@@ -315,6 +315,36 @@ class Mistake(Base):
     updated_at: Mapped[datetime] = mapped_column(AwareDateTime)
 
 
+class BookingOperation(Base):
+    """One write sent to a booking provider, and what became of it.
+
+    The record that makes a timeout survivable. A reservation created a moment
+    before the connection dropped exists in the provider and nowhere in our
+    conversation, and repeating the request would give the customer a second
+    car. This is where `resolve` looks it up by the key the caller derived, so
+    the retry finds the original instead of making another.
+
+    Written before the operation is attempted and updated after, so a row with
+    no outcome is exactly the case that needs reconciling.
+    """
+
+    __tablename__ = "booking_operations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    idempotency_key: Mapped[str] = mapped_column(String, unique=True, index=True)
+    provider: Mapped[str] = mapped_column(String)
+    #: reserve | modify | cancel
+    kind: Mapped[str] = mapped_column(String)
+    customer_ref: Mapped[str | None] = mapped_column(String, index=True, default=None)
+    #: The provider's reference, once there is one.
+    reference: Mapped[str | None] = mapped_column(String, index=True, default=None)
+    #: Null while the operation is in flight — the state that needs resolving.
+    outcome: Mapped[str | None] = mapped_column(String, default=None)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+    settled_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
+
+
 class Strategy(Base):
     """A versioned set of behavioural lessons appended to the agent's prompt.
 

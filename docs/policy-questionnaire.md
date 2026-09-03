@@ -146,6 +146,9 @@ check"* — which means it is somewhere we cannot see.
 **25.** Until then, should the assistant treat every booking as a request your
 team confirms, rather than telling the customer it is confirmed? ____________
 
+*(This is how it works today. Section 12 asks what that request should do while
+it waits.)*
+
 ## 10 — Which agreement is current
 
 Your terms page carries two rental agreements. The numbered one at the top and an
@@ -173,6 +176,41 @@ ____________
 
 **29.** If nobody is available at 2 AM, what should the customer be told?
 ____________
+
+## 12 — While a request is waiting for you
+
+Today the assistant takes a booking as a **request**, tells you, and tells the
+customer it is awaiting confirmation. Four things follow from that, and we have
+picked a safe answer for each rather than leave the assistant undecided. Each one
+is yours to overrule.
+
+**30.** While a request waits for you, should the car stop being offered to
+anyone else?
+
+Today it does **not** — the assistant keeps quoting that car to other customers,
+and says clearly that nothing is being held. The alternative takes the car off
+the list the moment someone asks for it, which is fairer to the first customer
+and means a car can sit unsold because of a request nobody completes. We would
+rather you chose than guess for you. ____________
+
+**31.** How long should a request wait for an answer before it lapses?
+
+Today **two hours**, after which the assistant stops treating it as live. Your
+answer still counts if it comes later — the request is revived, and the car is
+re-checked before anything is confirmed. ____________
+
+**32.** If the customer changes the booking while you are checking — a different
+day, a later pickup — should that change carry into what you confirm?
+
+Today it does: the change is recorded, you are told about it, and confirming
+applies the new details and re-prices them. The alternative is to start over with
+a fresh request. ____________
+
+**33.** If a customer pulls out before you have confirmed, is that free?
+
+Today it is, and no cancellation fee applies, because nothing was ever confirmed.
+Your cancellation rules apply from confirmation onward. Tell us if you would
+rather they applied from the moment a customer asks. ____________
 
 ---
 
