@@ -19,6 +19,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from ..agent.providers.errors import ProviderUnavailable
 from ..context import ToolContext
 from ..store.models import RegressionCase as CaseRow
 from .evaluator import evaluate_conversation
@@ -33,6 +34,9 @@ class ReplayResult:
     case_name: str
     forbidden_finding: str
     passed: bool
+    #: The model could not be reached, so this case was never actually run.
+    #: Not the same as failing it — see `replay_all`.
+    inconclusive: bool = False
     findings: list[str] = field(default_factory=list)
     #: Serious findings this lesson caused that the case was not watching for.
     introduced: list[str] = field(default_factory=list)
@@ -44,10 +48,13 @@ class ReplaySummary:
     passed: int
     failed: int
     results: list[ReplayResult] = field(default_factory=list)
+    #: True when the run stopped early because the model could not be reached.
+    #: Nothing may be concluded from it — least of all a rejection.
+    inconclusive: bool = False
 
     @property
     def all_passed(self) -> bool:
-        return self.failed == 0
+        return self.failed == 0 and not self.inconclusive
 
 
 # --------------------------------------------------------------------------
@@ -161,6 +168,19 @@ def replay_case(ctx: ToolContext, case: CaseRow, agent: Any, lessons: list[str])
             findings=found,
             introduced=introduced,
         )
+    except ProviderUnavailable as exc:
+        # The model was unreachable, so this case was never run. Scoring it as a
+        # failure would reject a candidate for the free tier's quota running out
+        # — a verdict about the weather, recorded permanently as a verdict about
+        # the lessons.
+        return ReplayResult(
+            case_id=case.id,
+            case_name=case.name,
+            forbidden_finding=case.forbidden_finding,
+            passed=False,
+            inconclusive=True,
+            error=f"{type(exc).__name__}: {str(exc)[:160]}",
+        )
     except Exception as exc:  # noqa: BLE001 - a broken replay must not pass silently
         return ReplayResult(
             case_id=case.id,
@@ -174,9 +194,21 @@ def replay_case(ctx: ToolContext, case: CaseRow, agent: Any, lessons: list[str])
 
 
 def replay_all(ctx: ToolContext, agent: Any, lessons: list[str]) -> ReplaySummary:
-    results = [replay_case(ctx, case, agent, lessons) for case in cases(ctx)]
+    """Every stored case under a candidate's lessons.
+
+    Stops at the first case the model could not be reached for. Carrying on
+    would spend an hour turning one outage into twenty failures and reject a
+    candidate that was never tested.
+    """
+    results: list[ReplayResult] = []
+    for case in cases(ctx):
+        result = replay_case(ctx, case, agent, lessons)
+        results.append(result)
+        if result.inconclusive:
+            break
     return ReplaySummary(
         passed=sum(1 for r in results if r.passed),
-        failed=sum(1 for r in results if not r.passed),
+        failed=sum(1 for r in results if not r.passed and not r.inconclusive),
         results=results,
+        inconclusive=any(r.inconclusive for r in results),
     )

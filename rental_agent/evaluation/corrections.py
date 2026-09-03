@@ -70,6 +70,24 @@ CORRECTIONS: dict[str, str] = {
         "quote what it returns — do not estimate it, round it, or carry it over from "
         "earlier."
     ),
+    "confirmed_a_hold": (
+        "Never tell a customer a booking is done until it is confirmed. Until then say "
+        "the request is awaiting confirmation and that you will come back as soon as it "
+        "is. Do not say it is booked, reserved, secured or theirs, and do not say the "
+        "car is being held or kept for them — nothing is holding it off the market."
+    ),
+    "escalated_a_hypothetical": (
+        "A customer asking what would happen if something went wrong is asking a "
+        "question, not reporting an incident. Answer it from the policy — what the "
+        "excess covers, what to do at the scene, what insurance excludes — and hand "
+        "over only once they tell you something has actually happened."
+    ),
+    "deferred_promise_for_unconfirmed_figure": (
+        "When you cannot give a figure, ask a colleague and tell the customer that is "
+        "what you have done. Never promise the number will appear later, at checkout, "
+        "at the final stage or on the booking form — there is no such stage, and they "
+        "will wait for something nobody is producing."
+    ),
     "missed_escalation": (
         "When a customer mentions an accident, an injury, the police, a theft or a "
         "breakdown, hand over to a colleague before anything else. Ask first whether "

@@ -562,3 +562,55 @@ def test_reviewing_lost_sales_does_not_inflate_the_mistake_counts(booking_ctx):
     evaluate_by_outcome(booking_ctx)
 
     assert [(m.type, m.occurrences) for m in open_mistakes(booking_ctx)] == before
+
+
+def test_an_unreachable_model_does_not_reject_a_candidate(booking_ctx):
+    """The free tier's quota dies partway through a day, and a replay takes
+    over an hour on it. Scoring an outage as a regression would reject a
+    candidate that was never tested — a verdict about the weather, recorded
+    permanently as a verdict about the lessons."""
+    from rental_agent.agent.providers.errors import ProviderUnavailable
+    from rental_agent.evaluation import cycle
+
+    make_conversation(booking_ctx, [("inbound", "how much?"), ("outbound", "AED 4,321 total.")])
+
+    class Unreachable:
+        lessons_override = None
+
+        def respond(self, ctx, message):
+            raise ProviderUnavailable("quota exhausted for the day")
+
+    report = cycle.run(booking_ctx, Unreachable(), activate=False)
+
+    assert report.candidate_version is not None
+    assert "could not finish" in report.reason
+    candidate = next(
+        s for s in strategies.history(booking_ctx) if s.version == report.candidate_version
+    )
+    assert candidate.status == "candidate"          # not rejected
+    assert candidate.rejection_reason is None
+
+
+def test_one_outage_does_not_become_twenty_failures(booking_ctx):
+    from rental_agent.agent.providers.errors import ProviderUnavailable
+
+    make_conversation(booking_ctx, [("inbound", "how much?"), ("outbound", "AED 4,321 total.")])
+    result = evaluate_conversation(booking_ctx, booking_ctx.conversation_id)
+    for _ in range(3):
+        replay_mod.capture_case(
+            booking_ctx, booking_ctx.conversation_id, f"unsupported_claim_{_}", name=f"case {_}"
+        )
+
+    class Unreachable:
+        lessons_override = None
+
+        def respond(self, ctx, message):
+            raise ProviderUnavailable("quota exhausted")
+
+    summary = replay_mod.replay_all(booking_ctx, Unreachable(), ["be careful"])
+
+    # Stopped at the first one rather than spending an hour proving the outage
+    # three more times.
+    assert summary.inconclusive is True
+    assert summary.failed == 0
+    assert len(summary.results) == 1

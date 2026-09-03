@@ -95,6 +95,15 @@ def run(
     report.replay_passed = summary.passed
     report.replay_failed = summary.failed
 
+    if summary.inconclusive:
+        # The model went away mid-run. The candidate is untested, which is not
+        # the same as untrustworthy, so it is left exactly as it was.
+        report.reason = (
+            f"replay could not finish — the model was unreachable after "
+            f"{summary.passed} case(s). Nothing was concluded and nothing was rejected."
+        )
+        return report
+
     if not activate:
         # 5a. Proven, and left for a person. A regression still disqualifies it
         #     here — that is not a judgement call anybody needs to make.

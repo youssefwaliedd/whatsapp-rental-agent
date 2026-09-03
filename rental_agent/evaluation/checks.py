@@ -492,8 +492,9 @@ def check_confirmed_a_hold(messages, tool_calls) -> list[Finding]:
                 situation="the car is held, not confirmed — a colleague is still checking",
                 bad_behavior=f"told the customer it was done: {match.group(0).strip()!r}",
                 correct_behavior=(
-                    "say the car is held and a colleague is confirming it now, and come "
-                    "back when they have — never that it is booked, reserved or theirs"
+                    "say the request is awaiting confirmation and come back when it is "
+                    "confirmed — never that it is booked, reserved or theirs, and never "
+                    "that the car is being held, since nothing holds it off the market"
                 ),
                 evidence={"message_id": message.id, "phrase": match.group(0).strip()},
             )
