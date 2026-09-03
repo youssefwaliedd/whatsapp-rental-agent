@@ -372,6 +372,10 @@ class Strategy(Base):
     replay_passed: Mapped[int] = mapped_column(Integer, default=0)
     replay_failed: Mapped[int] = mapped_column(Integer, default=0)
     rejection_reason: Mapped[str | None] = mapped_column(Text, default=None)
+    #: Which cases failed and what appeared instead. A rejection without this is
+    #: a dead end: nobody can tell whether the lessons are wrong or the cases
+    #: are, and the run that would say costs an hour to repeat.
+    replay_detail: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
     created_at: Mapped[datetime] = mapped_column(AwareDateTime)
     activated_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)

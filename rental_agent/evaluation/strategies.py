@@ -132,7 +132,8 @@ def propose(ctx: ToolContext, mistakes: list[MistakeRow] | None = None) -> Strat
 
 
 def record_replay(
-    ctx: ToolContext, candidate: StrategyRow, passed: int, failed: int
+    ctx: ToolContext, candidate: StrategyRow, passed: int, failed: int,
+    results: list[Any] | None = None,
 ) -> str | None:
     """Write what the replay found onto the candidate, and reject it if it failed.
 
@@ -143,6 +144,17 @@ def record_replay(
     session = ctx._require_session()
     candidate.replay_passed = passed
     candidate.replay_failed = failed
+    if results:
+        candidate.replay_detail = [
+            {
+                "case": r.case_name,
+                "must_not_happen": r.forbidden_finding,
+                "found": list(r.findings),
+                "introduced": list(getattr(r, "introduced", [])),
+                "error": r.error,
+            }
+            for r in results if not r.passed
+        ]
     if failed:
         candidate.status = "rejected"
         candidate.rejection_reason = f"{failed} regression case(s) failed on replay"
@@ -179,12 +191,15 @@ def promote(ctx: ToolContext, version: str) -> ActivationResult:
     return activate(ctx, candidate, candidate.replay_passed, candidate.replay_failed)
 
 
-def activate(ctx: ToolContext, candidate: StrategyRow, passed: int, failed: int) -> ActivationResult:
+def activate(
+    ctx: ToolContext, candidate: StrategyRow, passed: int, failed: int,
+    results: list[Any] | None = None,
+) -> ActivationResult:
     """Promote a candidate — but only if nothing regressed."""
     session = ctx._require_session()
     now = ctx.now()
 
-    rejected = record_replay(ctx, candidate, passed, failed)
+    rejected = record_replay(ctx, candidate, passed, failed, results)
     if rejected:
         return ActivationResult(candidate.version, False, passed, failed, rejected)
 

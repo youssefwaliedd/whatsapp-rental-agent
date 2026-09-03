@@ -61,6 +61,14 @@ def show_status(ctx: ToolContext) -> None:
               f"replay {row.replay_passed}/{row.replay_passed + row.replay_failed}")
         if row.rejection_reason:
             print(f"    {BAD}{row.rejection_reason}{OFF}")
+        for failure in (row.replay_detail or [])[:8]:
+            caused = failure.get("introduced") or []
+            why = (
+                f"caused {', '.join(caused)}" if caused
+                else f"repeated {failure['must_not_happen']}" if failure["must_not_happen"] in (failure.get("found") or [])
+                else failure.get("error") or "unclear"
+            )
+            print(f"      {DIM}✗ {failure['case'][:56]} — {why}{OFF}")
 
     mistakes = open_mistakes(ctx)
     rule(f"open mistakes ({len(mistakes)})")
@@ -122,6 +130,20 @@ def show_report(report: cycle.CycleReport, *, replayed: bool) -> None:
     total = report.replay_passed + report.replay_failed
     colour = GOOD if not report.replay_failed else BAD
     print(f"  {colour}{report.replay_passed}/{total} regression case(s) still pass{OFF}")
+
+    # A rejection nobody can read is a dead end: the run that would explain it
+    # costs an hour to repeat, so it has to explain itself the first time.
+    for result in [r for r in report.replay_results if not r.passed]:
+        print(f"\n  {BAD}✗ {result.case_name[:70]}{OFF}")
+        if result.error:
+            print(f"      {DIM}{result.error}{OFF}")
+            continue
+        if result.forbidden_finding in result.findings:
+            print(f"      {DIM}the old mistake came back: {result.forbidden_finding}{OFF}")
+        introduced = list(getattr(result, "introduced", []))
+        if introduced:
+            print(f"      {DIM}new problem the lessons caused: {', '.join(introduced)}{OFF}")
+
     print(f"\n  {report.reason}")
     if not report.replay_failed:
         print(f"\n  Read the lessons above. If you want them serving customers:")

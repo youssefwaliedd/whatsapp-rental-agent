@@ -35,6 +35,7 @@ class CycleReport:
     lessons: list[str] = field(default_factory=list)
     replay_passed: int = 0
     replay_failed: int = 0
+    replay_results: list[Any] = field(default_factory=list)
     activated: bool = False
     reason: str | None = None
     results: list[EvaluationResult] = field(default_factory=list)
@@ -94,6 +95,7 @@ def run(
     summary = replay_mod.replay_all(ctx, agent, candidate.lessons)
     report.replay_passed = summary.passed
     report.replay_failed = summary.failed
+    report.replay_results = list(summary.results)
 
     if summary.inconclusive:
         # The model went away mid-run. The candidate is untested, which is not
@@ -107,12 +109,16 @@ def run(
     if not activate:
         # 5a. Proven, and left for a person. A regression still disqualifies it
         #     here — that is not a judgement call anybody needs to make.
-        rejected = strategies.record_replay(ctx, candidate, summary.passed, summary.failed)
+        rejected = strategies.record_replay(
+            ctx, candidate, summary.passed, summary.failed, summary.results
+        )
         report.reason = rejected or "replayed clean — awaiting review"
         return report
 
     # 5. Activate only on a clean replay.
-    outcome = strategies.activate(ctx, candidate, summary.passed, summary.failed)
+    outcome = strategies.activate(
+        ctx, candidate, summary.passed, summary.failed, summary.results
+    )
     report.activated = outcome.activated
     report.reason = outcome.reason or ("activated" if outcome.activated else None)
     return report
