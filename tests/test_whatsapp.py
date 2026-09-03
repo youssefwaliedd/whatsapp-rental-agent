@@ -514,6 +514,16 @@ def test_an_escalation_notifies_staff(session_factory):
 
     _, note, buttons = outbound.buttons[0]
     assert "I crashed the car" in note
+
+    # Their section 3 asks for full context, and an interactive body is capped
+    # at about a thousand characters. So the briefing is its own message, and it
+    # arrives before the question rather than after it.
+    to_staff = [text for to, text in outbound.texts if to == "971500009999"]
+    assert to_staff, "the owner was asked to decide with no briefing at all"
+    briefing = to_staff[0]
+    assert "*Customer*" in briefing
+    assert "971500000001" in briefing            # how to reach them
+    assert "them: I crashed the car" in briefing  # how it got here
     # The stub escalates as "other", which is not a decision reason — so this is
     # a handover, and the owner is told to take over rather than asked to pick.
     assert "This needs a person" in note

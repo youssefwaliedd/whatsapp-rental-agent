@@ -340,3 +340,105 @@ def test_the_agent_is_told_not_to_restate_what_it_did_not_hear(booking_ctx):
     assert "taken this over personally" in directive
     assert "do not know what was said" in directive.lower()
     assert "approved" not in directive
+
+
+# --------------------------------------------------------------------------
+# What the owner is given to decide with
+# --------------------------------------------------------------------------
+#
+# Their section 3 asks for full context. For a long time this was the customer's
+# name and their last message, which is enough to know something is wrong and
+# not enough to answer it: an owner asked "should we waive the fee?" cannot
+# answer without knowing which car, for which dates, at what price, and how the
+# conversation got there.
+
+
+@pytest.fixture
+def in_conversation(booking_ctx):
+    """A customer partway through buying, the way a case actually arises."""
+    from tests.conftest import dt
+
+    customer = booking_ctx.customers.get(booking_ctx.customer_id)
+    customer.name = "Ahmed Al Mansouri"
+
+    vehicle = booking_ctx.engine.list_fleet()[0]
+    quote = execute_tool(booking_ctx, "create_demo_quote", {
+        "vehicle_id": vehicle.id,
+        "pickup_at": dt(10, 17).isoformat(),
+        "return_at": dt(12, 17).isoformat(),
+        "delivery_location": "Dubai Marina",
+    })
+    for direction, text in [
+        ("inbound", "do you have the Ferrari for the weekend"),
+        ("outbound", "We do — Friday to Sunday comes to AED 2,937.90 all in."),
+        ("inbound", "that late fee on my last rental was unfair"),
+    ]:
+        booking_ctx.messages.record(
+            conversation_id=booking_ctx.conversation_id,
+            direction=direction, content=text, now=booking_ctx.now(),
+        )
+    booking_ctx.session.flush()
+    return booking_ctx, vehicle, quote
+
+
+def test_the_briefing_names_the_customer_and_how_to_reach_them(in_conversation, case):
+    ctx, _, _ = in_conversation
+    briefing = handover.case_briefing(ctx, case)
+
+    assert "Ahmed Al Mansouri" in briefing
+    assert "+971500000001" in briefing
+
+
+def test_the_briefing_says_which_car_for_which_dates(in_conversation, case):
+    ctx, vehicle, _ = in_conversation
+    briefing = handover.case_briefing(ctx, case)
+
+    assert vehicle.display_name in briefing
+    assert "Dubai Marina" in briefing
+    assert "17:00" in briefing
+
+
+def test_the_briefing_carries_the_price_that_was_quoted(in_conversation, case):
+    ctx, _, quote = in_conversation
+    briefing = handover.case_briefing(ctx, case)
+
+    assert quote["quote_id"] in briefing
+    assert str(quote["total_charge"]) in briefing
+
+
+def test_the_briefing_shows_how_the_conversation_got_there(in_conversation, case):
+    ctx, _, _ = in_conversation
+    briefing = handover.case_briefing(ctx, case)
+
+    assert "them: do you have the Ferrari for the weekend" in briefing
+    assert "us: We do" in briefing
+    # Which way it went matters more than any one sentence, so both sides show.
+    assert briefing.count("them:") >= 2
+
+
+def test_a_long_message_is_trimmed_rather_than_dropped(booking_ctx, case):
+    booking_ctx.messages.record(
+        conversation_id=booking_ctx.conversation_id,
+        direction="inbound", content="x" * 400, now=booking_ctx.now(),
+    )
+    booking_ctx.session.flush()
+    briefing = handover.case_briefing(booking_ctx, case)
+
+    assert "…" in briefing
+    assert "x" * 200 not in briefing
+
+
+def test_the_briefing_offers_no_recommendation(in_conversation, case):
+    """Every other field is something the engine knows. A suggested answer
+    would be the model's guess wearing the engine's authority — and on an
+    unpublished figure it would anchor the one person who knows it."""
+    ctx, _, _ = in_conversation
+    briefing = handover.case_briefing(ctx, case).lower()
+
+    for word in ("recommend", "suggest", "i think", "probably"):
+        assert word not in briefing
+
+
+def test_a_case_with_nothing_behind_it_still_renders(booking_ctx, case):
+    # An escalation on the first message has no quote, no car and no history.
+    assert isinstance(handover.case_briefing(booking_ctx, case), str)

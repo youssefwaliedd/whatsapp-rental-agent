@@ -605,10 +605,22 @@ def create_app(
                 f"Reach them on +{message.from_number}."
             )
 
+        # The context first, the question second. Their section 3 asks for full
+        # context, and an interactive message body is capped at about a thousand
+        # characters — not enough for the conversation that led here. So the
+        # briefing is its own message and the buttons carry the decision, which
+        # is also the order a person reads them in.
+        briefing = handover.case_briefing(ctx, escalation, state)
+        if briefing:
+            headed = f"⚠️ *{reason.title()}* — case {escalation.case_code}\n\n{briefing}"
+            if not client.send_text(settings.staff_number, headed).ok:
+                # Never fatal: a decision asked without its briefing is worse
+                # than nothing only if the question does not follow, and it does.
+                log.error("could not send the case briefing for %s", escalation.case_code)
+
         note = (
-            f"⚠️ *{reason.title()}* — case {escalation.case_code}\n\n"
-            f"Customer: {who}\n"
-            f'They said: "{message.text[:300]}"\n\n'
+            f"⚠️ *{reason.title()}* — case {escalation.case_code}\n"
+            f"{who} said: \"{message.text[:300]}\"\n\n"
             f"{ask}\n"
             "_(demonstration system)_"
         )

@@ -324,6 +324,144 @@ def close_case(ctx: ToolContext, case: Escalation, why: str) -> Escalation:
     return case
 
 
+#: How many messages of the conversation the owner is shown. Enough to see how
+#: it got here; short enough to read on a phone while doing something else.
+BRIEFING_TURNS = 8
+
+#: Cut long messages rather than the number of them. Which way the conversation
+#: went matters more than any one sentence in it.
+BRIEFING_MESSAGE_CHARS = 160
+
+
+def _moment(raw: Any) -> datetime | None:
+    """A datetime from a column or from a stored quote's JSON."""
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw
+    try:
+        return datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+
+
+def _briefing_transcript(ctx: ToolContext, conversation_id: str) -> list[str]:
+    messages = ctx.messages.for_conversation(conversation_id)[-BRIEFING_TURNS:]
+    lines = []
+    for message in messages:
+        who = "them" if message.direction == "inbound" else "us"
+        body = " ".join((message.content or "").split())
+        if len(body) > BRIEFING_MESSAGE_CHARS:
+            body = body[: BRIEFING_MESSAGE_CHARS - 1].rstrip() + "…"
+        lines.append(f"  {who}: {body}")
+    return lines
+
+
+def case_briefing(ctx: ToolContext, case: Escalation, state: Any = None) -> str:
+    """Everything the owner needs to decide, before they are asked to.
+
+    Their section 3 asks for full context, and for a long time this was the
+    customer's name and their last message — which is enough to know something
+    is wrong and not enough to answer it. An owner asked "should we waive the
+    fee?" cannot answer without knowing which car, for which dates, at what
+    price, and how the conversation reached that question.
+
+    Deliberately no recommendation. Every other field here is something the
+    engine knows; a suggested answer would be the model's guess wearing the
+    engine's authority, and on the case type that matters most — a figure this
+    operator has never published — it would anchor the one person who actually
+    knows the number.
+
+    Written for a phone screen, so it is a briefing rather than a file: the last
+    few messages, trimmed, not the whole transcript.
+    """
+    from . import booking
+
+    state = state if state is not None else ctx.load_state()
+    lines: list[str] = []
+
+    customer = ctx.customers.get(case.customer_id or "") if case.customer_id else None
+    if customer is not None:
+        who = customer.name or "Name not given"
+        lines += ["*Customer*", f"  {who}", f"  {customer.whatsapp_id}"]
+        extra = []
+        if getattr(customer, "residency", None) and customer.residency != "unknown":
+            extra.append(str(customer.residency).replace("_", " "))
+        if getattr(customer, "driver_age", None):
+            extra.append(f"age {customer.driver_age}")
+        if extra:
+            lines.append(f"  {', '.join(extra)}")
+
+    reservation = None
+    if state.reservation_id:
+        reservation = ctx.reservations.get(state.reservation_id)
+    if reservation is None and case.customer_id:
+        reservation = booking.live_hold(ctx, case.customer_id)
+
+    quote = ctx.quotes.get(state.quote_id) if state.quote_id else None
+    priced = (quote.payload or {}) if quote is not None else {}
+
+    # The booking first, then what was priced, then what the agent believes.
+    # State is memory and can lag; a quote is a thing that happened.
+    pickup = _moment(reservation.pickup_at if reservation else None) or _moment(
+        priced.get("pickup_at")
+    ) or _moment(state.pickup_at)
+    ret = _moment(reservation.return_at if reservation else None) or _moment(
+        priced.get("return_at")
+    ) or _moment(state.return_at)
+    location = (
+        (reservation.delivery_location if reservation else None)
+        or priced.get("delivery_location")
+        or state.delivery_location
+    )
+    vehicle_id = (
+        (reservation.vehicle_id if reservation else None)
+        or priced.get("vehicle_id")
+        or state.selected_vehicle_id
+    )
+
+    wanted: list[str] = []
+    if pickup and ret:
+        wanted.append(f"  {pickup:%a %d %b %H:%M} → {ret:%a %d %b %H:%M}")
+    if location:
+        wanted.append(f"  delivery {location}")
+    if vehicle_id:
+        try:
+            wanted.append(f"  {ctx.engine.get_vehicle(vehicle_id).display_name}")
+        except Exception:  # noqa: BLE001 - a missing car must not block the case
+            wanted.append(f"  {vehicle_id}")
+    if wanted:
+        lines += ["", "*What they want*", *wanted]
+
+    money: list[str] = []
+    if quote is not None:
+        currency = ctx.engine.rules["currency"]
+        money.append(f"  quoted {currency} {quote.total_charge} ({quote.quote_id})")
+        if quote.deposit is not None:
+            money.append(f"  deposit {currency} {quote.deposit}")
+    if reservation is not None:
+        standing = (
+            "awaiting your confirmation"
+            if reservation.status == "held"
+            else str(reservation.status)
+        )
+        money.append(f"  {reservation.reservation_id} — {standing}")
+        pending = booking.pending_change(reservation)
+        if pending:
+            money.append(
+                "  ↻ they have since asked for: "
+                + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in pending.items())
+            )
+    if money:
+        lines += ["", "*Money and booking*", *money]
+
+    transcript = _briefing_transcript(ctx, case.conversation_id)
+    if transcript:
+        lines += ["", "*How it got here*", *transcript]
+
+    return "\n".join(lines).strip()
+
+
 def relay_directive(case: Escalation) -> str:
     """What to tell the agent so it can pass the decision on.
 
