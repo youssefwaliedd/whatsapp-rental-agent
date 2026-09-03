@@ -3,6 +3,7 @@
     .venv/bin/python run_learning.py              # what it would learn. Free.
     .venv/bin/python run_learning.py --replay     # prove it breaks nothing. Costs quota.
     .venv/bin/python run_learning.py --promote strategy_1.3
+    .venv/bin/python run_learning.py --lost
     .venv/bin/python run_learning.py --status
 
 Three commands because there are three decisions, and only one of them is a
@@ -35,7 +36,7 @@ import sys
 
 from rental_agent.context import ToolContext
 from rental_agent.evaluation import cycle, strategies
-from rental_agent.evaluation.evaluator import open_mistakes
+from rental_agent.evaluation.evaluator import evaluate_by_outcome, open_mistakes
 from rental_agent.store.db import create_db_engine, database_url, init_db
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)-7s %(message)s")
@@ -67,6 +68,33 @@ def show_status(ctx: ToolContext) -> None:
         print(f"  [{mistake.severity}] {mistake.type}  ×{mistake.occurrences}")
         print(f"    {DIM}was:{OFF}    {mistake.bad_behavior[:88]}")
         print(f"    {DIM}should:{OFF} {mistake.correct_behavior[:88]}")
+
+
+def show_lost(ctx: ToolContext) -> None:
+    """The conversations that did not end in a sale, and what went wrong in each.
+
+    Their section 4 asks for exactly this. Reading only — nothing is recorded,
+    so it can be run as often as you like without moving the counts that decide
+    which habits are worth correcting.
+    """
+    results = evaluate_by_outcome(ctx)
+    dropped = [r for r in results if r.sales_outcome == "dropped"]
+    escalated = [r for r in results if r.sales_outcome == "escalated"]
+
+    rule(f"lost or handed over ({len(dropped)} dropped · {len(escalated)} escalated)")
+    if not results:
+        print("  none — no conversation has been quoted and gone quiet.")
+        return
+
+    for result in results:
+        mark = BAD if result.lost else WARN
+        print(f"\n  {mark}{result.sales_outcome:<10}{OFF}{result.conversation_id}"
+              f"   {result.message_count} messages")
+        if not result.findings:
+            print(f"    {DIM}nothing the checks can see — worth reading yourself{OFF}")
+        for finding in result.findings:
+            print(f"    [{finding.severity}] {finding.type}")
+            print(f"      {DIM}{finding.bad_behavior[:86]}{OFF}")
 
 
 def show_report(report: cycle.CycleReport, *, replayed: bool) -> None:
@@ -107,6 +135,8 @@ def main() -> int:
                         help="replay every regression case against the candidate (uses the model)")
     parser.add_argument("--promote", metavar="VERSION",
                         help="put a replayed candidate in front of customers")
+    parser.add_argument("--lost", action="store_true",
+                        help="review the conversations that did not end in a sale")
     parser.add_argument("--status", action="store_true",
                         help="what is active, what is pending, what is still open")
     args = parser.parse_args()
@@ -116,6 +146,10 @@ def main() -> int:
 
     with session_factory() as session:
         ctx = ToolContext(session=session)
+
+        if args.lost:
+            show_lost(ctx)
+            return 0
 
         if args.status:
             show_status(ctx)

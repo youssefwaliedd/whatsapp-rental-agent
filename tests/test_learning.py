@@ -459,3 +459,106 @@ def test_the_cycle_can_prove_a_candidate_without_activating_it(booking_ctx):
     assert report.activated is False
     assert strategies.active_strategy(booking_ctx).version == strategies.BASELINE_VERSION
     assert strategies.active_lessons(booking_ctx) == []
+
+
+# --------------------------------------------------------------------------
+# A lesson that cures one mistake and causes another
+# --------------------------------------------------------------------------
+
+
+def test_a_replay_fails_if_the_lesson_causes_a_new_serious_mistake(booking_ctx):
+    """The gate checked one thing: did the old mistake come back? A candidate
+    that cured it and caused something worse passed — which is the opposite of
+    what a regression gate is for.
+
+    The new mistake here is a missed escalation, chosen because the outbound
+    guards cannot prevent it: an invented price never reaches the transcript to
+    be found, but failing to hand over a crash report is a decision the agent
+    makes and nothing downstream can undo.
+    """
+    make_conversation(booking_ctx, [
+        ("inbound", "can I get the G63 friday?"),
+        ("outbound", "Sure."),
+        ("inbound", "actually I crashed the car this morning"),
+        ("outbound", "Right, and what dates were you thinking?"),
+    ])
+    case = replay_mod.capture_case(
+        booking_ctx, booking_ctx.conversation_id, "repeated_question", name="asked twice"
+    )
+
+    agent = Agent(
+        FakeClient(script=[says("Of course — what dates were you thinking?")] * 20),
+        AgentSettings(extraction_enabled=False),
+    )
+    result = replay_mod.replay_case(booking_ctx, case, agent, ["be concise"])
+
+    assert "missed_escalation" in result.introduced
+    assert result.passed is False
+
+
+def test_a_clean_replay_still_passes(booking_ctx):
+    """The widened gate must not fail a lesson that simply works."""
+    make_conversation(booking_ctx, [("inbound", "can I get the G63 friday?"), ("outbound", "Sure.")])
+    case = replay_mod.capture_case(
+        booking_ctx, booking_ctx.conversation_id, "repeated_question", name="asked twice"
+    )
+    agent = Agent(
+        FakeClient(script=[says("Let me check that and come straight back.")] * 20),
+        AgentSettings(extraction_enabled=False),
+    )
+    result = replay_mod.replay_case(booking_ctx, case, agent, ["be concise"])
+
+    assert result.introduced == []
+    assert result.passed is True
+
+
+# --------------------------------------------------------------------------
+# Reviewing the ones that got away
+# --------------------------------------------------------------------------
+
+
+def test_the_review_can_be_pointed_at_lost_sales(booking_ctx):
+    """Their section 4 asks to review flagged or dropped conversations. The
+    outcome was written and never read, so a lost sale looked exactly like a
+    completed one."""
+    from rental_agent.evaluation.evaluator import evaluate_by_outcome
+
+    make_conversation(booking_ctx, [("inbound", "how much?"), ("outbound", "AED 4,321 total.")])
+    conversation = booking_ctx.conversations.get(booking_ctx.conversation_id)
+    conversation.sales_outcome = "dropped"
+    booking_ctx.session.flush()
+
+    [result] = evaluate_by_outcome(booking_ctx)
+
+    assert result.conversation_id == booking_ctx.conversation_id
+    assert result.sales_outcome == "dropped"
+    assert result.lost is True
+    assert any(f.type == "unsupported_claim" for f in result.findings)
+
+
+def test_a_completed_sale_is_not_in_the_lost_list(booking_ctx):
+    from rental_agent.evaluation.evaluator import evaluate_by_outcome
+
+    make_conversation(booking_ctx, [("inbound", "how much?"), ("outbound", "AED 4,321 total.")])
+    conversation = booking_ctx.conversations.get(booking_ctx.conversation_id)
+    conversation.sales_outcome = "booked"
+    booking_ctx.session.flush()
+
+    assert evaluate_by_outcome(booking_ctx) == []
+
+
+def test_reviewing_lost_sales_does_not_inflate_the_mistake_counts(booking_ctx):
+    """It is for reading. The loop's own pass is what records, and counting a
+    conversation twice would distort which habits look worth correcting."""
+    from rental_agent.evaluation.evaluator import evaluate_by_outcome
+
+    make_conversation(booking_ctx, [("inbound", "how much?"), ("outbound", "AED 4,321 total.")])
+    conversation = booking_ctx.conversations.get(booking_ctx.conversation_id)
+    conversation.sales_outcome = "dropped"
+    record(booking_ctx, evaluate_conversation(booking_ctx, booking_ctx.conversation_id))
+    before = [(m.type, m.occurrences) for m in open_mistakes(booking_ctx)]
+
+    evaluate_by_outcome(booking_ctx)
+    evaluate_by_outcome(booking_ctx)
+
+    assert [(m.type, m.occurrences) for m in open_mistakes(booking_ctx)] == before

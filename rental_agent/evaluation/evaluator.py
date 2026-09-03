@@ -31,7 +31,18 @@ class EvaluationResult:
     tool_call_count: int
     tool_failure_count: int
     question_count: int
+    #: The conversation's lifecycle marker — null while it is still open, and
+    #: what `replay` stamps to keep its own scratch traffic out of the reports.
     outcome: str | None
+    #: How the sale ended: booked, dropped or escalated. A different column from
+    #: `outcome` on purpose — writing this one there would close the thread and
+    #: greet a returning customer as a stranger.
+    sales_outcome: str | None = None
+
+    @property
+    def lost(self) -> bool:
+        """A conversation that reached a quote and went quiet. The interesting one."""
+        return self.sales_outcome == "dropped"
 
     @property
     def passed(self) -> bool:
@@ -102,6 +113,7 @@ def evaluate_conversation(ctx: ToolContext, conversation_id: str) -> EvaluationR
             1 for m in messages if m.direction == "outbound" and "?" in (m.content or "")
         ),
         outcome=conversation.outcome,
+        sales_outcome=conversation.sales_outcome,
     )
 
 
@@ -188,6 +200,34 @@ def evaluate_all(ctx: ToolContext) -> list[EvaluationResult]:
         result = evaluate_conversation(ctx, conversation.conversation_id)
         if result.message_count:
             record(ctx, result)
+            results.append(result)
+    return results
+
+
+def evaluate_by_outcome(
+    ctx: ToolContext, outcomes: tuple[str, ...] = ("dropped", "escalated")
+) -> list[EvaluationResult]:
+    """Review the conversations that did not end in a sale.
+
+    Their section 4 asks for a structured way to review *flagged or dropped*
+    conversations, and until now the outcome was written and never read: every
+    conversation was evaluated together and a lost sale looked exactly like a
+    completed one in the report.
+
+    Nothing is recorded here. This is for reading — the loop's own pass already
+    records, and evaluating twice would inflate the occurrence counts that
+    decide which habits are worth correcting.
+    """
+    from .replay import REPLAY_OUTCOME
+
+    results = []
+    for conversation in ctx.conversations.all():
+        if conversation.outcome == REPLAY_OUTCOME:
+            continue
+        if conversation.sales_outcome not in outcomes:
+            continue
+        result = evaluate_conversation(ctx, conversation.conversation_id)
+        if result.message_count:
             results.append(result)
     return results
 

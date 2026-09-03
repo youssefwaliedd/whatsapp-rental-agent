@@ -34,6 +34,8 @@ class ReplayResult:
     forbidden_finding: str
     passed: bool
     findings: list[str] = field(default_factory=list)
+    #: Serious findings this lesson caused that the case was not watching for.
+    introduced: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -142,12 +144,22 @@ def replay_case(ctx: ToolContext, case: CaseRow, agent: Any, lessons: list[str])
             agent.respond(scratch, turn)
         result = evaluate_conversation(scratch, scratch.conversation_id)
         found = [f.type for f in result.findings]
+
+        # Two ways to fail, not one. The obvious way is the old mistake coming
+        # back. The other is a lesson that cures it and causes something worse —
+        # checking only the named finding would wave that straight through, and
+        # a candidate is meant to leave the agent better than it found it.
+        introduced = sorted(
+            {f.type for f in result.findings if f.severity == "high"}
+            - {case.forbidden_finding}
+        )
         return ReplayResult(
             case_id=case.id,
             case_name=case.name,
             forbidden_finding=case.forbidden_finding,
-            passed=case.forbidden_finding not in found,
+            passed=case.forbidden_finding not in found and not introduced,
             findings=found,
+            introduced=introduced,
         )
     except Exception as exc:  # noqa: BLE001 - a broken replay must not pass silently
         return ReplayResult(
