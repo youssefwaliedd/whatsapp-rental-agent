@@ -12,6 +12,8 @@ later be retrieved into future conversations. That separation is what turns
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,6 +24,8 @@ from ..store.models import Conversation
 from ..store.models import Evaluation as EvaluationRow
 from ..store.models import Mistake as MistakeRow
 from .checks import Finding, run_all
+
+_log = logging.getLogger("rental_agent.evaluation")
 
 
 @dataclass
@@ -249,7 +253,27 @@ def evaluate_finished(ctx: ToolContext, now: Any = None) -> list[str]:
         if not result.message_count:
             continue
         record(ctx, result)
+
+        # Every failure becomes a permanent test, here rather than later. A case
+        # captured now is one a future lesson has to keep passing; a case nobody
+        # captured is a mistake the loop is free to make again.
+        from .replay import capture_from_evaluation
+
+        capture_from_evaluation(ctx, result)
         evaluated.append(conversation.conversation_id)
+
+    if evaluated:
+        # And the proposal is kept current. Free — it reads what is already
+        # recorded and calls no model — so the standing answer to "what has it
+        # learned from these conversations?" is never older than the last one
+        # that ended. Proving it and putting it in front of customers stay
+        # deliberate, which is the whole distinction their brief is testing for.
+        from . import strategies
+
+        try:
+            strategies.propose(ctx)
+        except Exception:  # noqa: BLE001 - a bad lesson must not lose the evaluation
+            _log.exception("could not refresh the candidate strategy")
 
     session.flush()
     return evaluated

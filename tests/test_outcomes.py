@@ -216,3 +216,31 @@ def test_replay_traffic_is_never_judged_as_a_customer(booking_ctx):
     booking_ctx.session.flush()
 
     assert evaluate_finished(booking_ctx) == []
+
+
+def test_a_finished_conversation_updates_the_proposal_by_itself(booking_ctx):
+    """"Learns after every conversation" has to mean something without a person
+    typing a command. Everything up to a proposed lesson set is free — it reads
+    what is recorded and calls no model — so it happens on its own. Proving the
+    proposal and putting it in front of customers stay deliberate."""
+    from rental_agent.evaluation import replay as replay_mod
+    from rental_agent.evaluation import strategies
+    from rental_agent.evaluation.evaluator import evaluate_finished
+
+    _ended(booking_ctx)
+
+    assert strategies.propose(booking_ctx) is None      # nothing learned yet
+    assert replay_mod.cases(booking_ctx) == []
+
+    evaluate_finished(booking_ctx)
+
+    # A regression test kept from the failure, and a candidate carrying it.
+    assert [c.forbidden_finding for c in replay_mod.cases(booking_ctx)] == ["unsupported_claim"]
+    candidate = next(
+        s for s in strategies.history(booking_ctx) if s.status == "candidate"
+    )
+    assert any("not obtained from a tool" in lesson for lesson in candidate.lessons)
+
+    # And still nothing serving customers.
+    assert strategies.active_strategy(booking_ctx).version == strategies.BASELINE_VERSION
+    assert strategies.active_lessons(booking_ctx) == []
