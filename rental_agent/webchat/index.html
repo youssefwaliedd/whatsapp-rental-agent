@@ -177,6 +177,32 @@
     margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--line);
     color: var(--faint); font-size: 11.5px; line-height: 1.5;
   }
+  /* ── the learning panel ────────────────────────────────────────── */
+  .learn-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+  .learn-actions button {
+    background: #182229; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 9px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  .learn-actions button:hover { border-color: var(--accent); color: var(--accent); }
+  .learn-actions button:disabled { opacity: .45; cursor: default; }
+  .learn-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .lesson {
+    border-left: 2px solid var(--accent); padding: 4px 0 4px 9px;
+    margin-bottom: 7px; color: var(--muted); line-height: 1.45;
+  }
+  .finding { border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin-bottom: 7px; }
+  .finding .t { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
+  .finding .was { color: var(--muted); display: block; margin-top: 3px; line-height: 1.45; }
+  .sev-high { color: #F1707A; }
+  .sev-medium { color: #E0A800; }
+  .sev-low { color: var(--faint); }
+  .ver {
+    font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+    color: var(--accent);
+  }
+  .note { color: var(--faint); font-size: 11.5px; line-height: 1.5; margin-top: 6px; }
+
   @media (max-width: 780px) { aside { display: none; } body { padding: 8px; } }
   @media (prefers-reduced-motion: reduce) { .typing span { animation: none; } }
 </style>
@@ -192,6 +218,7 @@
       <p id="status">online</p>
     </div>
     <button class="hdr-btn" id="inspect" title="Show what the agent is doing">inspect</button>
+    <button class="hdr-btn" id="learnBtn" title="Show what the agent has learned">learn</button>
     <button class="hdr-btn" id="reset" title="Start a new conversation">new</button>
   </header>
 
@@ -216,6 +243,42 @@
     A preview of the phone. Typing, pauses, ticks, reactions and photo order are
     replayed from the transport's own logic, so the rhythm here is the rhythm a
     customer gets. Every booking is simulated and no payment is taken.
+  </div>
+</aside>
+
+<aside id="learn" class="hidden">
+  <h2>End this conversation</h2>
+  <div class="learn-actions">
+    <button data-outcome="dropped">dropped</button>
+    <button data-outcome="booked">booked</button>
+    <button data-outcome="escalated">escalated</button>
+  </div>
+  <p class="note">
+    Live, a conversation is judged once it has been tagged and gone quiet for a
+    day — you cannot know it ended until the customer stops replying. This does
+    the same thing now, so you can watch it.
+  </p>
+
+  <h2>What it found here</h2>
+  <div id="findings"><span class="note">Nothing yet — end a conversation.</span></div>
+
+  <h2>Serving customers</h2>
+  <div id="active"></div>
+
+  <h2>Proposed, not yet live</h2>
+  <div id="candidate"></div>
+  <div class="learn-actions" style="margin-top:8px">
+    <button id="proposeBtn">propose lessons</button>
+  </div>
+
+  <h2>Habits on record</h2>
+  <div id="mistakes"></div>
+
+  <div class="foot">
+    Proposing costs nothing and calls no model. Proving a candidate against every
+    stored test needs the model and takes minutes, so it runs from the terminal:
+    <span class="ver">run_learning.py --replay</span>. Nothing reaches a customer
+    until someone promotes it.
   </div>
 </aside>
 
@@ -414,9 +477,103 @@ document.getElementById('reset').addEventListener('click', async () => {
 });
 document.getElementById('inspect').addEventListener('click', () => {
   panel.classList.toggle('hidden');
+  document.getElementById('learn').classList.add('hidden');
 });
 
 load();
 </script>
 </body>
 </html>
+
+<script>
+// ── the learning panel ────────────────────────────────────────────────
+const learnPanel = document.getElementById('learn');
+const findingsEl = document.getElementById('findings');
+const activeEl   = document.getElementById('active');
+const candEl     = document.getElementById('candidate');
+const mistakesEl = document.getElementById('mistakes');
+
+const esc = t => String(t ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+function drawLearning(d) {
+  activeEl.innerHTML = d.active.version
+    ? `<div class="kv"><span>version</span><span class="ver">${esc(d.active.version)}</span></div>`
+      + (d.active.lessons.length
+          ? d.active.lessons.map(l => `<div class="lesson">${esc(l)}</div>`).join('')
+          : '<p class="note">No lessons yet. This is the agent as written.</p>')
+    : '<p class="note">none</p>';
+
+  if (!d.candidate.version) {
+    candEl.innerHTML = '<p class="note">Nothing proposed. End a conversation, then propose.</p>';
+  } else {
+    const proof = d.candidate.replayed
+      ? `replayed ${d.candidate.replay_passed}/${d.candidate.replay_passed + d.candidate.replay_failed}`
+      : 'not proved yet';
+    candEl.innerHTML =
+      `<div class="kv"><span>version</span><span class="ver">${esc(d.candidate.version)}</span></div>`
+      + `<div class="kv"><span>proof</span><span>${esc(proof)}</span></div>`
+      + d.candidate.lessons.map(l => `<div class="lesson">${esc(l)}</div>`).join('');
+  }
+
+  mistakesEl.innerHTML = d.mistakes.length
+    ? d.mistakes.map(m => `<div class="finding">
+        <span class="t sev-${esc(m.severity)}">${esc(m.type)}</span> ×${m.occurrences}
+        <span class="was">${esc(m.should)}</span></div>`).join('')
+      + `<div class="kv"><span>tests guarding it</span><span>${d.cases}</span></div>`
+        + `<div class="kv"><span>conversations judged</span><span>${d.evaluations}</span></div>`
+    : '<p class="note">None on record.</p>';
+}
+
+async function refreshLearning() {
+  const r = await fetch('/api/learning');
+  drawLearning(await r.json());
+}
+
+document.getElementById('learnBtn').addEventListener('click', () => {
+  learnPanel.classList.toggle('hidden');
+  document.getElementById('panel').classList.add('hidden');
+  if (!learnPanel.classList.contains('hidden')) refreshLearning();
+});
+
+document.querySelectorAll('[data-outcome]').forEach(button => {
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      const r = await fetch('/api/learning/finish', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({outcome: button.dataset.outcome}),
+      });
+      const d = await r.json();
+      findingsEl.innerHTML = d.findings.length
+        ? d.findings.map(f => `<div class="finding">
+            <span class="t sev-${esc(f.severity)}">${esc(f.type)}</span>
+            <span class="was">${esc(f.was)}</span>
+            <span class="was">→ ${esc(f.should)}</span></div>`).join('')
+        : '<p class="note">Clean. Nothing the checks can see went wrong.</p>';
+      if (d.already_judged) {
+        findingsEl.innerHTML += '<p class="note">Already judged once — not counted twice.</p>';
+      }
+      drawLearning(d.learning);
+    } finally {
+      button.disabled = false;
+    }
+  });
+});
+
+document.getElementById('proposeBtn').addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  e.target.textContent = 'reading every conversation…';
+  try {
+    const r = await fetch('/api/learning/propose', {method: 'POST'});
+    const d = await r.json();
+    drawLearning(d.learning);
+    findingsEl.innerHTML = `<p class="note">${d.evaluated} conversation(s) read · `
+      + `${d.clean} clean · ${d.findings} finding(s) · ${d.total_cases} tests on record`
+      + `<br>${esc(d.reason || '')}</p>`;
+  } finally {
+    e.target.disabled = false;
+    e.target.textContent = 'propose lessons';
+  }
+});
+</script>
