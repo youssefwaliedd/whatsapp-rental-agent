@@ -24,12 +24,13 @@ from typing import Any
 
 from ..context import ToolContext
 from ..domain.enums import Stage
+from ..services import booking as booking_service
 from ..tools.registry import execute_tool
 from .providers.errors import ProviderUnavailable
 import logging
 
 from . import extraction as extraction_mod
-from . import availability, figures
+from . import availability, figures, holds
 from .prompt import build_system, render_state
 from .schemas import TOOLS
 from .settings import FALLBACK_BETA, AgentSettings
@@ -114,6 +115,9 @@ class AgentTurn:
     invented_figures: tuple[str, ...] = ()
     #: Set when the model said a car was free with nothing having checked.
     unchecked_availability: bool = False
+    #: Set when the model told the customer a booking was done that nothing
+    #: confirms — held, or never taken at all.
+    confirmed_a_hold: bool = False
 
 
 #: Extraction runs here while the first conversation call is in flight. Small
@@ -223,7 +227,14 @@ class Agent:
 
         state = ctx.load_state()
         active = execute_tool(ctx, "get_active_reservation", {})
-        active_reservation = active.get("reservation") if active.get("has_active_reservation") else None
+        # A hold stands in for a live booking here on purpose: "make it 8
+        # instead" refers to it just the same, and the state block renders it as
+        # the unconfirmed request it is.
+        active_reservation = (
+            active.get("reservation")
+            if active.get("has_active_reservation")
+            else active.get("held_reservation")
+        )
         customer = execute_tool(ctx, "get_customer", {})
 
         # 1. Extraction — an additive merge into state. It sharpens the turn but
@@ -280,16 +291,18 @@ class Agent:
         self, ctx: ToolContext, turn: AgentTurn, state: Any, now: Any,
         customer: Any, active_reservation: Any,
     ) -> AgentTurn:
-        """The last two things checked before a message goes out.
+        """The last three things checked before a message goes out.
 
-        Both are rules the prompt already states and the model does not reliably
-        follow, and both are wrong in a way the customer acts on: a price they
-        plan around, and a car they choose.
+        All three are rules the prompt already states and the model does not
+        reliably follow, and all three are wrong in a way the customer acts on:
+        a price they plan around, a car they choose, and a booking they believe
+        they have.
         """
         turn = self._refuse_invented_figures(ctx, turn, state, now, customer, active_reservation)
-        return self._refuse_unchecked_availability(
+        turn = self._refuse_unchecked_availability(
             ctx, turn, state, now, customer, active_reservation
         )
+        return self._refuse_unbacked_confirmation(ctx, turn, state, now, customer, active_reservation)
 
     def _refuse_unchecked_availability(
         self, ctx: ToolContext, turn: AgentTurn, state: Any, now: Any,
@@ -328,6 +341,62 @@ class Agent:
 
         turn.reply = availability.SAFE_REPLY
         turn.unchecked_availability = True
+        return turn
+
+    def _refuse_unbacked_confirmation(
+        self, ctx: ToolContext, turn: AgentTurn, state: Any, now: Any,
+        customer: Any, active_reservation: Any,
+    ) -> AgentTurn:
+        """Do not tell a customer their booking is done unless one is.
+
+        Stated as proof rather than suspicion. A hold does not back the claim —
+        nobody who can see the fleet has said the car is free — and no booking
+        at all backs it even less, which is the case a hold-shaped guard would
+        have waved straight through.
+
+        Read live rather than from the reservation loaded at the top of the
+        turn: the common shape is the model taking a hold and announcing it in
+        the same breath, and at the start of that turn there was no booking.
+
+        Answers about the booking the reply names, when it names one, so a
+        customer with one confirmed car and one still being checked can still be
+        told the truth about the confirmed one.
+        """
+        claim = holds.inspect(turn.reply)
+        if not claim:
+            return turn
+
+        backing = booking_service.confirmation_backing(ctx, claim.references)
+        if backing == booking_service.CONFIRMED:
+            return turn
+        if backing == booking_service.NOTHING and not claim.explicit:
+            # "All set" with no booking anywhere is a pleasantry about whatever
+            # else was on the table, not a promise about a car.
+            return turn
+
+        awaiting = backing == booking_service.AWAITING
+        _log.warning(
+            "reply claimed a booking that is %s — asking again",
+            "awaiting confirmation" if awaiting else "not on file",
+        )
+        try:
+            retried = self._run_tool_loop(
+                ctx, state, now, customer, active_reservation,
+                directive=holds.CORRECTION if awaiting else holds.NOTHING_TO_CONFIRM,
+            )
+        except ProviderUnavailable:
+            retried = None
+
+        if retried is not None:
+            second = holds.inspect(retried.reply)
+            if not second or booking_service.confirmation_backing(
+                ctx, second.references
+            ) == booking_service.CONFIRMED:
+                retried.confirmed_a_hold = True
+                return retried
+
+        turn.reply = holds.SAFE_REPLY if awaiting else holds.NO_BOOKING_REPLY
+        turn.confirmed_a_hold = True
         return turn
 
     def _refuse_invented_figures(
@@ -421,7 +490,9 @@ class Agent:
         state = ctx.load_state()
         active = execute_tool(ctx, "get_active_reservation", {})
         active_reservation = (
-            active.get("reservation") if active.get("has_active_reservation") else None
+            active.get("reservation")
+            if active.get("has_active_reservation")
+            else active.get("held_reservation")
         )
         customer = execute_tool(ctx, "get_customer", {})
 

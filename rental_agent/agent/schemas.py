@@ -238,7 +238,10 @@ TOOLS: list[dict[str, Any]] = [
         "The cancellation fee depends on how close to the delivery time they are and "
         "is calculated from policy — never quote a fee yourself, report the one this "
         "returns. Calling it on an already-cancelled booking is safe and simply "
-        "reports the original outcome.",
+        "reports the original outcome. Use it for a booking request that is still "
+        "awaiting confirmation too: that is withdrawn rather than cancelled, there is "
+        "no fee because nothing was ever confirmed, and the person checking the car is "
+        "told to stop.",
         {
             "reservation_id": {"type": "string", "description": "e.g. DEMO-1042"},
             "reason": {"type": "string"},

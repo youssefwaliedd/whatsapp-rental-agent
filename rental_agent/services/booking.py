@@ -17,7 +17,7 @@ be able to explain a refusal, not crash on it.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -334,31 +334,478 @@ def holds_require_confirmation(ctx: ToolContext) -> bool:
     return bool(ctx.engine.rules.get("booking", {}).get("holds_require_confirmation", False))
 
 
-def apply_hold_decision(ctx: ToolContext, reservation_id: str, outcome: str) -> str | None:
-    """Turn the owner's answer into the reservation's actual state.
+def hold_expires_after(ctx: ToolContext) -> timedelta | None:
+    """How long a hold stays the customer's booking without an answer."""
+    minutes = ctx.engine.rules.get("booking", {}).get("hold_expires_after_minutes")
+    try:
+        minutes = int(minutes)
+    except (TypeError, ValueError):
+        return None
+    return timedelta(minutes=minutes) if minutes > 0 else None
 
-    Approved means the car really is free and the customer has a booking.
-    Declined means it is not, and the reservation must not linger as something
-    the agent will later describe as theirs.
+
+def live_hold(ctx: ToolContext, customer_id: str | None = None) -> Reservation | None:
+    """The customer's hold, if one is still inside its window.
+
+    A hold that ran out of time is not the customer's booking any more, whether
+    or not a sweep has got to it yet. Every reader goes through here so that is
+    true in the simulator and the chat harness too, which have no webhook to run
+    the sweep on.
     """
+    customer_id = customer_id or ctx.customer_id
+    if ctx.session is None or not customer_id:
+        return None
+    window = hold_expires_after(ctx)
+    cutoff = ctx.now() - window if window else None
+    return ctx.reservations.held_for_customer(customer_id, taken_after=cutoff)
+
+
+def expire_holds(ctx: ToolContext, now: datetime | None = None) -> list[str]:
+    """Release holds nobody answered in time.
+
+    Runs on inbound webhooks beside the dropped-conversation sweep, for the same
+    reason that one does: there is no scheduler, and every message is a chance
+    to notice something that became true while nothing was happening.
+
+    Cancelled rather than left held, because a hold the owner never answered is
+    not a booking and must not read as one to the outcome sweep, to the agent,
+    or to the guard that stops the agent calling it confirmed.
+
+    The owner answering late is still honoured — `apply_hold_decision` revives a
+    hold the clock released. Expiry exists so the agent stops treating an
+    unanswered request as current, not to overrule the one person who can
+    actually see the car.
+
+    Nothing is said to the customer here. They were told at the case timeout,
+    which is far shorter, and a second message two hours later about a booking
+    they may already have given up on is noise — and may need a template.
+    """
+    if ctx.session is None:
+        return []
+    window = hold_expires_after(ctx)
+    if window is None:
+        return []
+
+    now = now or ctx.now()
+    released: list[str] = []
+    for reservation in ctx.reservations.holds_taken_before(now - window):
+        reservation.status = ReservationStatus.CANCELLED.value
+        reservation.history = list(reservation.history or []) + [
+            {"event": "hold_expired", "at": now.isoformat()}
+        ]
+        reservation.updated_at = now
+        released.append(reservation.reservation_id)
+    if released:
+        ctx.session.flush()
+    return released
+
+
+#: What backs a claim that the booking is done.
+CONFIRMED = "confirmed"
+#: Taken, but nobody who can see the fleet has said the car is free.
+AWAITING = "awaiting"
+#: No booking at all. The worse of the two, and the easier one to say by accident.
+NOTHING = "nothing"
+
+
+def confirmation_backing(ctx: ToolContext, references: frozenset[str] = frozenset()) -> str:
+    """Whether anything supports telling this customer their booking is done.
+
+    Answers about the booking the reply names, when it names one. A customer can
+    have a confirmed booking and a held one at the same time, and a sentence
+    about the confirmed one is true — refusing it because a different car is
+    still being checked would be the guard doing harm of its own.
+
+    A reference that resolves to nothing is ignored rather than trusted: quote
+    codes have the same shape, and an invented code should fall back to what the
+    customer actually has, not license a claim about a booking nobody made.
+    """
+    if ctx.session is None:
+        return NOTHING
+
+    named = [r for r in (ctx.reservations.get(ref) for ref in references) if r is not None]
+    if named:
+        if all(r.status == ReservationStatus.CONFIRMED.value for r in named):
+            return CONFIRMED
+        return AWAITING if any(r.status == ReservationStatus.HELD.value for r in named) else NOTHING
+
+    if not ctx.customer_id:
+        return NOTHING
+
+    confirmed = ctx.reservations.confirmed_for_customer(ctx.customer_id)
+    waiting = live_hold(ctx)
+    if confirmed is not None:
+        # One car confirmed and another still being checked, and a sentence that
+        # names neither. "You're all set" is true of one booking and false of the
+        # other, and the customer cannot tell which they were told — which is the
+        # harm the whole guard exists for. Naming the reference resolves it.
+        return AWAITING if waiting is not None else CONFIRMED
+    return AWAITING if waiting is not None else NOTHING
+
+
+def _hold_awaiting(ctx: ToolContext, reservation_id: str) -> Reservation | None:
+    """The booking under this reference, if it is a hold still inside its window."""
     reservation = ctx.reservations.get(reservation_id)
     if reservation is None or reservation.status != ReservationStatus.HELD.value:
         return None
+    window = hold_expires_after(ctx)
+    if window is not None and ctx.now() - reservation.created_at >= window:
+        return None
+    return reservation
+
+
+def _note_change_on_open_case(ctx: ToolContext, reservation: Reservation, wanted: str) -> None:
+    """Put the new request in front of whoever is being asked about the old one.
+
+    Without this the owner confirms the window they were sent, which is no
+    longer the one the customer wants.
+    """
+    from . import handover
+
+    case = ctx.escalations.latest_for_conversation(reservation.conversation_id or "")
+    if case is None or case.reason != "booking_hold" or case.status not in handover.OPEN_STATUSES:
+        return
+    case.question = f"{case.question or ''}\n↻ Customer has since asked for: {wanted}".strip()
+    ctx.session.flush()
+
+
+def _hold_change_request(
+    ctx: ToolContext, reservation: Reservation, requested: dict[str, Any]
+) -> dict[str, Any]:
+    """Record a change to a booking nobody has confirmed, without applying it.
+
+    The customer says "make it 8 instead" and the agent has to do something
+    other than fail: the request is real, and the booking it is about is real,
+    but there is nothing to change yet because there is nothing confirmed. So it
+    is written down, the person being asked about the car is told, and the
+    customer is told the truth — the request stands, unconfirmed, at the new
+    time.
+
+    Deliberately not an edit. Applying it would quietly grant a held booking the
+    one right it does not have, and the owner would then confirm a window nobody
+    checked.
+    """
+    wanted = {k: (v.isoformat() if hasattr(v, "isoformat") else v)
+              for k, v in requested.items() if v is not None}
+    if not wanted:
+        return _error("invalid_request", "No change was requested")
 
     now = ctx.now()
-    if outcome == "approved":
-        reservation.status = ReservationStatus.CONFIRMED.value
-        reservation.history.append({"event": "hold_confirmed", "at": now.isoformat()})
-        outcomes.record(ctx, outcomes.BOOKED, conversation_id=reservation.conversation_id)
-    elif outcome == "declined":
-        reservation.status = ReservationStatus.CANCELLED.value
-        reservation.history.append({"event": "hold_released", "at": now.isoformat()})
-    else:
+    reservation.history = list(reservation.history or []) + [
+        {"event": "hold_change_requested", "at": now.isoformat(), **wanted}
+    ]
+    reservation.updated_at = now
+    _note_change_on_open_case(
+        ctx, reservation, ", ".join(f"{k} {v}" for k, v in wanted.items())
+    )
+    ctx.session.flush()
+    return {
+        "applied": False,
+        "reservation_id": reservation.reservation_id,
+        "status": reservation.status,
+        "awaiting_confirmation": True,
+        "requested_change": wanted,
+        "guidance": (
+            "Recorded against the booking request, not applied — this booking is still "
+            "awaiting confirmation, so there is nothing confirmed to change. The person "
+            "checking the car has been told about the new request. Tell the customer you "
+            "have noted the change and that the booking request is still awaiting "
+            "confirmation. Do not say the new time is booked, held or secured."
+        ),
+    }
+
+
+#: Events that end a request one way or another. The last one wins.
+_TERMINAL_HOLD_EVENTS = ("hold_confirmed", "hold_released", "hold_expired", "hold_withdrawn")
+
+
+def _last_hold_event(reservation: Reservation) -> str | None:
+    for entry in reversed(list(reservation.history or [])):
+        if entry.get("event") in _TERMINAL_HOLD_EVENTS:
+            return entry.get("event")
+    return None
+
+
+def expired_by_clock(reservation: Reservation) -> bool:
+    """Whether the clock released this request, rather than a person.
+
+    Three things end in `cancelled` and must not be treated alike: a request the
+    owner declined is a car that is not free, one the customer withdrew is a
+    question nobody needs answered, and one that merely ran out of time is still
+    worth an answer if the owner gets to it.
+    """
+    return (
+        reservation.status == ReservationStatus.CANCELLED.value
+        and _last_hold_event(reservation) == "hold_expired"
+    )
+
+
+def withdrawn_by_customer(reservation: Reservation) -> bool:
+    """Whether the customer pulled this request before anyone confirmed it."""
+    return _last_hold_event(reservation) == "hold_withdrawn"
+
+
+def pending_change(reservation: Reservation) -> dict[str, Any]:
+    """What the customer has asked to change since the request went to a person.
+
+    Accumulated rather than taken from the newest entry alone: a customer who
+    moves the time and then the pickup point has asked for both.
+    """
+    wanted: dict[str, Any] = {}
+    for entry in reservation.history or []:
+        event = entry.get("event")
+        if event == "hold_change_requested":
+            for field in ("pickup_at", "return_at", "delivery_location", "vehicle_id"):
+                if entry.get(field) is not None:
+                    wanted[field] = entry[field]
+        elif event in _TERMINAL_HOLD_EVENTS:
+            wanted = {}
+    return wanted
+
+
+def _as_datetime(raw: Any) -> datetime | None:
+    if raw is None:
+        return None
+    return datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+
+
+def confirm_hold(ctx: ToolContext, reservation: Reservation) -> dict[str, Any]:
+    """Turn a request into a booking, at the details it stands at now.
+
+    Everything is rechecked here rather than trusted from when the request was
+    taken. Three things can have moved in between, and an approval that skipped
+    any of them would confirm a booking nobody priced for a window nobody
+    checked:
+
+    * the customer may have asked for a different time, car or pickup point —
+      recorded against the request but deliberately not applied until now;
+    * another booking may have been confirmed on the same car, which is the only
+      thing standing between two approvals and a double booking, since a
+      request holds nothing off the market;
+    * the price of the new window is not the price of the old one, and the
+      stored quote may have expired.
+    """
+    wanted = pending_change(reservation)
+    pickup = _as_datetime(wanted.get("pickup_at")) or reservation.pickup_at
+    ret = _as_datetime(wanted.get("return_at")) or reservation.return_at
+    vehicle_id = wanted.get("vehicle_id") or reservation.vehicle_id
+    location = wanted.get("delivery_location", reservation.delivery_location)
+
+    if ret <= pickup:
+        return {
+            "outcome": "conflict",
+            "reason": "invalid_window",
+            "message": "The requested return time is not after the pickup time.",
+        }
+
+    try:
+        engine = ctx.engine_excluding(reservation.reservation_id)
+        availability = engine.check_availability(vehicle_id, pickup, ret)
+    except (VehicleNotFound, ValueError) as exc:
+        return {"outcome": "conflict", "reason": "vehicle_unknown", "message": str(exc)}
+
+    if not availability.available:
+        return {
+            "outcome": "conflict",
+            "reason": availability.reason.value if availability.reason else "unavailable",
+            "message": (
+                "That car is already committed for part of this period — confirming it "
+                "would double-book it."
+            ),
+        }
+
+    try:
+        quote = _price(
+            ctx,
+            vehicle_id=vehicle_id,
+            pickup_at=pickup,
+            return_at=ret,
+            delivery_location=location,
+            discount_percent=Decimal("0"),
+            quote_id=ctx.counters.next_quote_reference(),
+            exclude_reservation_id=reservation.reservation_id,
+        )
+    except (ValueError, VehicleNotFound, VehicleUnavailable) as exc:
+        return {"outcome": "conflict", "reason": "cannot_price", "message": str(exc)}
+
+    _persist_quote(ctx, quote)
+    now = ctx.now()
+    previous_total = reservation.total_charge
+
+    reservation.pickup_at = pickup
+    reservation.return_at = ret
+    reservation.delivery_location = location
+    reservation.vehicle_id = vehicle_id
+    reservation.total_charge = quote.total_charge
+    reservation.deposit = quote.deposit
+    reservation.quote_id = quote.quote_id
+    reservation.status = ReservationStatus.CONFIRMED.value
+    reservation.version += 1
+    ctx.reservations.append_history(
+        reservation,
+        {
+            "event": "hold_confirmed",
+            "applied": wanted or None,
+            "total_charge": str(quote.total_charge),
+        },
+        now,
+    )
+    outcomes.record(ctx, outcomes.BOOKED, conversation_id=reservation.conversation_id)
+    _update_state(ctx, pickup_at=pickup, return_at=ret, delivery_location=location)
+
+    vehicle = ctx.engine.get_vehicle(vehicle_id)
+    return {
+        "outcome": "confirmed",
+        "status": reservation.status,
+        "applied_change": wanted,
+        "price_changed": quote.total_charge != previous_total,
+        "previous_total": str(previous_total),
+        "total_charge": str(quote.total_charge),
+        "summary": (
+            f"{reservation.reservation_id}: {vehicle.display_name} — confirmed for "
+            f"{pickup:%a %d %b %H:%M} to {ret:%a %d %b %H:%M}"
+            + (f", delivery {location}" if location else "")
+            + f", {quote.currency} {quote.total_charge}"
+        ),
+    }
+
+
+def withdraw_hold(
+    ctx: ToolContext, reservation: Reservation, reason: str | None = None
+) -> dict[str, Any]:
+    """The customer pulling a request before anybody confirmed it.
+
+    No cancellation fee and no band: the fee ladder prices a booking somebody
+    had, and nobody had this. It also closes the question in front of the owner,
+    so they are not asked about a car the customer no longer wants — and so an
+    approval arriving afterwards cannot bring it back.
+    """
+    from . import handover
+
+    now = ctx.now()
+    reservation.status = ReservationStatus.CANCELLED.value
+    reservation.version += 1
+    ctx.reservations.append_history(
+        reservation, {"event": "hold_withdrawn", "reason": reason}, now
+    )
+
+    case = ctx.escalations.latest_for_conversation(reservation.conversation_id or "")
+    closed = None
+    if case is not None and case.reason == "booking_hold" and case.status in handover.OPEN_STATUSES:
+        handover.close_case(ctx, case, "the customer withdrew the request")
+        closed = case.case_code
+
+    _update_state(ctx, reservation_id=None)
+    ctx.session.flush()
+
+    result = _reservation_dict(reservation, ctx)
+    result.update(
+        {
+            "withdrawn": True,
+            "was_confirmed": False,
+            "cancellation_fee": "0.00",
+            "cancellation_band": "not_confirmed",
+            "owner_case_closed": closed,
+            "guidance": (
+                "The request is withdrawn and nothing was charged — there is no "
+                "cancellation fee because nothing was ever confirmed. Say so plainly, "
+                "and offer to help with anything else."
+            ),
+        }
+    )
+    return result
+
+
+def unsent_change_notices(ctx: ToolContext) -> list[dict[str, Any]]:
+    """Changes recorded against a live request that the owner has not been told.
+
+    The owner was messaged when the request was taken, with the window it was
+    taken for. If the customer then moves it, an approval against the old
+    message would confirm a time nobody asked for any more — so the change has
+    to reach them before their answer does.
+    """
+    from . import handover
+
+    held = live_hold(ctx)
+    if held is None:
+        return []
+
+    case = ctx.escalations.latest_for_conversation(held.conversation_id or "")
+    if case is None or case.reason != "booking_hold" or case.status not in handover.OPEN_STATUSES:
+        return []
+
+    notices: list[dict[str, Any]] = []
+    history = list(held.history or [])
+    for entry in history:
+        if entry.get("event") == "hold_change_requested" and not entry.get("notified"):
+            entry["notified"] = True
+            notices.append(
+                {
+                    "case_code": case.case_code,
+                    "reservation_id": held.reservation_id,
+                    "wanted": ", ".join(
+                        f"{k.replace('_', ' ')} {v}"
+                        for k, v in entry.items()
+                        if k not in {"event", "at", "notified"} and v is not None
+                    ),
+                }
+            )
+    if notices:
+        held.history = history
+        ctx.session.flush()
+    return notices
+
+
+def apply_hold_decision(
+    ctx: ToolContext, reservation_id: str, outcome: str
+) -> dict[str, Any] | None:
+    """Turn the owner's answer into the request's actual state.
+
+    Returns what happened rather than just the new status, because approval is
+    no longer a status change: it rechecks the car, applies whatever the
+    customer asked for in the meantime, and can fail. The caller needs to know
+    which of those it got so the customer is told the truth.
+
+    `None` means there was nothing to decide — no such request, or an outcome
+    that is not a decision about the car.
+    """
+    reservation = ctx.reservations.get(reservation_id)
+    if reservation is None:
         return None
 
-    reservation.updated_at = now
-    ctx.session.flush()
-    return reservation.status
+    if withdrawn_by_customer(reservation):
+        # The customer pulled it while the owner was deciding. Their answer is
+        # about a request that no longer exists, and must not resurrect it.
+        return {
+            "outcome": "withdrawn",
+            "status": reservation.status,
+            "message": "The customer withdrew this request before it was confirmed.",
+        }
+
+    revived = expired_by_clock(reservation)
+    if reservation.status != ReservationStatus.HELD.value and not revived:
+        return None
+
+    if outcome == "approved":
+        result = confirm_hold(ctx, reservation)
+        result["revived"] = revived
+        ctx.session.flush()
+        return result
+
+    if outcome == "declined":
+        now = ctx.now()
+        reservation.status = ReservationStatus.CANCELLED.value
+        ctx.reservations.append_history(reservation, {"event": "hold_released"}, now)
+        ctx.session.flush()
+        return {
+            "outcome": "released",
+            "status": reservation.status,
+            "message": "The car is not available.",
+        }
+
+    # "I'll call them" decides nothing about the car, and the request stays as
+    # it is until somebody does.
+    return None
 
 
 def modify_demo_reservation(
@@ -370,6 +817,15 @@ def modify_demo_reservation(
     delivery_location: str | None = None,
     vehicle_id: str | None = None,
 ) -> dict[str, Any]:
+    held = _hold_awaiting(ctx, reservation_id)
+    if held is not None:
+        return _hold_change_request(ctx, held, {
+            "pickup_at": pickup_at,
+            "return_at": return_at,
+            "delivery_location": delivery_location,
+            "vehicle_id": vehicle_id,
+        })
+
     reservation = _live_reservation(ctx, reservation_id)
     if isinstance(reservation, dict):
         return reservation
@@ -484,6 +940,10 @@ def modify_demo_reservation(
 def extend_demo_rental(
     ctx: ToolContext, *, reservation_id: str, new_return_at: datetime
 ) -> dict[str, Any]:
+    held = _hold_awaiting(ctx, reservation_id)
+    if held is not None:
+        return _hold_change_request(ctx, held, {"return_at": new_return_at})
+
     reservation = _live_reservation(ctx, reservation_id)
     if isinstance(reservation, dict):
         return reservation
@@ -593,6 +1053,13 @@ def cancel_demo_reservation(
             }
         )
         return result
+
+    # A request nobody confirmed is withdrawn, not cancelled: there is no
+    # booking to price a fee against, and the person being asked about the car
+    # has to be told to stop.
+    unconfirmed = _hold_awaiting(ctx, reservation_id)
+    if unconfirmed is not None:
+        return withdraw_hold(ctx, unconfirmed, reason)
 
     reservation = _live_reservation(ctx, reservation_id)
     if isinstance(reservation, dict):
@@ -842,6 +1309,30 @@ def get_active_reservation(ctx: ToolContext) -> dict[str, Any]:
     if not ctx.customer_id:
         return _error("no_customer", "No customer is associated with this conversation")
     reservation = ctx.reservations.active_for_customer(ctx.customer_id)
-    if reservation is None:
-        return {"has_active_reservation": False, "reservation": None}
-    return {"has_active_reservation": True, "reservation": _reservation_dict(reservation, ctx)}
+    if reservation is not None:
+        return {
+            "has_active_reservation": True,
+            "reservation": _reservation_dict(reservation, ctx),
+        }
+
+    # A hold is deliberately not a live booking — it cannot be paid for or given
+    # a delivery slot until somebody confirms the car. It still has to be
+    # visible, or "can you make it 8 instead?" reaches an agent that believes
+    # the customer has nothing at all.
+    held = live_hold(ctx)
+    if held is not None:
+        return {
+            "has_active_reservation": False,
+            "reservation": None,
+            "held_reservation": _reservation_dict(held, ctx),
+            "awaiting_confirmation": True,
+            "guidance": (
+                "This booking request is awaiting confirmation — nobody has confirmed the "
+                "vehicle yet, and nothing is holding it off the market. Refer to it by its "
+                "reference and never as booked, held, reserved or theirs. If they ask to "
+                "change it, call modify_demo_reservation as normal: the change will be "
+                "recorded against the request and passed to the person confirming it."
+            ),
+        }
+
+    return {"has_active_reservation": False, "reservation": None}

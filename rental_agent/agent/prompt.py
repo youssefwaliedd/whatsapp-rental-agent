@@ -356,7 +356,22 @@ def render_state(
     elif state.quote_id:
         lines.append(f"Live quote: {state.quote_id}")
 
-    if active_reservation:
+    if active_reservation and active_reservation.get("status") == "held":
+        lines += [
+            "",
+            "They have a booking REQUEST that is awaiting confirmation. Anything about "
+            "'it', 'the car' or a change refers to this:",
+            f"  {active_reservation['reservation_id']} — {active_reservation['vehicle_display_name']}",
+            f"  delivery {active_reservation['pickup_at']} at {active_reservation.get('delivery_location') or 'TBC'}",
+            f"  return {active_reservation['return_at']}",
+            f"  total {active_reservation['currency']} {active_reservation['total_charge']}",
+            "  NOT CONFIRMED. Nobody has confirmed the vehicle is free, and nothing is "
+            "holding it off the market. Never call it booked, confirmed, reserved, held "
+            "or theirs — say the request is awaiting confirmation.",
+            "  If they want it changed, call modify_demo_reservation as normal: the "
+            "change is recorded against the request and passed to whoever is confirming it.",
+        ]
+    elif active_reservation:
         lines += [
             "",
             "They have a live booking. Anything about 'it', 'the car' or a change refers to this:",

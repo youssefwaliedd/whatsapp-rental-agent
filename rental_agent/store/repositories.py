@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..domain.enums import ReservationStatus
 from ..engine.availability import Window
 from .models import Conversation, Counter, Customer, Escalation, Message, Quote, Reservation, ToolCall
 
@@ -317,6 +318,50 @@ class Reservations:
                 Reservation.status.in_(LIVE_STATUSES),
             )
             .order_by(Reservation.created_at.desc())
+        )
+
+    def held_for_customer(
+        self, customer_id: str, *, taken_after: datetime | None = None
+    ) -> Reservation | None:
+        """The booking waiting on a person who can see the fleet.
+
+        Separate from `active_for_customer` because a hold is deliberately not
+        live: it cannot be modified, extended or paid until somebody confirms
+        the car is really free. It still has to be findable, or nothing can
+        check what the agent is about to claim about it.
+
+        `taken_after` excludes holds that have run out of time. The caller owns
+        the cutoff because the window is configuration, and a repository that
+        reads rules is a repository that cannot be tested on its own.
+        """
+        statement = select(Reservation).where(
+            Reservation.customer_id == customer_id,
+            Reservation.status == ReservationStatus.HELD.value,
+        )
+        if taken_after is not None:
+            statement = statement.where(Reservation.created_at >= taken_after)
+        return self.session.scalar(statement.order_by(Reservation.created_at.desc()))
+
+    def confirmed_for_customer(self, customer_id: str) -> Reservation | None:
+        """A booking that really is confirmed — the only proof of one there is."""
+        return self.session.scalar(
+            select(Reservation)
+            .where(
+                Reservation.customer_id == customer_id,
+                Reservation.status == ReservationStatus.CONFIRMED.value,
+            )
+            .order_by(Reservation.created_at.desc())
+        )
+
+    def holds_taken_before(self, cutoff: datetime) -> list[Reservation]:
+        """Holds nobody answered inside the window."""
+        return list(
+            self.session.scalars(
+                select(Reservation).where(
+                    Reservation.status == ReservationStatus.HELD.value,
+                    Reservation.created_at < cutoff,
+                )
+            )
         )
 
     def for_customer(self, customer_id: str) -> list[Reservation]:

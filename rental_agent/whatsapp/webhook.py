@@ -136,6 +136,38 @@ def create_app(
         except Exception:  # noqa: BLE001 - reporting must never break a turn
             log.exception("failed to sweep dropped conversations")
 
+        # A hold nobody answered stops being the customer's booking. Readers
+        # already ignore an expired one, so this is the ledger catching up with
+        # what is already true, not the thing that makes it true.
+        try:
+            released = booking.expire_holds(ctx)
+            if released:
+                log.info("released %d expired hold(s): %s", len(released), ", ".join(released))
+        except Exception:  # noqa: BLE001 - a stale hold must not break a live turn
+            log.exception("failed to expire holds")
+
+    def _tell_owner_about_changes(ctx: ToolContext) -> None:
+        """Send the owner a change the customer asked for after they were asked.
+
+        Without this they answer the message they were sent, which is about the
+        window the customer has since moved — and an approval would confirm a
+        time nobody wants.
+        """
+        if not settings.staff_number:
+            return
+        try:
+            for notice in booking.unsent_change_notices(ctx):
+                client.send_text(
+                    settings.staff_number,
+                    f"↻ Case {notice['case_code']} — the customer has changed what they "
+                    f"are asking for: {notice['wanted']}.\n"
+                    f"Confirm only if {notice['reservation_id']} is free for that.",
+                )
+            ctx.session.commit()
+        except Exception:  # noqa: BLE001 - the customer has already been answered
+            ctx.session.rollback()
+            log.exception("failed to tell the owner about a change request")
+
         for case in handover.overdue_cases(ctx):
             try:
                 if handover.needs_reminder(ctx, case):
@@ -195,14 +227,38 @@ def create_app(
                 return
 
             note = "" if message.button_id else message.text
-            handover.record_decision(ctx, case, outcome=outcome, note=note)
 
-            # A confirmed hold becomes a booking; a released one must not linger
-            # as something the agent will later call theirs.
+            # The car first, then the record. Approval is not a status change —
+            # it rechecks the vehicle, applies whatever the customer asked for
+            # while they were deciding, and can fail. What actually happened is
+            # what the case has to say, or the customer is told a booking exists
+            # that does not.
             if case.reason == "booking_hold":
                 reservation_id = (case.detail or "").split(":")[0].strip()
-                booking.apply_hold_decision(ctx, reservation_id, outcome)
+                applied = booking.apply_hold_decision(ctx, reservation_id, outcome)
+                if applied is not None and applied["outcome"] == "withdrawn":
+                    handover.close_case(ctx, case, applied["message"])
+                    session.commit()
+                    client.send_text(
+                        settings.staff_number,
+                        f"No action needed on case {case.case_code} — "
+                        f"{applied['message']} Nothing has been booked.",
+                    )
+                    return
+                if applied is not None and applied["outcome"] == "conflict":
+                    # They said yes and the car is not free after all. The
+                    # customer must hear the outcome, not the intention.
+                    outcome = "declined"
+                    note = applied["message"]
+                    log.warning(
+                        "approval refused on %s: %s", reservation_id, applied["reason"]
+                    )
+                elif applied is not None and applied["outcome"] == "confirmed":
+                    # So the relay states the window that was actually
+                    # confirmed, which is not always the one first requested.
+                    case.detail = applied["summary"]
 
+            handover.record_decision(ctx, case, outcome=outcome, note=note)
             session.commit()
 
             client.send_text(
@@ -398,6 +454,10 @@ def create_app(
                 _notify_staff(ctx, message, turn)
 
             session.commit()
+            # After the customer has their answer: a change they asked for on a
+            # request somebody is already deciding has to reach that person
+            # before their decision does.
+            _tell_owner_about_changes(ctx)
         except Exception:  # noqa: BLE001 - one bad turn must not kill the worker
             session.rollback()
             log.exception("failed to handle %s", message.message_id)

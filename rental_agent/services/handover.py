@@ -46,6 +46,10 @@ RELAYED = "relayed"
 #: this is a branch off AWAITING rather than a terminal state.
 TIMED_OUT = "timed_out"
 
+#: Closed without an answer because the question stopped mattering — the
+#: customer withdrew the request the owner was being asked about.
+WITHDRAWN = "withdrawn"
+
 OPEN_STATUSES = ("open", AWAITING, TIMED_OUT, DECIDED)
 
 #: Outcomes an owner may return. Anything else is refused rather than guessed at.
@@ -307,6 +311,19 @@ def record_decision(
     return case
 
 
+def close_case(ctx: ToolContext, case: Escalation, why: str) -> Escalation:
+    """Close a case nobody needs answered any more.
+
+    Not a decision: no outcome is recorded, because none was made. It leaves
+    `OPEN_STATUSES`, so the owner is no longer asked about it and a late answer
+    finds nothing to apply.
+    """
+    case.status = WITHDRAWN
+    case.decision_note = why
+    ctx.session.flush()
+    return case
+
+
 def relay_directive(case: Escalation) -> str:
     """What to tell the agent so it can pass the decision on.
 
@@ -354,10 +371,16 @@ def relay_directive(case: Escalation) -> str:
         held = case.detail or "the vehicle"
         if case.decision == "approved":
             return "\n".join([
-                "A colleague has confirmed the car is free. The hold is now a real booking.",
-                f"What was held: {held}",
+                "A colleague has confirmed the car is free. The request is now a real booking.",
+                f"What is confirmed: {held}",
                 "Tell the customer it is confirmed, warmly and plainly, and give them the "
                 "reference. This is the message they have been waiting for.",
+                "Give them the dates, the pickup point and the total exactly as written "
+                "above — those are the details that were confirmed, and they are what the "
+                "booking now is.",
+                "If any of that differs from what you last discussed with them — because "
+                "they asked for a change while it was being checked — say so plainly "
+                "rather than letting them notice it themselves.",
                 "Then carry on serving them yourself. Nobody is taking over — a colleague "
                 "answered one question and that is finished.",
             ])
