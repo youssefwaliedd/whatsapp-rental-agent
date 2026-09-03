@@ -29,6 +29,8 @@ class CycleReport:
     clean: int = 0
     findings: int = 0
     new_cases: int = 0
+    #: Every case now guarding the agent, not just the ones this run added.
+    total_cases: int = 0
     candidate_version: str | None = None
     lessons: list[str] = field(default_factory=list)
     replay_passed: int = 0
@@ -38,12 +40,19 @@ class CycleReport:
     results: list[EvaluationResult] = field(default_factory=list)
 
 
-def run(ctx: ToolContext, agent: Any | None = None) -> CycleReport:
+def run(
+    ctx: ToolContext, agent: Any | None = None, *, activate: bool = True
+) -> CycleReport:
     """Run one learning cycle.
 
     Without an `agent` the cycle stops at proposing a candidate: activation
     requires replay, and replay requires something that can hold a conversation.
     Refusing to activate an untested candidate is the point of the gate.
+
+    With `activate=False` it does the expensive part — the replay — and stops
+    before promoting anything, leaving a proven candidate for a person to read
+    and promote with `strategies.promote`. That is the difference between a loop
+    that reports what it changed and one somebody actually reviews.
     """
     report = CycleReport()
     strategies.ensure_baseline(ctx)
@@ -56,8 +65,16 @@ def run(ctx: ToolContext, agent: Any | None = None) -> CycleReport:
     report.findings = sum(len(r.findings) for r in results)
 
     # 2. Keep each failure as a test.
+    #
+    #    Counted by identity rather than by call: capture is idempotent, so a
+    #    second run over the same conversations returns the same rows and
+    #    "30 new cases" every time would be a lie the report told on itself.
+    before = {case.id for case in replay_mod.cases(ctx)}
+    captured: set[int] = set()
     for result in results:
-        report.new_cases += len(replay_mod.capture_from_evaluation(ctx, result))
+        captured |= {c.id for c in replay_mod.capture_from_evaluation(ctx, result)}
+    report.new_cases = len(captured - before)
+    report.total_cases = len(replay_mod.cases(ctx))
 
     # 3. Propose a correction.
     mistakes = open_mistakes(ctx)
@@ -77,6 +94,13 @@ def run(ctx: ToolContext, agent: Any | None = None) -> CycleReport:
     summary = replay_mod.replay_all(ctx, agent, candidate.lessons)
     report.replay_passed = summary.passed
     report.replay_failed = summary.failed
+
+    if not activate:
+        # 5a. Proven, and left for a person. A regression still disqualifies it
+        #     here — that is not a judgement call anybody needs to make.
+        rejected = strategies.record_replay(ctx, candidate, summary.passed, summary.failed)
+        report.reason = rejected or "replayed clean — awaiting review"
+        return report
 
     # 5. Activate only on a clean replay.
     outcome = strategies.activate(ctx, candidate, summary.passed, summary.failed)

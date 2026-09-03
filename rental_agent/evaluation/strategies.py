@@ -105,6 +105,18 @@ def propose(ctx: ToolContext, mistakes: list[MistakeRow] | None = None) -> Strat
     if merged == existing:
         return None  # nothing new
 
+    # A candidate already waiting with exactly these lessons is the answer, not
+    # a reason to mint another one. Otherwise every run of the loop stacks up an
+    # identical version and buries the one somebody was going to read — which is
+    # what "nothing new to learn" is supposed to prevent, and only prevented it
+    # against the *active* strategy.
+    pending = session.scalars(
+        select(StrategyRow).where(StrategyRow.status == "candidate").order_by(StrategyRow.id)
+    )
+    for waiting in pending:
+        if list(waiting.lessons) == merged:
+            return waiting
+
     now = ctx.now()
     candidate = StrategyRow(
         version=_next_version(ctx),
@@ -119,18 +131,62 @@ def propose(ctx: ToolContext, mistakes: list[MistakeRow] | None = None) -> Strat
     return candidate
 
 
+def record_replay(
+    ctx: ToolContext, candidate: StrategyRow, passed: int, failed: int
+) -> str | None:
+    """Write what the replay found onto the candidate, and reject it if it failed.
+
+    Separate from activation so a run can prove a candidate without promoting
+    it. A regression is disqualifying whether or not anybody is about to
+    promote anything, so the rejection happens here.
+    """
+    session = ctx._require_session()
+    candidate.replay_passed = passed
+    candidate.replay_failed = failed
+    if failed:
+        candidate.status = "rejected"
+        candidate.rejection_reason = f"{failed} regression case(s) failed on replay"
+    session.flush()
+    return candidate.rejection_reason if failed else None
+
+
+def promote(ctx: ToolContext, version: str) -> ActivationResult:
+    """Put a proven candidate in front of customers, deliberately.
+
+    The last step is a person's, and it is separate on purpose. A clean replay
+    says the candidate breaks nothing that used to work; it does not say the
+    lessons are ones this operator wants their salesperson taught. Only somebody
+    who has read them can say that, which is the difference between a loop that
+    is reviewable and one that merely reports afterwards.
+    """
+    session = ctx._require_session()
+    candidate = session.scalar(select(StrategyRow).where(StrategyRow.version == version))
+    if candidate is None:
+        return ActivationResult(version, False, 0, 0, f"no strategy called {version}")
+    if candidate.status == "active":
+        return ActivationResult(version, False, 0, 0, "already active")
+    if candidate.status != "candidate":
+        return ActivationResult(
+            version, False, candidate.replay_passed, candidate.replay_failed,
+            f"{version} is {candidate.status}"
+            + (f" — {candidate.rejection_reason}" if candidate.rejection_reason else ""),
+        )
+    if not candidate.replay_passed and not candidate.replay_failed:
+        return ActivationResult(
+            version, False, 0, 0,
+            "not replayed yet — nothing has checked whether it breaks what already works",
+        )
+    return activate(ctx, candidate, candidate.replay_passed, candidate.replay_failed)
+
+
 def activate(ctx: ToolContext, candidate: StrategyRow, passed: int, failed: int) -> ActivationResult:
     """Promote a candidate — but only if nothing regressed."""
     session = ctx._require_session()
     now = ctx.now()
-    candidate.replay_passed = passed
-    candidate.replay_failed = failed
 
-    if failed:
-        candidate.status = "rejected"
-        candidate.rejection_reason = f"{failed} regression case(s) failed on replay"
-        session.flush()
-        return ActivationResult(candidate.version, False, passed, failed, candidate.rejection_reason)
+    rejected = record_replay(ctx, candidate, passed, failed)
+    if rejected:
+        return ActivationResult(candidate.version, False, passed, failed, rejected)
 
     for previous in session.scalars(select(StrategyRow).where(StrategyRow.status == "active")):
         previous.status = "superseded"

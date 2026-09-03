@@ -341,3 +341,25 @@ def test_no_active_lessons_means_no_lessons_section(booking_ctx):
     client = FakeClient(script=[says("Sure.")])
     Agent(client, AgentSettings(extraction_enabled=False)).respond(booking_ctx, "hello")
     assert "Lessons from previous conversations" not in client.system_texts()[-1]
+
+
+def test_running_the_loop_twice_does_not_stack_up_identical_candidates(booking_ctx):
+    """A loop meant to run every week must not leave a new version behind every
+    time. The duplicate check only ever compared against the *active* strategy,
+    so with nothing yet activated it proposed a fresh candidate on every run and
+    buried the one somebody was about to read."""
+    from rental_agent.evaluation import strategies
+
+    make_conversation(
+        booking_ctx, [("inbound", "how much for the G63?"), ("outbound", "AED 4,321 total.")]
+    )
+    result = evaluate_conversation(booking_ctx, booking_ctx.conversation_id)
+    record(booking_ctx, result)
+
+    first = strategies.propose(booking_ctx)
+    again = strategies.propose(booking_ctx)
+
+    assert first is not None
+    assert again is not None
+    assert again.version == first.version
+    assert len([s for s in strategies.history(booking_ctx) if s.status == "candidate"]) == 1
