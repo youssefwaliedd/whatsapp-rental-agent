@@ -1,150 +1,128 @@
-# WhatsApp Rental Agent — prototype
+# WhatsApp Rental Agent
 
-A self-improving WhatsApp agent for car-rental companies. This repository is the
-**demonstration prototype**: a fictional operator, a fictional fleet, simulated
-bookings and payments. Nothing here is a real rental system.
+A WhatsApp sales agent for Delta Rentals Dubai, built against their written
+scope. **Integration-ready with a simulated booking provider — not connected to
+Delta's systems.**
 
-> Operator name, vehicles, prices, availability and policies are invented. They
-> belong to no real company. Every booking the prototype creates is labelled as a
-> demonstration.
+The fleet is real: 113 vehicles, their prices and their photographs, imported
+nightly from their public catalogue. Availability, bookings and payments are
+simulated, every reservation is labelled a demonstration, and twelve figures
+they have never published are deliberately left blank rather than guessed.
 
-## The one rule that shapes the architecture
+## The rule that shapes everything
 
-The language model never computes or invents a fact. Availability, prices,
-totals, deposits, discount ceilings, booking status, payment status and company
-policy come from the **rental engine** reading **approved configuration**. The
-model decides what to say and which tool to call; the engine decides what is
-true.
+**The model never computes or invents a fact.** Availability, prices, totals,
+deposits, discount ceilings, booking status, payment status and policy come from
+the engine reading approved configuration. The model chooses what to say and
+which tool to call; the engine decides what is true.
 
 A customer saying *"you always give me 20% off"* cannot become a business rule.
+
+Three outbound guards enforce it at the last moment, after the model has written
+its reply and before the customer sees it:
+
+| Guard | Refuses |
+|---|---|
+| `agent/figures.py` | a price no tool produced |
+| `agent/availability.py` | a car called free when nothing checked |
+| `agent/holds.py` | a booking called done that nothing confirms |
+
+Each retries once with the reason, then falls back to wording that promises
+nothing.
+
+## Running it
+
+```bash
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env          # then fill in GEMINI_API_KEY at minimum
+```
+
+| Command | What it does |
+|---|---|
+| `.venv/bin/python run_chat.py` | the agent in a browser at :8100, with an inspector and a learning panel |
+| `.venv/bin/python run_booking_demo.py` | the booking journey including conflicts and timeouts — no model, ~1s |
+| `.venv/bin/python run_whatsapp_sim.py` | the WhatsApp behaviour *and the owner's side* — `/cases`, `/owner`, `/approve` |
+| `.venv/bin/python run_webhook.py` | the real Meta webhook, for a live number |
+| `.venv/bin/python run_learning.py` | what it has learned; `--replay`, `--promote`, `--rollback`, `--lost`, `--asked` |
+| `.venv/bin/python run_benchmark.py` | the agent against Delta's own thirteen conversations, side by side |
+| `.venv/bin/python run_payment_check.py` | a real Stripe test checkout, end to end |
+| `.venv/bin/python -m pytest -q` | the suite |
+
+Only `run_chat`, `run_whatsapp_sim`, `run_webhook`, `run_learning --replay` and
+`run_benchmark` need a model.
 
 ## Layout
 
 ```
 config/
-  fleet.json          20 fictional vehicles; availability as offsets from a
-                      reference date, so the demo never goes stale
-  rules.json          the only source of policy truth — ages, documents, fees,
-                      discounts, insurance, cancellation, escalation triggers
+  fleet.json           Delta's 113 vehicles, refreshed nightly. `_assumed` lists
+                       what is inferred rather than known — the de-demo pass is
+                       gated on that list being empty
+  rules.json           the only source of policy truth. `_pending_confirmation`
+                       holds the twelve figures they have not confirmed
+  playbook.md          how they actually sell, written from their real chats
+  policy/              their published terms, indexed for retrieval. The indexer
+                       REFUSES a document containing a figure
+
 rental_agent/
-  config.py           loads and caches the approved configuration
-  context.py          ToolContext: session + customer + conversation + clock
-  domain/             enums (closed vocabularies) and Pydantic models
-  engine/
-    pricing.py        billable days, rate selection, fees, discounts, quotes
-    availability.py   calendar logic; seeded blocks + live demo reservations
-    search.py         hard filters, deterministic ranking, alternative tiers
-    locations.py      "marina" -> "Dubai Marina"
-    engine.py         the facade the tool layer calls
-  store/
-    models.py         SQLAlchemy schema (Postgres-compatible)
-    types.py          decimals as text, datetimes with their offset
-    repositories.py   every read and write; the blocking-status rule lives here
-    db.py             engine, sessions, reset, demo-reference sequences
-  services/
-    booking.py        quotes, reservations, modify, extend, cancel, documents,
-                      simulated payment, delivery, customer memory
-    escalation.py     trigger classification and urgency
-    idempotency.py    the ledger that stops duplicate reservations
-  tools/
-    rental_tools.py   read tools
-    state_tools.py    write tools
-    registry.py       one dispatch path: errors, audit, idempotency
-  agent/
-    providers/        model adapters — gemini (default, free tier), anthropic
-    schemas.py        the 17 tools as JSON schemas the model can call
-    prompt.py         frozen system prompt + per-turn state snapshot
-    extraction.py     structured entity extraction + additive state merge
-    loop.py           the tool-use loop
-    settings.py       model, effort and limits (all env-overridable)
-  formatting.py       WhatsApp rendering of engine facts
-  simulator/cli.py    local console + scripted scenario replay
-tests/                218 tests, frozen clock, fixed reference date,
-                      scripted model responses (no API key needed)
+  agent/               the conversation loop, the prompt, the three guards,
+                       model providers (gemini, anthropic)
+  booking_provider/    the booking system behind an interface: seven operations,
+                       six outcomes, a simulated provider, a delta.py stub
+  domain/              consent and incident gates — decisions too important to
+                       leave to the model
+  engine/              availability, pricing, search. Owns every number
+  evaluation/          the learning loop: checks, review, regression cases,
+                       replay, versioned strategies
+  knowledge/           BM25 retrieval over the policy documents
+  services/            booking, escalation, handover, outcomes, idempotency
+  store/               SQLAlchemy models and repositories
+  whatsapp/            the Cloud API transport, pacing, reactions, the webhook
 ```
 
-All 17 tools from the specification are implemented: 7 read, 10 write. Every
-write is idempotent and audited.
+## How the learning loop works
 
-## Running it
+Automatic when a conversation ends: it is judged by twelve deterministic checks
+and (with an Anthropic key) a reading pass, each failure is kept as a permanent
+regression test, and the proposed lesson set is rebuilt.
 
-```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/python -m rental_agent.simulator.cli
-```
+Deliberate: proving a candidate against every stored test (`--replay`), and
+putting it in front of customers (`--promote`). `--rollback` withdraws one.
 
-Freeze the clock for a reproducible demo:
+**A lesson can never contain a figure or a policy claim** — `reject_unsafe_lesson`
+refuses it, whatever produced it. So the loop can change how the agent sells and
+never what it charges. The model's weights never change; what changes is a short
+numbered list appended to its instructions.
 
-```bash
-.venv/bin/python -m rental_agent.simulator.cli --date 2026-09-01
-.venv/bin/python -m rental_agent.simulator.cli --date 2026-09-01 --run "scenario 1"
-```
+Nothing runs on a schedule. A loop that fires unattended is one nobody audits.
 
-Useful console commands:
+## What is simulated, and what is not
 
-- **Read:** `/fleet`, `/search models=G63 color=black`, `/quote veh_13 days=3
-  location=Marina`, `/alts veh_18`, `/discount veh_13`
-- **Write:** `/book veh_13 days=3 location=Marina`, `/modify DEMO-1042
-  pickup=2026-09-04T20:00`, `/extend DEMO-1042 <iso>`, `/cancel DEMO-1042`
-- **Inspect:** `/state`, `/demo-fleet`, `/demo-bookings`, `/demo-conversations`
-- **Raw:** `/tool <name> <json>`, `/tools`
-- **Talk to it:** type anything not starting with `/` (needs `GEMINI_API_KEY`)
-- **Check models:** `/models` lists what your key can actually reach
-- **Reset:** `/demo-reset` wipes the demo database and reloads config
+| Real | Simulated |
+|---|---|
+| Vehicles, prices, photographs | Availability |
+| Delta's published terms | Every booking and reference |
+| Their sales approach | Payments outside Stripe test mode |
+| | Deposits and eleven other figures |
 
-Write commands persist to `demo.db` (override with `--db`).
+`BOOKING_PROVIDER=delta` raises rather than running: a connector that answered
+some questions from Delta and the rest from demo data would be the most
+dangerous thing in this repository.
 
-## What the scripted scenarios are and are not
+## Documentation
 
-`/scenario 1..6` replay fixed customer/agent wording while pulling every number
-from the engine and the database live. They are **not** the agent — they exist to
-show the stack can supply everything a conversation needs, and they still run
-without an API key.
+- `docs/on-whatsapp.md` — what is left to get it onto a real number, in order
+- `docs/go-live.md` — the full runbook, every screen and value
+- `docs/policy-questionnaire.md` — the 33 questions Delta still has to answer
+- `docs/client-requests.md` — what is needed from them, and what each item blocks
+- `rental_agent/booking_provider/delta.py` — what a real connector must implement
+- `MILESTONES.md` — the acceptance table
 
-To talk to the actual agent, set a key and just type into the console.
+## Known limits
 
-## Model provider
-
-The agent runs on **Google Gemini's free tier** by default. Get a key at
-<https://aistudio.google.com/apikey>, then:
-
-```bash
-export GEMINI_API_KEY='...'
-.venv/bin/python -m rental_agent.simulator.cli --date 2026-09-01
-```
-
-Everything below the agent — engine, tools, persistence, state, escalation — is
-provider-agnostic. Only `agent/providers/` knows an SDK exists, so switching is
-an environment variable:
-
-```bash
-RENTAL_AGENT_PROVIDER=anthropic     # needs ANTHROPIC_API_KEY
-GEMINI_MODEL=gemini-3.6-flash       # or whatever `/models` shows you
-```
-
-### Free-tier notes
-
-Gemini's free tier caps requests **per model, per day**. The adapter handles
-this rather than dying mid-conversation:
-
-- A per-minute limit is waited out, honouring Google's own `retryDelay`
-- A per-day limit fails over to the next model, which has its own budget
-- The extraction pass runs on a different model from the conversation, so the
-  two requests each turn draw on two separate quotas
-
-Budget about two requests per customer message. If everything is exhausted, the
-agent apologises and asks the customer to resend — it never crashes or goes
-silent.
-
-Scenarios that write (booking, escalation) run against a scratch database, so
-they are reproducible on demand and never pollute the demo data.
-
-## Status
-
-See `MILESTONES.md`. Milestones 1–3 are built and tested: the engine, the full
-tool surface, persistence, customer memory, idempotency, and the stateful agent.
-
-The agent is tested against scripted model responses — no live conversation has
-run yet. Not built at all: the WhatsApp transport and the evaluation/learning
-loop.
+- Runs on Gemini's free tier by default: ~54s per reply against their 2–5s
+  target, and quota that can run out mid-afternoon. `RENTAL_AGENT_PROVIDER=anthropic`
+  fixes both; set `ANTHROPIC_MODEL` explicitly or it defaults to Opus.
+- **Availability comes from nowhere real.** Delta publishes none. Every booking
+  is a request until a provider that can settle it exists.
+- No scheduler, no dashboard, one escalation number. None are in their scope.

@@ -4,5 +4,7 @@ __pycache__/
 .pytest_cache/
 *.db
 .env
+.env.*
+!.env.example
 .DS_Store
 whatsapp_sim.db*
