@@ -21,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rental_agent.agent.loop import AgentTurn
+from rental_agent.store.models import Evaluation
 from rental_agent.tools.registry import execute_tool
 from rental_agent.whatsapp import payloads
 from rental_agent.whatsapp.client import SendResult, WhatsAppClient, split_message
@@ -1167,3 +1168,58 @@ def test_a_generated_card_still_needs_a_public_base(harness):
     assert outbound.card_url("assets/vehicles/veh_01.png") == (
         "https://cards.example.com/assets/vehicles/veh_01.png"
     )
+
+
+def test_a_finished_conversation_is_evaluated_on_the_next_inbound(session_factory):
+    """The half of the learning loop that is safe to run unattended: it consults
+    no model and changes nothing a customer sees. Everything after it — turning
+    findings into lessons, proving them, activating them — stays deliberate.
+
+    What is checked here is the wiring: that a conversation which has ended gets
+    judged without anybody asking, and is not judged twice. Whether the checks
+    find the right things is `test_evaluation`'s job.
+    """
+    from datetime import timedelta
+
+    from rental_agent.context import ToolContext
+
+    def seed(outcome, hours_ago, handle):
+        with session_factory() as setup:
+            ctx = ToolContext(session=setup, now_fn=lambda: FROZEN_NOW,
+                              reference_date=REFERENCE_DATE)
+            customer, _ = ctx.customers.get_or_create(handle, FROZEN_NOW)
+            conversation, _ = ctx.conversations.get_or_create(customer.customer_id, FROZEN_NOW)
+            for direction, text in [("inbound", "how much?"), ("outbound", "Let me check.")]:
+                ctx.messages.record(conversation_id=conversation.conversation_id,
+                                    direction=direction, content=text, now=FROZEN_NOW)
+            conversation.sales_outcome = outcome
+            conversation.last_message_at = FROZEN_NOW - timedelta(hours=hours_ago)
+            setup.commit()
+            return conversation.conversation_id
+
+    ended = seed("dropped", 48, "+971500000077")
+    still_going = seed("booked", 1, "+971500000078")
+
+    outbound = RecordingClient()
+    agent = StubAgent(AgentTurn(reply="Happy to help."))
+    app = create_app(
+        session_factory=session_factory, agent_factory=lambda: agent,
+        settings=WhatsAppSettings(phone_number_id="PID", access_token="TOK",
+                                  app_secret=APP_SECRET, verify_token=VERIFY_TOKEN),
+        client=outbound, reference_date=REFERENCE_DATE, now_fn=lambda: FROZEN_NOW,
+    )
+    client = TestClient(app)
+    post(client, text_payload("hi", message_id="wamid.LATER1"))
+
+    with session_factory() as check:
+        judged = [e.conversation_id for e in check.query(Evaluation).all()]
+    # The finished one, and not the one the customer is still in the middle of.
+    assert judged == [ended]
+    assert still_going not in judged
+
+    # And a second message does not judge it again — mistake counts track
+    # distinct conversations, and judging one twice would inflate them.
+    post(client, text_payload("still there?", message_id="wamid.LATER2"))
+
+    with session_factory() as check:
+        assert [e.conversation_id for e in check.query(Evaluation).all()] == [ended]

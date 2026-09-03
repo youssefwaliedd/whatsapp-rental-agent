@@ -20,6 +20,7 @@ from rental_agent.services import outcomes
 from rental_agent.services.outcomes import BOOKED, DROPPED, ESCALATED
 
 from .conftest import FROZEN_NOW
+from .test_evaluation import make_conversation
 
 
 def conversation_of(ctx):
@@ -144,3 +145,74 @@ def test_escalating_through_the_tools_tags_it(booking_ctx):
     )
     execute_tool(booking_ctx, "escalate_conversation", {"reason": "accident"})
     assert conversation_of(booking_ctx).sales_outcome == ESCALATED
+
+
+# --------------------------------------------------------------------------
+# A finished conversation judges itself
+# --------------------------------------------------------------------------
+#
+# The evaluation step is the half of the loop that is safe to automate: it
+# consults no model, costs nothing, and changes nothing a customer sees. Turning
+# what it finds into lessons, proving them and activating them stay deliberate.
+
+
+def _ended(ctx, outcome="dropped", hours_ago=48):
+    from datetime import timedelta
+
+    make_conversation(ctx, [("inbound", "how much for the G63?"), ("outbound", "AED 4,321 total.")])
+    conversation = ctx.conversations.get(ctx.conversation_id)
+    conversation.sales_outcome = outcome
+    conversation.last_message_at = ctx.now() - timedelta(hours=hours_ago)
+    ctx.session.flush()
+    return conversation
+
+
+def test_a_finished_conversation_is_evaluated_without_being_asked(booking_ctx):
+    from rental_agent.evaluation.evaluator import evaluate_finished, open_mistakes
+
+    _ended(booking_ctx)
+
+    assert evaluate_finished(booking_ctx) == [booking_ctx.conversation_id]
+    assert any(m.type == "unsupported_claim" for m in open_mistakes(booking_ctx))
+
+
+def test_a_conversation_still_going_is_left_alone(booking_ctx):
+    """Booking is not the end — the customer usually keeps talking about
+    delivery, and judging it there would judge half a conversation."""
+    from rental_agent.evaluation.evaluator import evaluate_finished
+
+    _ended(booking_ctx, outcome="booked", hours_ago=1)
+
+    assert evaluate_finished(booking_ctx) == []
+
+
+def test_an_untagged_conversation_is_left_alone(booking_ctx):
+    from rental_agent.evaluation.evaluator import evaluate_finished
+
+    make_conversation(booking_ctx, [("inbound", "hi"), ("outbound", "Hello!")])
+
+    assert evaluate_finished(booking_ctx) == []
+
+
+def test_a_conversation_is_judged_once_and_only_once(booking_ctx):
+    """Mistake counts track distinct conversations, so judging one twice would
+    inflate the number that decides which habits are worth correcting."""
+    from rental_agent.evaluation.evaluator import evaluate_finished, open_mistakes
+
+    _ended(booking_ctx)
+    evaluate_finished(booking_ctx)
+    counts = [(m.type, m.occurrences) for m in open_mistakes(booking_ctx)]
+
+    assert evaluate_finished(booking_ctx) == []
+    assert [(m.type, m.occurrences) for m in open_mistakes(booking_ctx)] == counts
+
+
+def test_replay_traffic_is_never_judged_as_a_customer(booking_ctx):
+    from rental_agent.evaluation.evaluator import evaluate_finished
+    from rental_agent.evaluation.replay import REPLAY_OUTCOME
+
+    conversation = _ended(booking_ctx)
+    conversation.outcome = REPLAY_OUTCOME
+    booking_ctx.session.flush()
+
+    assert evaluate_finished(booking_ctx) == []

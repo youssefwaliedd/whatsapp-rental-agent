@@ -27,6 +27,7 @@ from ..config import load_rules
 from ..context import ToolContext
 from ..formatting import photo_caption
 from ..payments import webhook as payments_webhook
+from ..evaluation import evaluator
 from ..services import booking, handover, outcomes
 from ..sources import refresh as refresh_mod
 from ..store.models import Escalation
@@ -145,6 +146,17 @@ def create_app(
                 log.info("released %d expired hold(s): %s", len(released), ", ".join(released))
         except Exception:  # noqa: BLE001 - a stale hold must not break a live turn
             log.exception("failed to expire holds")
+
+        # A finished conversation is judged without anybody remembering to ask.
+        # Safe to automate because it consults no model and changes nothing a
+        # customer sees: it writes down what happened. Turning those findings
+        # into lessons, proving them, and activating them stay deliberate.
+        try:
+            judged = evaluator.evaluate_finished(ctx)
+            if judged:
+                log.info("evaluated %d finished conversation(s)", len(judged))
+        except Exception:  # noqa: BLE001 - reporting must never break a turn
+            log.exception("failed to evaluate finished conversations")
 
     def _tell_owner_about_changes(ctx: ToolContext) -> None:
         """Send the owner a change the customer asked for after they were asked.

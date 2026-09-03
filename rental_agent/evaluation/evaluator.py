@@ -18,6 +18,7 @@ from typing import Any
 from sqlalchemy import select
 
 from ..context import ToolContext
+from ..store.models import Conversation
 from ..store.models import Evaluation as EvaluationRow
 from ..store.models import Mistake as MistakeRow
 from .checks import Finding, run_all
@@ -202,6 +203,56 @@ def evaluate_all(ctx: ToolContext) -> list[EvaluationResult]:
             record(ctx, result)
             results.append(result)
     return results
+
+
+def evaluate_finished(ctx: ToolContext, now: Any = None) -> list[str]:
+    """Evaluate every conversation that has ended and has not been judged yet.
+
+    Runs on inbound webhooks beside the other sweeps, so a conversation is
+    assessed without anybody remembering to ask. This is the step that is safe
+    to automate: it consults no model, costs nothing, and changes nothing a
+    customer will ever see — it only writes down what happened. Proposing
+    lessons from it, proving them, and putting them in front of customers stay
+    deliberate acts.
+
+    "Ended" means tagged *and* gone quiet for the same window that decides a
+    dropped conversation. Evaluating at the moment of booking would judge a
+    conversation that is still going — the customer usually keeps talking about
+    delivery — and an escalated thread can still turn into a sale.
+
+    Evaluated once, ever. Mistake occurrences count distinct conversations, so
+    judging one twice would inflate the number that decides which habits are
+    worth correcting.
+    """
+    from ..services.outcomes import _dropped_after
+    from .replay import REPLAY_OUTCOME
+
+    session = ctx._require_session()
+    cutoff = (now or ctx.now()) - _dropped_after(ctx)
+
+    judged = set(session.scalars(select(EvaluationRow.conversation_id)))
+    ended = session.scalars(
+        select(Conversation).where(
+            Conversation.sales_outcome.is_not(None),
+            Conversation.last_message_at.is_not(None),
+            Conversation.last_message_at < cutoff,
+        )
+    )
+
+    evaluated: list[str] = []
+    for conversation in ended:
+        if conversation.conversation_id in judged:
+            continue
+        if conversation.outcome == REPLAY_OUTCOME:
+            continue
+        result = evaluate_conversation(ctx, conversation.conversation_id)
+        if not result.message_count:
+            continue
+        record(ctx, result)
+        evaluated.append(conversation.conversation_id)
+
+    session.flush()
+    return evaluated
 
 
 def evaluate_by_outcome(
