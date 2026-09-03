@@ -515,7 +515,6 @@ const activeEl   = document.getElementById('active');
 const candEl     = document.getElementById('candidate');
 const mistakesEl = document.getElementById('mistakes');
 
-const esc = t => String(t ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
 
 function drawLearning(d) {
   activeEl.innerHTML = d.active.version
