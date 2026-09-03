@@ -15,6 +15,12 @@ is not reachable it says so and exits non-zero rather than claiming a pass:
 from __future__ import annotations
 
 import sys
+import uuid
+from pathlib import Path
+
+# Runs as a script from anywhere, so the repo root has to be on the path — a
+# check that needs an environment variable to start is a check nobody runs.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -26,10 +32,26 @@ from rental_agent.store.db import create_db_engine, database_url, init_db, is_sq
 TZ = ZoneInfo("Asia/Dubai")
 RACERS = 6
 
+#: Fresh keys per run. Reusing them would make the ledger replay the previous
+#: run's answers — correct behaviour, and it would quietly turn this into a
+#: check of the ledger rather than of the lock.
+RUN = uuid.uuid4().hex[:8]
 
-def _window() -> tuple[datetime, datetime]:
+
+def _free_window(ctx, vehicle_id: str) -> tuple[datetime, datetime]:
+    """A window this car is actually free for.
+
+    Run twice and the second run would otherwise race for a car the first run
+    booked, every racer would be refused, and a repeatable check would report a
+    failure that is really yesterday's success.
+    """
     start = datetime.now(TZ).replace(minute=0, second=0, microsecond=0) + timedelta(days=30)
-    return start, start + timedelta(days=2)
+    for offset in range(0, 400, 3):
+        pickup = start + timedelta(days=offset)
+        ret = pickup + timedelta(days=2)
+        if ctx.provider.check_availability(vehicle_id, pickup, ret).available:
+            return pickup, ret
+    raise RuntimeError(f"no free window for {vehicle_id} in the next year")
 
 
 def _quote_for(session_factory, handle: str, vehicle_id: str, pickup, ret) -> tuple[str, str]:
@@ -82,7 +104,8 @@ def main() -> int:
         print(f"\n  NOT RUN — could not reach the database: {exc}")
         return 2
 
-    pickup, ret = _window()
+    with session_factory() as probe:
+        pickup, ret = _free_window(ToolContext(session=probe), vehicle.id)
     print(f"vehicle:  {vehicle.id} ({vehicle.display_name})")
     print(f"window:   {pickup:%a %d %b %H:%M} → {ret:%a %d %b %H:%M}")
     print(f"racers:   {RACERS}, each in its own session\n")
@@ -94,7 +117,7 @@ def main() -> int:
 
     with ThreadPoolExecutor(max_workers=RACERS) as pool:
         outcomes = list(pool.map(
-            lambda job: _confirm(session_factory, job[1][0], job[1][1], f"race-{job[0]}"),
+            lambda job: _confirm(session_factory, job[1][0], job[1][1], f"race-{RUN}-{job[0]}"),
             list(enumerate(prepared)),
         ))
 
