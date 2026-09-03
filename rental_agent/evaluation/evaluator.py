@@ -249,6 +249,22 @@ def review_and_record(ctx: ToolContext, conversation_id: str) -> list[Finding]:
     now = ctx.now()
     for finding in result.findings:
         _promote(ctx, finding, conversation_id, now)
+
+    # What they asked and what they pushed back on. Not mistakes — an agent is
+    # not wrong for being asked what the deposit is — so they are kept apart
+    # from the ledger that decides what the agent is taught.
+    from ..store.models import Observation
+
+    for seen in result.observations:
+        ctx.session.add(Observation(
+            kind=seen["kind"],
+            summary=seen["summary"],
+            quote=seen["quote"],
+            conversation_id=conversation_id,
+            created_at=now,
+        ))
+    ctx.session.flush()
+
     if result.findings or result.observations:
         _log.info(
             "review of %s: %d finding(s), %d observation(s)",

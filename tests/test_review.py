@@ -166,3 +166,63 @@ def test_the_reviewer_is_given_the_conversation_and_told_what_not_to_do(booking_
 
 def test_every_kind_has_a_situation_a_person_can_read():
     assert all(KINDS.values())
+
+
+# --------------------------------------------------------------------------
+# What customers ask, kept rather than counted and dropped
+# --------------------------------------------------------------------------
+
+
+def test_questions_and_objections_are_kept(booking_ctx, monkeypatch):
+    """They were being collected, logged as a number, and thrown away — so two
+    of the operator's Stage 2 bullets looked done and were not."""
+    from sqlalchemy import select
+
+    from rental_agent.evaluation import evaluator
+    from rental_agent.store.models import Observation
+
+    reviewer = Reviewer('''{"findings": [
+      {"kind": "faq", "summary": "asked whether the deposit is refundable",
+       "quote": "is the deposit refundable?", "better": "have a ready answer"},
+      {"kind": "objection", "summary": "compared the price to another company",
+       "quote": "that's more than the other place", "better": "say what is included"}]}''')
+
+    monkeypatch.setattr(evaluator, "review_enabled", lambda: True)
+    monkeypatch.setattr(
+        "rental_agent.agent.providers.build_client", lambda *a, **k: reviewer
+    )
+    booking_ctx.messages.record(
+        conversation_id=booking_ctx.conversation_id,
+        direction="inbound", content="is the deposit refundable?", now=booking_ctx.now(),
+    )
+    booking_ctx.session.flush()
+
+    evaluator.review_and_record(booking_ctx, booking_ctx.conversation_id)
+
+    kept = list(booking_ctx.session.scalars(select(Observation)))
+    assert sorted(o.kind for o in kept) == ["faq", "objection"]
+    assert any("refundable" in o.quote for o in kept)
+
+
+def test_an_observation_is_not_a_mistake(booking_ctx, monkeypatch):
+    """An agent is not wrong for being asked what the deposit is. Filing that as
+    a mistake would teach it to stop being asked."""
+    from rental_agent.evaluation import evaluator
+    from rental_agent.evaluation.evaluator import open_mistakes
+
+    reviewer = Reviewer('''{"findings": [
+      {"kind": "faq", "summary": "asked about the deposit",
+       "quote": "what deposit do you take?", "better": "have a ready answer"}]}''')
+    monkeypatch.setattr(evaluator, "review_enabled", lambda: True)
+    monkeypatch.setattr(
+        "rental_agent.agent.providers.build_client", lambda *a, **k: reviewer
+    )
+    booking_ctx.messages.record(
+        conversation_id=booking_ctx.conversation_id,
+        direction="inbound", content="what deposit do you take?", now=booking_ctx.now(),
+    )
+    booking_ctx.session.flush()
+
+    evaluator.review_and_record(booking_ctx, booking_ctx.conversation_id)
+
+    assert open_mistakes(booking_ctx) == []

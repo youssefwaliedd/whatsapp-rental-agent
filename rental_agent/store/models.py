@@ -345,6 +345,30 @@ class BookingOperation(Base):
     settled_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
 
 
+class Observation(Base):
+    """Something a customer said that is worth knowing, and is nobody's mistake.
+
+    A question they asked, an objection they raised. The operator's Stage 2 asks
+    for both, and neither belongs in the mistake ledger: an agent is not wrong
+    for being asked what the deposit is. What matters about them is the count —
+    the same question arriving for the fifth week running is a gap in the
+    knowledge base, and the same objection is a gap in the sales script.
+
+    Stored with what was actually said, because "customers ask about deposits"
+    is a summary anybody could have guessed, and the sentence they used is not.
+    """
+
+    __tablename__ = "observations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    #: faq | objection
+    kind: Mapped[str] = mapped_column(String, index=True)
+    summary: Mapped[str] = mapped_column(Text)
+    quote: Mapped[str] = mapped_column(Text)
+    conversation_id: Mapped[str | None] = mapped_column(String, index=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(AwareDateTime)
+
+
 class Strategy(Base):
     """A versioned set of behavioural lessons appended to the agent's prompt.
 

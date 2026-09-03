@@ -3,6 +3,7 @@
     .venv/bin/python run_learning.py              # what it would learn. Free.
     .venv/bin/python run_learning.py --replay     # prove it breaks nothing. Costs quota.
     .venv/bin/python run_learning.py --promote strategy_1.3
+    .venv/bin/python run_learning.py --asked
     .venv/bin/python run_learning.py --lost
     .venv/bin/python run_learning.py --status
 
@@ -32,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 
 from rental_agent.context import ToolContext
@@ -76,6 +78,58 @@ def show_status(ctx: ToolContext) -> None:
         print(f"  [{mistake.severity}] {mistake.type}  ×{mistake.occurrences}")
         print(f"    {DIM}was:{OFF}    {mistake.bad_behavior[:88]}")
         print(f"    {DIM}should:{OFF} {mistake.correct_behavior[:88]}")
+
+
+def _normalise(text: str) -> str:
+    """Enough to see the same question twice, and no more.
+
+    Not clustering. Two customers asking about the deposit in different words
+    will count separately, and that is honest — a summary that guessed they were
+    the same would be doing the operator's reading for them.
+    """
+    return " ".join(re.sub(r"[^a-z0-9 ]+", " ", text.lower()).split())
+
+
+def show_asked(ctx: ToolContext) -> None:
+    """What customers keep asking, and what they keep pushing back on.
+
+    Their section 4 wants both. Neither is a mistake, which is why they live
+    apart from the ledger that decides what the agent gets taught — these are
+    for the person who maintains the knowledge base and the sales script.
+    """
+    from collections import Counter
+
+    from sqlalchemy import select
+
+    from rental_agent.store.models import Escalation, Observation
+
+    rows = list(ctx.session.scalars(select(Observation)))
+    for kind, title in (("faq", "questions customers ask"), ("objection", "objections raised")):
+        seen = [r for r in rows if r.kind == kind]
+        counts = Counter(_normalise(r.summary) for r in seen)
+        rule(f"{title} ({len(seen)})")
+        if not seen:
+            print(f"  {DIM}none recorded yet — the reading pass needs ANTHROPIC_API_KEY{OFF}")
+            continue
+        for text, count in counts.most_common(12):
+            example = next(r for r in seen if _normalise(r.summary) == text)
+            mark = WARN if count > 1 else DIM
+            print(f"  {mark}×{count}{OFF}  {example.summary[:76]}")
+            print(f"        {DIM}\u201c{example.quote[:70]}\u201d{OFF}")
+
+    # The eighth thing on their list: customers who asked for a person.
+    asked_for_human = list(ctx.session.scalars(
+        select(Escalation).where(Escalation.reason == "explicit_request_for_human")
+    ))
+    rule(f"asked for a human ({len(asked_for_human)})")
+    if not asked_for_human:
+        print(f"  {DIM}nobody has asked to speak to a person.{OFF}")
+    else:
+        per_conversation = Counter(e.conversation_id for e in asked_for_human)
+        repeated = {c: n for c, n in per_conversation.items() if n > 1}
+        print(f"  across {len(per_conversation)} conversation(s)")
+        if repeated:
+            print(f"  {WARN}{len(repeated)} asked more than once{OFF}")
 
 
 def show_lost(ctx: ToolContext) -> None:
@@ -159,6 +213,8 @@ def main() -> int:
                         help="put a replayed candidate in front of customers")
     parser.add_argument("--cases", type=int, metavar="N",
                         help="replay only the first N cases — diagnosis, settles nothing")
+    parser.add_argument("--asked", action="store_true",
+                        help="what customers ask, object to, and escalate over")
     parser.add_argument("--lost", action="store_true",
                         help="review the conversations that did not end in a sale")
     parser.add_argument("--status", action="store_true",
@@ -170,6 +226,10 @@ def main() -> int:
 
     with session_factory() as session:
         ctx = ToolContext(session=session)
+
+        if args.asked:
+            show_asked(ctx)
+            return 0
 
         if args.lost:
             show_lost(ctx)
