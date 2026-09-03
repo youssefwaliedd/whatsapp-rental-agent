@@ -1094,3 +1094,62 @@ def test_a_real_booking_is_still_ticked(booking_ctx):
     assert turn.booking_awaits_confirmation is False
     assert "create_demo_reservation" in turn.tools_succeeded
     assert reactions_mod.for_turn(turn, booking_ctx.engine.rules) == "✅"
+
+
+# --- saying the car is being kept, when nothing keeps it ---------------------
+
+
+@pytest.mark.parametrize("said", [
+    "I have created a holding reservation for you — reference DEMO-1047.",
+    "I am holding the car for you until Friday.",
+    "We have put the vehicle aside for you.",
+    "It is on hold for you.",
+    "I've made a hold on that car.",
+])
+def test_saying_the_car_is_being_kept_is_a_claim(said):
+    """Observed live, one message after the agent correctly said "a request
+    awaiting confirmation": *I have created a holding reservation for you*.
+    Nothing holds the car — the same vehicle is still being quoted to other
+    customers — so this is as untrue as saying it is booked, and reads to a
+    customer as more certain."""
+    assert holds.inspect(said).explicit is True
+
+
+@pytest.mark.parametrize("said", [
+    "Your team takes a holding payment of AED 500 to secure a booking.",
+    "The holding fee is non-refundable.",
+    "I will hold that thought.",
+])
+def test_a_holding_payment_is_money_not_a_claim_about_the_car(said):
+    assert bool(holds.inspect(said)) is False
+
+
+def test_the_owner_is_told_the_car_went_not_that_they_declined(owner_app, holding_ctx):
+    """They tapped "Confirm the car". Telling them the case is *declined* is
+    accurate about the case and baffling next to the button they pressed."""
+    from rental_agent.services import booking as booking_service
+
+    client, outbound, agent = owner_app
+
+    quote, vehicle = quote_anything(holding_ctx, 14)
+    execute_tool(holding_ctx, "create_demo_reservation", {"quote_id": quote["quote_id"]})
+    waiting = booking_service.live_hold(holding_ctx)
+    case = _asked_of_the_owner(holding_ctx)
+
+    rival_ctx = _another_customer(holding_ctx)
+    rival_quote = execute_tool(rival_ctx, "create_demo_quote", {
+        "vehicle_id": vehicle.id,
+        "pickup_at": waiting.pickup_at.isoformat(),
+        "return_at": waiting.return_at.isoformat(),
+    })
+    theirs = execute_tool(
+        rival_ctx, "create_demo_reservation", {"quote_id": rival_quote["quote_id"]}
+    )
+    _confirm(rival_ctx, theirs["reservation_id"])
+    holding_ctx.session.commit()
+
+    _owner_taps(client, f"approve:{case.case_code}")
+
+    to_owner = [text for to, text in outbound.texts if to == "971500009999"]
+    assert any("no longer free" in text for text in to_owner)
+    assert not any("marked *declined*" in text for text in to_owner)

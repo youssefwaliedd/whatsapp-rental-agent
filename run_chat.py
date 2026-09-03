@@ -10,6 +10,7 @@ which tools ran, and what the agent currently believes.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -23,12 +24,25 @@ from rental_agent.whatsapp.port import refuse_if_taken
 
 logging.basicConfig(level=logging.WARNING)
 
-#: The demo fleet's seeded availability is anchored to a reference date, so the
-#: clock is frozen here for the same reason the scenarios freeze it: a demo
-#: should look identical whenever it is run.
+#: The clock was frozen here so the *fictional* demo fleet, whose availability
+#: is a seeded calendar anchored to a reference date, looked the same whenever
+#: it was run. Delta's real 113 vehicles carry no seeded windows, so the freeze
+#: now buys nothing and costs something: every conversation, evaluation and
+#: mistake was stamped 1 September 2026 at 10am, which means a finding cannot be
+#: dated against the fix that should have prevented it.
+#:
+#: Real time by default. `RENTAL_AGENT_FROZEN_CLOCK=1` brings the freeze back
+#: for the seeded fleet.
 TZ = ZoneInfo("Asia/Dubai")
-REFERENCE_DATE = date(2026, 9, 1)
+FROZEN = os.getenv("RENTAL_AGENT_FROZEN_CLOCK", "") not in ("", "0", "false", "no")
 FROZEN_NOW = datetime(2026, 9, 1, 10, 0, tzinfo=TZ)
+
+
+def now() -> datetime:
+    return FROZEN_NOW if FROZEN else datetime.now(TZ)
+
+
+REFERENCE_DATE = FROZEN_NOW.date() if FROZEN else datetime.now(TZ).date()
 
 PORT = 8100
 
@@ -48,7 +62,7 @@ app = create_app(
     session_factory=session_factory,
     agent_factory=agent_factory,
     reference_date=REFERENCE_DATE,
-    now_fn=lambda: FROZEN_NOW,
+    now_fn=now,
 )
 
 def close_open_conversation(session_factory) -> bool:
@@ -66,7 +80,7 @@ def close_open_conversation(session_factory) -> bool:
     from rental_agent.context import ToolContext
 
     with session_factory() as session:
-        ctx = ToolContext(session=session, now_fn=lambda: FROZEN_NOW,
+        ctx = ToolContext(session=session, now_fn=now,
                           reference_date=REFERENCE_DATE)
         customer, _ = ctx.customers.get_or_create(DEFAULT_HANDLE, FROZEN_NOW)
         conversation, _ = ctx.conversations.get_or_create(customer.customer_id, FROZEN_NOW)

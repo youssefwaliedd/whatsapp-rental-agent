@@ -245,6 +245,7 @@ def create_app(
             # while they were deciding, and can fail. What actually happened is
             # what the case has to say, or the customer is told a booking exists
             # that does not.
+            applied = None
             if case.reason == "booking_hold":
                 reservation_id = (case.detail or "").split(":")[0].strip()
                 applied = booking.apply_hold_decision(ctx, reservation_id, outcome)
@@ -272,12 +273,23 @@ def create_app(
 
             handover.record_decision(ctx, case, outcome=outcome, note=note)
             session.commit()
+            refused = applied if case.reason == "booking_hold" else None
 
-            client.send_text(
-                settings.staff_number,
-                f"Got it — case {case.case_code} marked *{outcome.replace('_', ' ')}*. "
-                "Letting the customer know now.",
-            )
+            # Telling an owner who just tapped "Confirm the car" that the case
+            # is *declined* is accurate about the case and baffling next to the
+            # button they pressed. What happened to the car is the news.
+            if refused is not None and refused["outcome"] == "conflict":
+                ack = (
+                    f"Case {case.case_code}: that car is no longer free — "
+                    f"{refused['message']} Nothing has been booked, and I'm telling "
+                    "them now and offering something similar."
+                )
+            else:
+                ack = (
+                    f"Got it — case {case.case_code} marked "
+                    f"*{outcome.replace('_', ' ')}*. Letting the customer know now."
+                )
+            client.send_text(settings.staff_number, ack)
             _relay_to_customer(session, case)
         except Exception:  # noqa: BLE001 - one bad decision must not kill the worker
             session.rollback()

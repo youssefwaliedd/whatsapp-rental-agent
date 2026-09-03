@@ -22,6 +22,7 @@ from decimal import Decimal
 from typing import Any
 
 from ..context import ToolContext
+from ..domain import consent
 from ..domain.enums import ReservationStatus, Stage
 from . import escalation, outcomes
 from ..domain.models import Quote as QuoteModel
@@ -228,6 +229,12 @@ def create_demo_reservation(
     if not customer_id:
         return _error("no_customer", "No customer is associated with this conversation")
 
+    # The customer's own words, before anything is written down. "First show me
+    # the pictures" created a booking in testing; the address in the same
+    # message was an answer to a question, not consent to book.
+    if consent.defers_booking(_last_customer_message(ctx)):
+        return _error("not_asked_for_yet", consent.GUIDANCE)
+
     stored = ctx.quotes.get(quote_id)
     if stored is None:
         return _error(
@@ -332,6 +339,16 @@ def create_demo_reservation(
 def holds_require_confirmation(ctx: ToolContext) -> bool:
     """Whether a booking has to be confirmed by a person before it is one."""
     return bool(ctx.engine.rules.get("booking", {}).get("holds_require_confirmation", False))
+
+
+def _last_customer_message(ctx: ToolContext) -> str | None:
+    if ctx.session is None or not ctx.conversation_id:
+        return None
+    inbound = [
+        m.content for m in ctx.messages.for_conversation(ctx.conversation_id)
+        if m.direction == "inbound"
+    ]
+    return inbound[-1] if inbound else None
 
 
 def hold_expires_after(ctx: ToolContext) -> timedelta | None:
@@ -1245,6 +1262,16 @@ def get_customer(ctx: ToolContext) -> dict[str, Any]:
         return _error("no_customer", f"No customer {ctx.customer_id}")
 
     reservations = ctx.reservations.for_customer(customer.customer_id)
+
+    # A returning customer is greeted as one *once*. The flag was true on every
+    # turn, so the agent welcomed them back in the middle of a conversation it
+    # was already having — twice in one thread, observed in testing. Having
+    # already replied here is what makes this no longer a greeting.
+    spoken = any(
+        m.direction == "outbound"
+        for m in ctx.messages.for_conversation(ctx.conversation_id or "")
+    ) if ctx.session is not None and ctx.conversation_id else False
+
     return {
         "customer_id": customer.customer_id,
         "name": customer.name,
@@ -1252,7 +1279,7 @@ def get_customer(ctx: ToolContext) -> dict[str, Any]:
         "driver_age": customer.driver_age,
         "documents_on_file": list(customer.documents_on_file or []),
         "preferences": dict(customer.preferences or {}),
-        "is_returning_customer": len(reservations) > 0,
+        "is_returning_customer": bool(reservations) and not spoken,
         "previous_demo_bookings": [
             {
                 "reservation_id": r.reservation_id,

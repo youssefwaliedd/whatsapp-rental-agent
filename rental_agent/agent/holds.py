@@ -42,6 +42,16 @@ CONFIRMED_CLAIM = re.compile(
     r"|\bbooking (?:is )?confirmed\b"
     r"|\b(?:it|that|the car|the vehicle)\s*(?:is|'?s)\s+yours\b"
     r"|\bwe'?ve got you down\b"
+    # Saying the car is being kept. Nothing keeps it — a request does not take
+    # the vehicle off the market, so "I have created a holding reservation" is
+    # as untrue as "it is booked", and reads to a customer as more certain.
+    r"|\bholding (?:reservation|booking)\b"
+    r"|\b(?:i|we)(?:'ve| have)\s+(?:created|made|placed|put)\s+a\s+hold\b"
+    r"|\b(?:is|it'?s|we'?re|i'?m)\s+(?:being\s+)?(?:held|holding|kept|keeping|reserving)\s+"
+    r"(?:it\s+|the car\s+|the vehicle\s+)?for you\b"
+    r"|\b(?:held|holding|keeping|reserving|blocking)\s+(?:it|the car|the vehicle)\s+for you\b"
+    r"|\b(?:set|put)\s+(?:it|the car|the vehicle)\s+aside\b"
+    r"|\bon hold for you\b"
     # Arabic. Delta's own thirteen conversations are in English, but their
     # market is not, and a guard that only reads English fails silently.
     r"|تم\s+الحجز|تم\s+التأكيد|تم\s+تأكيد|الحجز\s+مؤكد|مؤكد\s+الحجز"
@@ -79,6 +89,7 @@ CONDITIONAL = re.compile(
     r"|\b(?:i|we)(?:'ll| will|'m| am|'re| are)\s+[^.!?؟]{0,30}?"
     r"\b(?:confirm|confirming|check|checking)\b"
     r"|\b(?:choice|decision|call)\s+is\s+yours\b"
+    r"|\bholding (?:payment|fee|deposit|amount)\b"
     r"|(?:بعد|عند|بمجرد|بانتظار|في\s+انتظار|لم\s+يتم|سيتم|لن\s+يتم)"
     r"\s*[^.!?؟]{0,40}?(?:التأكيد|تأكيد|الحجز)",
     re.I,

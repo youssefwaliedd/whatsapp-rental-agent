@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from rental_agent.evaluation import checks
+from rental_agent.tools.registry import execute_tool
 from rental_agent.evaluation.checks import Finding, run_all, supported_numbers
 
 
@@ -488,3 +489,43 @@ def test_a_model_year_in_parentheses_is_not_a_price():
         [Call("search_available_vehicles", {"vehicles": [{"daily_price": "350"}]})],
     )
     assert findings == []
+
+
+def test_a_returning_customer_is_greeted_as_one_only_at_the_start(booking_ctx):
+    """Observed live: "Welcome back! It's lovely to assist you again" — twice,
+    in the middle of a conversation it was already having. The flag was true on
+    every turn, when it describes a greeting."""
+    from rental_agent.services.booking import get_customer
+    from tests.conftest import dt
+
+    vehicle = booking_ctx.engine.list_fleet()[0]
+    quote = execute_tool(booking_ctx, "create_demo_quote", {
+        "vehicle_id": vehicle.id,
+        "pickup_at": dt(10, 17).isoformat(),
+        "return_at": dt(12, 17).isoformat(),
+    })
+    booking_ctx.messages.record(
+        conversation_id=booking_ctx.conversation_id,
+        direction="inbound", content="ok book it", now=booking_ctx.now(),
+    )
+    execute_tool(booking_ctx, "create_demo_reservation", {"quote_id": quote["quote_id"]})
+
+    # A fresh conversation with a customer who has booked before.
+    conversation, _ = booking_ctx.conversations.get_or_create(
+        booking_ctx.customer_id, booking_ctx.now()
+    )
+    booking_ctx.conversation_id = conversation.conversation_id
+    booking_ctx.messages.record(
+        conversation_id=booking_ctx.conversation_id,
+        direction="inbound", content="hi again", now=booking_ctx.now(),
+    )
+    booking_ctx.session.flush()
+    assert get_customer(booking_ctx)["is_returning_customer"] is True
+
+    # Once we have replied, this is no longer a greeting.
+    booking_ctx.messages.record(
+        conversation_id=booking_ctx.conversation_id,
+        direction="outbound", content="Welcome back!", now=booking_ctx.now(),
+    )
+    booking_ctx.session.flush()
+    assert get_customer(booking_ctx)["is_returning_customer"] is False
