@@ -1041,3 +1041,56 @@ def test_a_withdrawn_request_is_not_resurrected_by_a_late_tap(owner_app, holding
     # Nothing is said to the customer, because nothing happened to them.
     assert agent.relays == []
     assert any("no open cases" in text.lower() for _, text in outbound.texts)
+
+
+# --- and the tick must not say what the words are forbidden from saying ------
+
+
+def _booking_agent(quote_id, reply):
+    """An agent that actually takes the booking, the way a real turn does."""
+    from tests.fake_anthropic import FakeClient, calls, says
+
+    from rental_agent.agent.loop import Agent
+    from rental_agent.agent.settings import AgentSettings
+
+    return Agent(
+        FakeClient(script=[
+            calls("create_demo_reservation", quote_id=quote_id),
+            says(reply),
+        ]),
+        AgentSettings(extraction_enabled=False),
+    )
+
+
+def test_a_request_awaiting_confirmation_is_not_ticked(holding_ctx):
+    """A green tick says "done" in the one language a customer cannot misread.
+    The words were guarded and the emoji was not, which left the reaction as the
+    last place the old claim could still get out."""
+    from rental_agent.whatsapp import reactions as reactions_mod
+
+    quote, _ = quote_anything(holding_ctx, 14)
+    agent = _booking_agent(quote["quote_id"],
+                           "Your request is in and a colleague is confirming it now.")
+    turn = agent.respond(holding_ctx, "book it")
+
+    assert turn.booking_awaits_confirmation is True
+    assert reactions_mod.for_turn(turn, holding_ctx.engine.rules) is None
+
+
+def test_a_real_booking_is_still_ticked(booking_ctx):
+    """This operator's availability is in the fleet file, so the booking is
+    real and the tick is true."""
+    from rental_agent.whatsapp import reactions as reactions_mod
+
+    vehicle = booking_ctx.engine.list_fleet()[0]
+    quote = execute_tool(booking_ctx, "create_demo_quote", {
+        "vehicle_id": vehicle.id,
+        "pickup_at": dt(10, 17).isoformat(),
+        "return_at": dt(12, 17).isoformat(),
+    })
+    agent = _booking_agent(quote["quote_id"], "All booked — your reference is on its way.")
+    turn = agent.respond(booking_ctx, "book it")
+
+    assert turn.booking_awaits_confirmation is False
+    assert "create_demo_reservation" in turn.tools_succeeded
+    assert reactions_mod.for_turn(turn, booking_ctx.engine.rules) == "✅"

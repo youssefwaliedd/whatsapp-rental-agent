@@ -118,6 +118,10 @@ class AgentTurn:
     #: Set when the model told the customer a booking was done that nothing
     #: confirms — held, or never taken at all.
     confirmed_a_hold: bool = False
+    #: A booking was taken this turn and is a request, not a confirmation. The
+    #: reaction depends on it: a green tick on a hold says "done" in the one
+    #: language a customer cannot misread.
+    booking_awaits_confirmation: bool = False
 
 
 #: Extraction runs here while the first conversation call is in flight. Small
@@ -668,6 +672,7 @@ class Agent:
 
         called: list[str] = []
         succeeded: list[str] = []
+        awaiting = False
         iterations = 0
         escalated_late = False
 
@@ -709,6 +714,7 @@ class Agent:
                     reply=SAFE_FALLBACK_REPLY,
                     tool_calls=called,
                     tools_succeeded=succeeded,
+            booking_awaits_confirmation=awaiting,
                     media=ctx.take_media(),
             cards=ctx.take_cards(),
                     refusal=True,
@@ -723,6 +729,7 @@ class Agent:
                     reply=self._text_of(response) or SAFE_FALLBACK_REPLY,
                     tool_calls=called,
                     tools_succeeded=succeeded,
+            booking_awaits_confirmation=awaiting,
                     media=ctx.take_media(),
             cards=ctx.take_cards(),
                     escalated=ctx.load_state().escalated,
@@ -740,6 +747,8 @@ class Agent:
                 result = execute_tool(ctx, use.name, dict(use.input or {}))
                 if "error" not in result:
                     succeeded.append(use.name)
+                    if result.get("awaiting_confirmation"):
+                        awaiting = True
                 self._absorb(ctx, use.name, result)
                 results.append(
                     {
@@ -762,6 +771,7 @@ class Agent:
             reply=SAFE_FALLBACK_REPLY,
             tool_calls=called,
             tools_succeeded=succeeded,
+            booking_awaits_confirmation=awaiting,
             media=ctx.take_media(),
             cards=ctx.take_cards(),
             escalated=True,

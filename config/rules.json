@@ -366,6 +366,7 @@
     "reactions": {
       "_comment": "A reaction reports what the engine did, never what the model felt. Nulls are deliberate: an emoji on an accident report would be grotesque, so escalation is silent by rule rather than by omission.",
       "on_booking_confirmed": "✅",
+      "on_booking_held": null,
       "on_reservation_modified": "👍",
       "on_rental_extended": "👍",
       "on_reservation_cancelled": "👍",

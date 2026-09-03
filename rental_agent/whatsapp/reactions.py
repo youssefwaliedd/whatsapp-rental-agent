@@ -67,6 +67,14 @@ def for_turn(turn: Any, rules=None) -> str | None:
     # attempted, and ticking a booking that errored would be a false claim
     # delivered as an emoji.
     succeeded = set(getattr(turn, "tools_succeeded", []) or [])
+
+    # A booking that is only a request has not been confirmed by anybody, and a
+    # green tick says "done" in the one language a customer cannot misread. The
+    # rule this file states — a reaction reports what the engine did, never what
+    # the model felt — is broken by ticking a hold.
+    if getattr(turn, "booking_awaits_confirmation", False):
+        return marks.get("on_booking_held") or None
+
     for tool_name, key in _TOOL_REACTIONS:
         if tool_name in succeeded:
             return marks.get(key) or None
