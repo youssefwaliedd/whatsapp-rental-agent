@@ -244,6 +244,7 @@
     "fee_dispute",
     "eligibility_exception",
     "outside_knowledge_base",
+    "unconfirmed_figure",
     "booking_hold"
   ],
   "payment": {

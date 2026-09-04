@@ -21,6 +21,8 @@ from typing import Any
 
 import pytest
 
+from rental_agent.domain.enums import Stage
+
 from rental_agent.config import Rules, load_rules
 from rental_agent.evaluation.checks import run_all
 from rental_agent.formatting import UNCONFIRMED, quote_message, vehicle_card
@@ -617,3 +619,93 @@ def test_a_non_incident_reason_is_never_downgraded(booking_ctx):
         content="what happens if I want a refund?", now=booking_ctx.now(),
     )
     assert escalate_conversation(booking_ctx, reason="refund_request")["escalated"] is True
+
+
+# --------------------------------------------------------------------------
+# Asking a colleague for one number is not a colleague taking over
+# --------------------------------------------------------------------------
+#
+# Observed live. The customer asked what the deposit was, the agent asked a
+# colleague — correctly — and then answered every later message with "my
+# colleague will be in touch". They said "scratch the deposit, that's another
+# request", then asked for a Urus, then a BMW, and got the same sentence four
+# times. A sale was in progress and the agent had stopped selling because it
+# could not state one number.
+
+
+def test_asking_for_a_figure_does_not_freeze_the_conversation(booking_ctx):
+    from rental_agent.services import escalation
+
+    escalation.escalate_conversation(
+        booking_ctx, reason="unconfirmed_figure", detail="deposit on the Range Rover"
+    )
+    state = booking_ctx.load_state()
+
+    assert state.awaiting_figure == "unconfirmed_figure"
+    assert state.escalated is False          # the conversation is still live
+    assert state.stage is not Stage.ESCALATED
+
+
+def test_a_real_handover_still_stops_everything(booking_ctx):
+    """An accident is a person taking over. That one must stop."""
+    from rental_agent.services import escalation
+
+    escalation.escalate_conversation(
+        booking_ctx, reason="accident", detail="customer says they crashed it"
+    )
+    state = booking_ctx.load_state()
+
+    assert state.escalated is True
+    assert state.stage is Stage.ESCALATED
+    assert state.awaiting_figure is None
+
+
+def test_the_agent_is_told_to_carry_on(booking_ctx):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from rental_agent.agent.prompt import render_state
+    from rental_agent.services import escalation
+
+    escalation.escalate_conversation(
+        booking_ctx, reason="unconfirmed_figure", detail="deposit"
+    )
+    text = render_state(
+        booking_ctx.load_state(), now=datetime(2026, 9, 5, 10, tzinfo=ZoneInfo("Asia/Dubai"))
+    )
+
+    assert "Carry on completely normally" in text
+    assert "Do not sell, quote or book" not in text
+    assert "Never state it" in text
+
+
+def test_the_answer_arriving_clears_the_wait(booking_ctx):
+    from rental_agent.services import escalation, handover
+
+    escalation.escalate_conversation(
+        booking_ctx, reason="unconfirmed_figure", detail="deposit"
+    )
+    case = booking_ctx.escalations.latest_for_conversation(booking_ctx.conversation_id)
+    handover.open_case(booking_ctx, case, "what is the deposit on this one?")
+    handover.record_decision(booking_ctx, case, outcome="owner_answered", note="AED 5,000")
+    handover.mark_relayed(booking_ctx, case)
+
+    assert booking_ctx.load_state().awaiting_figure is None
+
+
+def test_a_frozen_conversation_still_thaws_where_it_stopped(booking_ctx):
+    """The stage a handover interrupted is restored; one that never stopped is
+    not moved, because there is nothing to restore it to."""
+    from rental_agent.services import escalation, handover
+
+    state = booking_ctx.load_state()
+    state.stage = Stage.QUOTED
+    booking_ctx.save_state(state)
+
+    escalation.escalate_conversation(booking_ctx, reason="accident", detail="crash")
+    case = booking_ctx.escalations.latest_for_conversation(booking_ctx.conversation_id)
+    handover.open_case(booking_ctx, case, "customer crashed it")
+    handover.record_decision(booking_ctx, case, outcome="owner_handled")
+    handover.mark_relayed(booking_ctx, case)
+
+    assert booking_ctx.load_state().stage is Stage.QUOTED

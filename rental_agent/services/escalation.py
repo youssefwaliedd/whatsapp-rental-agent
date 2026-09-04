@@ -109,14 +109,35 @@ def escalate_conversation(
 
     outcomes.mark_escalated(ctx)
 
+    # Asking a colleague for one figure is not a colleague taking over.
+    #
+    # Observed live: the customer asked what the deposit was, the agent asked a
+    # colleague — correctly — and then answered every later message with "my
+    # colleague will be in touch". They said "scratch the deposit, that's
+    # another request", then asked for a Urus, then a BMW, and got the same
+    # sentence four times. A sale was in progress and the agent had stopped
+    # selling because it could not state one number.
+    #
+    # The distinction already exists — an *answer* case wants a value nobody
+    # else has, where a handover wants a person to take the conversation. Only
+    # the second should stop it.
+    from . import handover
+
+    wants_a_value = handover.needs_an_answer(ctx, classified)
+
     state = ctx.load_state()
-    if not state.escalated:
-        # Only on the way in. Escalating twice must not overwrite this with
-        # ESCALATED and strand the conversation there permanently.
-        state.stage_before_escalation = state.stage
-    state.escalated = True
+    if not wants_a_value:
+        if not state.escalated:
+            # Only on the way in. Escalating twice must not overwrite this with
+            # ESCALATED and strand the conversation there permanently.
+            state.stage_before_escalation = state.stage
+        state.escalated = True
+        state.stage = Stage.ESCALATED
+    else:
+        # The question is with somebody; the conversation is not. Recorded so
+        # the agent knows not to state that figure, and nothing else changes.
+        state.awaiting_figure = classified
     state.escalation_reason = classified
-    state.stage = Stage.ESCALATED
     ctx.save_state(state)
 
     return {

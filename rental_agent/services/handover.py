@@ -576,8 +576,15 @@ def mark_relayed(ctx: ToolContext, case: Escalation) -> None:
     state = ctx.load_state()
     state.escalated = False
     state.escalation_reason = None
-    state.stage = state.stage_before_escalation or Stage.QUALIFYING
-    state.stage_before_escalation = None
+    # The figure has arrived, so the one thing the agent could not say is now
+    # something it can. Cleared here rather than on the next turn, or it would
+    # keep telling a customer it is still waiting for a number it has.
+    state.awaiting_figure = None
+    # A conversation that was never frozen must not be moved. An answer case
+    # leaves `stage_before_escalation` unset precisely because nothing stopped.
+    if state.stage_before_escalation is not None:
+        state.stage = state.stage_before_escalation
+        state.stage_before_escalation = None
     ctx.save_state(state)
 
 

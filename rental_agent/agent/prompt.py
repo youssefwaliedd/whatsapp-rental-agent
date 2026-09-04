@@ -423,6 +423,16 @@ def render_state(
             f"THIS CONVERSATION IS ESCALATED ({state.escalation_reason}). A colleague is "
             "taking over. Do not sell, quote or book. Reassure them and stop.",
         ]
+    elif getattr(state, "awaiting_figure", None):
+        lines += [
+            "",
+            "A colleague has been asked for a figure you do not have, and has not "
+            "answered yet. That is the only thing you are waiting on.",
+            "Carry on completely normally — search, quote, book, show photos, answer "
+            "anything else. Say you are still waiting on that one number only if they "
+            "ask about it again. Never state it, and never say it will appear at some "
+            "later stage.",
+        ]
 
     if lessons:
         lines.append("")

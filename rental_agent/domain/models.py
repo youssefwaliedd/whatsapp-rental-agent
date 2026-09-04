@@ -283,6 +283,10 @@ class ConversationState(Base):
     driver_age: int | None = None
     residency: ResidencyType = ResidencyType.UNKNOWN
 
+    #: A figure a colleague has been asked for and has not yet supplied. The
+    #: conversation carries on — this only forbids stating that one number.
+    awaiting_figure: str | None = None
+
     #: Slots the agent has asked about. Asking twice because the customer never
     #: answered is legitimate, so this alone is not evidence of a mistake.
     asked_slots: list[str] = Field(default_factory=list)
