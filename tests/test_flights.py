@@ -190,3 +190,95 @@ def test_an_unknown_provider_is_refused(monkeypatch):
     monkeypatch.setenv("FLIGHT_PROVIDER", "whatever")
     with pytest.raises(FlightProviderNotConfigured):
         build_provider()
+
+
+# --- and the terminal reaches the booking -----------------------------------
+#
+# It was extracted and then dropped: the agent could say "Terminal 3 arrivals at
+# 10pm" and the reservation recorded "Dubai International Airport (DXB)". The
+# person driving the car had no way to know which of DXB's three terminals to
+# go to, which is the one detail an airport delivery turns on.
+
+
+def _booked(ctx):
+    from tests.conftest import dt
+
+    vehicle = ctx.engine.list_fleet()[0]
+    quote = execute_tool(ctx, "create_demo_quote", {
+        "vehicle_id": vehicle.id,
+        "pickup_at": dt(10, 17).isoformat(),
+        "return_at": dt(12, 17).isoformat(),
+    })
+    ctx.messages.record(
+        conversation_id=ctx.conversation_id,
+        direction="inbound", content="ok book it", now=ctx.now(),
+    )
+    ctx.session.flush()
+    return execute_tool(ctx, "create_demo_reservation", {"quote_id": quote["quote_id"]})
+
+
+def test_an_airport_delivery_records_the_terminal_and_the_flight(booking_ctx):
+    from tests.conftest import dt
+
+    made = _booked(booking_ctx)
+
+    result = execute_tool(booking_ctx, "schedule_demo_delivery", {
+        "reservation_id": made["reservation_id"],
+        "delivery_at": dt(10, 22).isoformat(),
+        "delivery_location": "DXB terminal 3 arrivals",
+        "flight_number": "ek 456",
+    })
+
+    assert result["delivery_terminal"] == "3"
+    assert result["delivery_flight"] == "EK456"
+    assert result["delivery_location"] == "Dubai International Airport (DXB)"
+    assert "Terminal 3" in result["guidance"]
+
+
+def test_the_terminal_is_taken_from_what_the_customer_wrote(booking_ctx):
+    """"T2" is usually said in passing rather than answered as a question."""
+    from tests.conftest import dt
+
+    made = _booked(booking_ctx)
+
+    result = execute_tool(booking_ctx, "schedule_demo_delivery", {
+        "reservation_id": made["reservation_id"],
+        "delivery_at": dt(10, 22).isoformat(),
+        "delivery_location": "meet me at DXB T2",
+    })
+
+    assert result["delivery_terminal"] == "2"
+
+
+def test_a_delivery_that_is_not_to_an_airport_has_no_terminal(booking_ctx):
+    from tests.conftest import dt
+
+    made = _booked(booking_ctx)
+
+    result = execute_tool(booking_ctx, "schedule_demo_delivery", {
+        "reservation_id": made["reservation_id"],
+        "delivery_at": dt(10, 22).isoformat(),
+        "delivery_location": "Dubai Marina",
+    })
+
+    assert result["delivery_terminal"] is None
+    assert "guidance" not in result
+
+
+def test_the_terminal_survives_on_the_booking_itself(booking_ctx):
+    """Not just in the reply — on the row somebody dispatches the car from."""
+    from tests.conftest import dt
+
+    made = _booked(booking_ctx)
+    execute_tool(booking_ctx, "schedule_demo_delivery", {
+        "reservation_id": made["reservation_id"],
+        "delivery_at": dt(10, 22).isoformat(),
+        "delivery_location": "DXB terminal 3",
+        "flight_number": "EK456",
+    })
+
+    stored = booking_ctx.reservations.get(made["reservation_id"])
+    assert stored.delivery_terminal == "3"
+    assert stored.delivery_flight == "EK456"
+    last = stored.history[-1]
+    assert last["event"] == "delivery_scheduled" and last["terminal"] == "3"

@@ -111,6 +111,8 @@ def schedule_demo_delivery(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
         if args.get("delivery_at")
         else None,
         delivery_location=args.get("delivery_location"),
+        terminal=args.get("terminal"),
+        flight_number=args.get("flight_number"),
     )
 
 

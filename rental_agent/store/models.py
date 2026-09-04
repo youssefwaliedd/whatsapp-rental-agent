@@ -185,6 +185,16 @@ class Reservation(Base):
     payment_reference: Mapped[str | None] = mapped_column(String, default=None)
     documents: Mapped[list[str]] = mapped_column(JSON, default=list)
     delivery_scheduled_at: Mapped[datetime | None] = mapped_column(AwareDateTime, default=None)
+    #: The terminal, where the delivery is to an airport. Its own column because
+    #: `delivery_location` is normalised to the airport — pricing and delivery
+    #: zones are per airport — and the person driving the car needs to know
+    #: which of DXB's three terminals to go to. The wrong one is a twenty-minute
+    #: walk for somebody who has just got off a plane.
+    delivery_terminal: Mapped[str | None] = mapped_column(String, default=None)
+    #: The flight it is being met from, if any. Kept so the delivery can be
+    #: re-timed when the flight moves, and so whoever drives knows what to look
+    #: for on the arrivals board.
+    delivery_flight: Mapped[str | None] = mapped_column(String, default=None)
 
     created_at: Mapped[datetime] = mapped_column(AwareDateTime)
     updated_at: Mapped[datetime] = mapped_column(AwareDateTime)

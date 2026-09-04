@@ -413,10 +413,20 @@ TOOLS: list[dict[str, Any]] = [
         "Call this once the customer has agreed a specific delivery slot, so the "
         "booking carries it. Reports whether the slot falls inside normal operating "
         "hours — an out-of-hours delivery carries a fee that the quote already "
-        "accounts for.",
+        "accounts for. For an airport delivery, pass the terminal and the flight: "
+        "the person driving the car needs to know which of DXB's terminals to go to "
+        "and what to look for on the arrivals board.",
         {
             "reservation_id": {"type": "string"},
             "delivery_at": {"type": "string", "description": _ISO},
+            "terminal": {
+                "type": "string",
+                "description": "Airport terminal, e.g. 3. Only for an airport delivery.",
+            },
+            "flight_number": {
+                "type": "string",
+                "description": "The flight being met, e.g. EK456.",
+            },
             "delivery_location": {"type": "string"},
         },
         ["reservation_id"],

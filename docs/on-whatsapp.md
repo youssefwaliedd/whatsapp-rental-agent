@@ -92,6 +92,8 @@ you a Postgres on the same network:
       ALTER TABLE reservations ALTER COLUMN deposit DROP NOT NULL;
       ALTER TABLE conversations ADD COLUMN IF NOT EXISTS sales_outcome VARCHAR;
       ALTER TABLE strategies ADD COLUMN IF NOT EXISTS replay_detail JSON DEFAULT '[]'::json;
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS delivery_terminal VARCHAR;
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS delivery_flight VARCHAR;
       CREATE TABLE IF NOT EXISTS observations (
         id SERIAL PRIMARY KEY, kind VARCHAR NOT NULL, summary TEXT NOT NULL,
         quote TEXT NOT NULL, conversation_id VARCHAR, created_at TIMESTAMPTZ NOT NULL

@@ -28,7 +28,7 @@ from . import escalation, idempotency, outcomes
 from ..booking_provider import Outcome
 from ..domain.models import Quote as QuoteModel
 from ..engine.engine import VehicleNotFound, VehicleUnavailable
-from ..engine.locations import normalise_location
+from ..engine.locations import normalise_location, terminal_in
 from ..store.models import Reservation
 
 LIVE_STATUSES = ("pending", "confirmed")
@@ -78,6 +78,8 @@ def _reservation_dict(reservation: Reservation, ctx: ToolContext) -> dict[str, A
             if reservation.delivery_scheduled_at
             else None
         ),
+        "delivery_terminal": reservation.delivery_terminal,
+        "delivery_flight": reservation.delivery_flight,
         "version": reservation.version,
         "demo_notice": ctx.engine.rules.demo_disclosure["required_footer"],
     }
@@ -1272,6 +1274,8 @@ def schedule_demo_delivery(
     reservation_id: str,
     delivery_at: datetime | None = None,
     delivery_location: str | None = None,
+    terminal: str | None = None,
+    flight_number: str | None = None,
 ) -> dict[str, Any]:
     reservation = _live_reservation(ctx, reservation_id)
     if isinstance(reservation, dict):
@@ -1282,12 +1286,28 @@ def schedule_demo_delivery(
         reservation.delivery_location = (
             normalise_location(delivery_location) or delivery_location
         )
+        # The terminal survives the normalisation that collapses it. Taken from
+        # what the customer wrote if the caller did not pass one, because "T3"
+        # is usually said in passing rather than answered as a question.
+        found = terminal or terminal_in(delivery_location)
+        if found:
+            reservation.delivery_terminal = found
+
+    if terminal:
+        reservation.delivery_terminal = terminal
+    if flight_number:
+        reservation.delivery_flight = flight_number.replace(" ", "").upper()
 
     reservation.delivery_scheduled_at = scheduled
     reservation.version += 1
     ctx.reservations.append_history(
         reservation,
-        {"event": "delivery_scheduled", "at": scheduled.isoformat()},
+        {
+            "event": "delivery_scheduled",
+            "at": scheduled.isoformat(),
+            "terminal": reservation.delivery_terminal,
+            "flight": reservation.delivery_flight,
+        },
         ctx.now(),
     )
     _update_state(ctx, stage=Stage.DELIVERY_SCHEDULED)
@@ -1297,6 +1317,11 @@ def schedule_demo_delivery(
     result["within_operating_hours"] = (
         hours["from"] <= scheduled.strftime("%H:%M") < hours["to"]
     )
+    if reservation.delivery_terminal:
+        result["guidance"] = (
+            f"Delivery is to Terminal {reservation.delivery_terminal} arrivals. Say the "
+            "terminal back to them — the wrong one at DXB is a long walk with luggage."
+        )
     return result
 
 
