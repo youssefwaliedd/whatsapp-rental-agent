@@ -388,6 +388,26 @@ TOOLS: list[dict[str, Any]] = [
         ["key", "value"],
     ),
     _tool(
+        "look_up_flight",
+        "Find out when a customer's flight lands, so an airport delivery can be timed "
+        "to it. Call this the moment they give you a flight number — before agreeing a "
+        "delivery time, not after. It returns the terminal, whether the flight is "
+        "delayed, and a suggested delivery time that already allows for immigration and "
+        "baggage. If no lookup is available it says so, and you must then ask the "
+        "customer what time they land — never estimate an arrival yourself.",
+        {
+            "flight_number": {
+                "type": "string",
+                "description": "As the customer wrote it, e.g. EK456 or FZ 008.",
+            },
+            "arrival_date": {
+                "type": "string",
+                "description": "The day it lands, YYYY-MM-DD. Defaults to today.",
+            },
+        },
+        ["flight_number"],
+    ),
+    _tool(
         "schedule_demo_delivery",
         "Record the confirmed delivery time and place on an existing reservation. "
         "Call this once the customer has agreed a specific delivery slot, so the "

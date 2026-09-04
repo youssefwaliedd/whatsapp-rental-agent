@@ -97,7 +97,19 @@
       "from": "09:00",
       "to": "22:00"
     },
-    "notes": "Free delivery and collection within Dubai between 09:00 and 22:00 (numbered agreement 6.1); outside those hours a fee applies (6.2). Delivery outside Dubai or beyond 30 km of the business location is charged by agreement and is NOT a published figure — see _pending_confirmation."
+    "notes": "Free delivery and collection within Dubai between 09:00 and 22:00 (numbered agreement 6.1); outside those hours a fee applies (6.2). Delivery outside Dubai or beyond 30 km of the business location is charged by agreement and is NOT a published figure — see _pending_confirmation.",
+    "airport": {
+      "_comment": "Timing a delivery to meet a flight. The buffer is how long after the aircraft is on the ground before the customer is at the kerb — immigration, baggage, the walk. Their own team quoted about an hour in the conversations we have. Confirm it: questionnaire 17 covers delivery beyond the usual, and this is the same kind of question.",
+      "arrivals_buffer_minutes": 60,
+      "terminals": {
+        "Dubai International Airport (DXB)": [
+          "1",
+          "2",
+          "3"
+        ]
+      },
+      "meeting_point": "arrivals"
+    }
   },
   "discount_policy": {
     "max_percent_by_category": {

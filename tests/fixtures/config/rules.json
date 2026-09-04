@@ -107,6 +107,18 @@
     "operating_hours": {
       "from": "08:00",
       "to": "22:00"
+    },
+    "airport": {
+      "_comment": "Timing a delivery to meet a flight. The buffer is how long after the aircraft is on the ground before the customer is at the kerb — immigration, baggage, the walk. Their own team quoted about an hour in the conversations we have. Confirm it: questionnaire 17 covers delivery beyond the usual, and this is the same kind of question.",
+      "arrivals_buffer_minutes": 60,
+      "terminals": {
+        "Dubai International Airport (DXB)": [
+          "1",
+          "2",
+          "3"
+        ]
+      },
+      "meeting_point": "arrivals"
     }
   },
   "discount_policy": {

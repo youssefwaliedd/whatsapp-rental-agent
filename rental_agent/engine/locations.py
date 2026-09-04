@@ -49,6 +49,20 @@ _ALIASES: dict[str, str] = {
 _ORDERED = sorted(_ALIASES.items(), key=lambda kv: len(kv[0]), reverse=True)
 
 
+#: Which terminal a customer named, if they named one. `normalise_location`
+#: deliberately collapses "terminal 3" to the airport, because pricing and
+#: delivery zones are per airport — but a car meeting the wrong terminal at DXB
+#: is a twenty-minute walk for somebody who has just landed, so the detail is
+#: worth keeping rather than discarding.
+_TERMINAL = re.compile(r"\b(?:terminal|term\.?|t)\s*([123])\b", re.I)
+
+
+def terminal_in(text: str | None) -> str | None:
+    """The terminal named in what the customer wrote, if any."""
+    found = _TERMINAL.search(text or "")
+    return found.group(1) if found else None
+
+
 def normalise_location(raw: str | None) -> str | None:
     """Return the canonical zone name, or None if it isn't a zone we know.
 

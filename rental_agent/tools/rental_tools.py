@@ -479,9 +479,30 @@ def search_company_policy(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
     }
 
 
+def look_up_flight(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """When a flight lands, and when a car should meet it.
+
+    A read, so it sits with the other reads: it changes nothing and repeating it
+    costs nothing but the lookup.
+    """
+    from datetime import date
+
+    from ..services.flights import look_up_flight as service
+
+    raw = args.get("arrival_date")
+    when = None
+    if raw:
+        try:
+            when = date.fromisoformat(str(raw)[:10])
+        except ValueError:
+            return {"error": "invalid_request", "message": f"{raw!r} is not a date."}
+    return service(ctx, flight_number=str(args.get("flight_number", "")), arrival_date=when)
+
+
 READ_HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]] = {
     "search_company_policy": search_company_policy,
     "search_available_vehicles": search_available_vehicles,
+    "look_up_flight": look_up_flight,
     "get_vehicle_details": get_vehicle_details,
     "calculate_quote": calculate_quote,
     "find_alternatives": find_alternatives,
