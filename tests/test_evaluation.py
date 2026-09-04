@@ -529,3 +529,106 @@ def test_a_returning_customer_is_greeted_as_one_only_at_the_start(booking_ctx):
     )
     booking_ctx.session.flush()
     assert get_customer(booking_ctx)["is_returning_customer"] is False
+
+
+# --------------------------------------------------------------------------
+# The same answer, to three different questions
+# --------------------------------------------------------------------------
+#
+# Straight from a live conversation. The customer asked what the deposit was;
+# the agent correctly asked a colleague and said so. Then it said the same thing
+# to "scratch the deposit, that's another request", to "I want to book a Urus",
+# and to "I want to book a BMW". Every reply was true and polite, which is why
+# nothing caught it. What was wrong was the sequence.
+
+
+STONEWALL = (
+    "My colleague is already looking into the deposit details for you as a priority. "
+    "They will be in touch with you shortly to provide the final, confirmed figure. "
+    "Thank you for your patience while we get this sorted."
+)
+
+
+def test_the_same_reply_to_three_different_questions_is_caught():
+    from rental_agent.evaluation.checks import check_stonewalled
+
+    messages = [
+        Msg("inbound", "did you get a number?"),
+        Msg("outbound", STONEWALL),
+        Msg("inbound", "no scratch the deposit thats another request"),
+        Msg("outbound", STONEWALL.replace("as a priority", "right now")),
+        Msg("inbound", "okay while they check that, i want to book a urus for 3 days"),
+        Msg("outbound", STONEWALL.replace("Thank you", "Thanks")),
+    ]
+
+    [finding] = check_stonewalled(messages)
+
+    assert finding.type == "stonewalled"
+    assert finding.severity == "high"
+    assert "urus" in finding.evidence["asked"].lower()
+
+
+def test_a_customer_repeating_themselves_is_not_stonewalling():
+    """Answering the same question the same way is often exactly right."""
+    from rental_agent.evaluation.checks import check_stonewalled
+
+    messages = [
+        Msg("inbound", "is there any update on the deposit figure yet please"),
+        Msg("outbound", STONEWALL),
+        Msg("inbound", "is there any update on the deposit figure yet please"),
+        Msg("outbound", STONEWALL),
+        Msg("inbound", "any update on the deposit figure yet please?"),
+        Msg("outbound", STONEWALL),
+    ]
+
+    assert check_stonewalled(messages) == []
+
+
+def test_a_conversation_that_moves_with_the_customer_is_clean():
+    from rental_agent.evaluation.checks import check_stonewalled
+
+    messages = [
+        Msg("inbound", "did you get a number?"),
+        Msg("outbound", STONEWALL),
+        Msg("inbound", "no scratch that, i want to book a urus for 3 days"),
+        Msg("outbound", "Of course — the Urus is available for those dates. "
+                        "Shall I put a quote together for three days from Friday?"),
+        Msg("inbound", "okay and what about a bmw"),
+        Msg("outbound", "We have the X6 M40 and the M4 Competition free that weekend. "
+                        "Would you like to see either of them?"),
+    ]
+
+    assert check_stonewalled(messages) == []
+
+
+def test_two_short_pleasantries_are_not_a_habit():
+    """"Of course." twice is not stonewalling."""
+    from rental_agent.evaluation.checks import check_stonewalled
+
+    messages = [
+        Msg("inbound", "thanks"), Msg("outbound", "Of course."),
+        Msg("inbound", "great"), Msg("outbound", "Of course."),
+        Msg("inbound", "perfect"), Msg("outbound", "Of course."),
+    ]
+
+    assert check_stonewalled(messages) == []
+
+
+def test_it_is_reported_once_however_long_it_went_on():
+    """One habit, not one finding per repetition."""
+    from rental_agent.evaluation.checks import check_stonewalled
+
+    messages = []
+    for ask in ["did you get a number", "scratch that, i want a urus",
+                "okay a bmw then", "or the range rover", "anything at all"]:
+        messages.append(Msg("inbound", ask))
+        messages.append(Msg("outbound", STONEWALL))
+
+    assert len(check_stonewalled(messages)) == 1
+
+
+def test_the_lesson_says_to_move_with_them():
+    from rental_agent.evaluation.corrections import lesson_for
+
+    lesson = lesson_for("stonewalled")
+    assert "move with them" in lesson.text

@@ -88,6 +88,12 @@ CORRECTIONS: dict[str, str] = {
         "at the final stage or on the booking form — there is no such stage, and they "
         "will wait for something nobody is producing."
     ),
+    "stonewalled": (
+        "When you are waiting on a colleague for something, keep serving the customer "
+        "for everything else. Answer what they actually asked. If they move on to "
+        "another car or another question, move with them — repeating that a colleague "
+        "will be in touch is not an answer to a question they did not ask."
+    ),
     "missed_escalation": (
         "When a customer mentions an accident, an injury, the police, a theft or a "
         "breakdown, hand over to a colleague before anything else. Ask first whether "

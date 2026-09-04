@@ -681,6 +681,90 @@ def check_option_overload(messages) -> list[Finding]:
     return []
 
 
+#: Two replies are "the same answer" past this much overlap. Generous on
+#: purpose: a salesperson who rephrases the same refusal is still refusing.
+_SAME_REPLY = 0.75
+
+#: Below this the message is too short to judge — "Of course." twice is not
+#: stonewalling.
+_ENOUGH_TO_JUDGE = 40
+
+
+def _bag(text: str) -> set[str]:
+    return set(re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower()).split())
+
+
+def _overlap(first: str, second: str) -> float:
+    a, b = _bag(first), _bag(second)
+    if not a or not b:
+        return 0.0
+    return len(a & b) / max(len(a), len(b))
+
+
+def check_stonewalled(messages) -> list[Finding]:
+    """The same answer given again while the customer asked for something else.
+
+    Observed live, and no existing check could see it. The customer asked what
+    the deposit was; the agent correctly asked a colleague and said so. Then it
+    said the same thing to "scratch the deposit, that's another request", to "I
+    want to book a Urus", and to "I want to book a BMW" — four times, while a
+    sale was in progress.
+
+    Every individual reply was true and polite, which is why nothing caught it.
+    What was wrong was the sequence: the customer moved on three times and the
+    agent did not.
+
+    Only counts where the customer's own messages differ. A customer repeating
+    themselves is a different situation, and one where repeating the answer is
+    often the right thing to do.
+    """
+    exchanges: list[tuple[str, str]] = []
+    pending: str | None = None
+    for message in messages:
+        text = (message.content or "").strip()
+        if message.direction == "inbound":
+            pending = text
+        elif pending is not None and text:
+            exchanges.append((pending, text))
+            pending = None
+
+    findings: list[Finding] = []
+    for index in range(2, len(exchanges)):
+        window = exchanges[index - 2 : index + 1]
+        replies = [reply for _, reply in window]
+        asks = [ask for ask, _ in window]
+        if any(len(reply) < _ENOUGH_TO_JUDGE for reply in replies):
+            continue
+        # The agent said the same thing three times running...
+        if not all(_overlap(replies[0], other) >= _SAME_REPLY for other in replies[1:]):
+            continue
+        # ...to three different things.
+        if any(_overlap(asks[0], other) >= _SAME_REPLY for other in asks[1:]):
+            continue
+
+        findings.append(
+            Finding(
+                type="stonewalled",
+                severity="high",
+                situation="the customer moved on and the agent did not",
+                bad_behavior=(
+                    "gave substantially the same reply three times running while the "
+                    f"customer asked about different things — last: {asks[-1][:70]!r}"
+                ),
+                correct_behavior=(
+                    "answer what they actually asked. Waiting on a colleague for one "
+                    "figure is not a reason to stop selling — say you are still waiting "
+                    "on that number only if they ask about it again, and carry on with "
+                    "everything else"
+                ),
+                evidence={"asked": asks[-1][:200], "replied": replies[-1][:200]},
+            )
+        )
+        break  # one finding per conversation; it is one habit, not three
+
+    return findings
+
+
 def run_all(messages, tool_calls, state, escalated: bool, owner_decisions=None) -> list[Finding]:
     """Every deterministic check, most serious first."""
     findings = [
@@ -696,6 +780,7 @@ def run_all(messages, tool_calls, state, escalated: bool, owner_decisions=None) 
         *check_nagging(state),
         *check_unavailable_without_alternatives(messages, tool_calls),
         *check_option_overload(messages),
+        *check_stonewalled(messages),
     ]
     order = {"high": 0, "medium": 1, "low": 2}
     return sorted(findings, key=lambda f: order.get(f.severity, 3))
