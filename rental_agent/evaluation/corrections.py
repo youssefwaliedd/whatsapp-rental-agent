@@ -64,6 +64,11 @@ def reject_unsafe_lesson(text: str) -> None:
 #: to the agent, in the same voice as the system prompt, and deliberately about
 #: *behaviour* — none of them can carry a number.
 CORRECTIONS: dict[str, str] = {
+    "outbound_validation_failed": (
+        "Check each claim against the current tool evidence before replying. "
+        "Keep vehicle details, dates and completed actions tied to the right request. "
+        "Ask a colleague for missing information before claiming anyone is checking."
+    ),
     "unsupported_claim": (
         "Never state a price, total, deposit or limit you have not obtained from a "
         "tool in this conversation. If you do not have the figure, call the tool and "

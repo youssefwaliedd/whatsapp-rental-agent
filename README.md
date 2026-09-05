@@ -18,17 +18,19 @@ which tool to call; the engine decides what is true.
 
 A customer saying *"you always give me 20% off"* cannot become a business rule.
 
-Three outbound guards enforce it at the last moment, after the model has written
-its reply and before the customer sees it:
+Outbound checks run after the model writes its reply and before the customer
+sees it. They cover these known failure patterns:
 
 | Guard | Refuses |
 |---|---|
 | `agent/figures.py` | a price no tool produced |
 | `agent/availability.py` | a car called free when nothing checked |
 | `agent/holds.py` | a booking called done that nothing confirms |
+| `agent/facts.py` | unsupported staff-contact, specification, vehicle-price and delivery claims |
 
-Each retries once with the reason, then falls back to wording that promises
-nothing.
+The checks share one rewrite attempt. Every rewrite passes all the checks again.
+Rejected proposals remain in the evaluation record, and verified quote cards
+survive rejected summaries and provider outages.
 
 ## Running it
 
@@ -65,7 +67,7 @@ config/
                        REFUSES a document containing a figure
 
 rental_agent/
-  agent/               the conversation loop, the prompt, the three guards,
+  agent/               the conversation loop, the prompt, outbound checks,
                        model providers (gemini, anthropic)
   booking_provider/    the booking system behind an interface: seven operations,
                        six outcomes, a simulated provider, a delta.py stub
@@ -111,6 +113,8 @@ dangerous thing in this repository.
 
 ## Documentation
 
+- [Latest fixes, test evidence and launch gaps](docs/chatbot-audit-2026-09-05.md)
+
 - `docs/on-whatsapp.md` — what is left to get it onto a real number, in order
 - `docs/go-live.md` — the full runbook, every screen and value
 - `docs/policy-questionnaire.md` — the 33 questions Delta still has to answer
@@ -120,9 +124,11 @@ dangerous thing in this repository.
 
 ## Known limits
 
-- Runs on Gemini's free tier by default: ~54s per reply against their 2–5s
-  target, and quota that can run out mid-afternoon. `RENTAL_AGENT_PROVIDER=anthropic`
-  fixes both; set `ANTHROPIC_MODEL` explicitly or it defaults to Opus.
+- Gemini daily quota interrupted the latest live tests. Model calls share a
+  configurable 30-second turn budget, with bounded Gemini requests. The 2–5 second
+  response target remains unproven; benchmark the chosen provider under real load.
 - **Availability comes from nowhere real.** Delta publishes none. Every booking
   is a request until a provider that can settle it exists.
-- No scheduler, no dashboard, one escalation number. None are in their scope.
+- One escalation number is implemented. CRM integration, staff availability and
+  automatic assignment need additional work if those options in the requirements
+  document are selected. Phase 2 analytics and management are not complete.

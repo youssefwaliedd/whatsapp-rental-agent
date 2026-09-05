@@ -276,7 +276,10 @@ def test_an_invented_figure_never_reaches_the_transcript(booking_ctx):
     assert "unsupported_claim" not in result.findings
     last = booking_ctx.session.query(type(case)).count() >= 0  # session still usable
     assert last is True
-    assert result.passed is True
+    # The customer is protected, but a rewrite that invents another price is
+    # still a regression, and must not train the reviewer to call it a success.
+    assert "outbound_validation_failed" in result.findings
+    assert result.passed is False
 
 
 def test_a_replay_runs_under_the_candidates_lessons_not_the_active_ones(booking_ctx):

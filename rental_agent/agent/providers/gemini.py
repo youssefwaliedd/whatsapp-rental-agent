@@ -33,6 +33,7 @@ from google.genai import types
 
 from ...env import load_dotenv
 from .errors import ProviderUnavailable
+from .budget import remaining
 
 load_dotenv()
 
@@ -401,6 +402,8 @@ class _Messages:
         candidates = [model] + [m for m in self.owner.fallback_models if m != model]
         last: Exception | None = None
         delay = 2.0
+        expires = time.monotonic() + min(remaining(), 15.0)
+        exhausted: set[str] = set()
 
         # Sweep every model before waiting on any of them. Both failure modes
         # here are model-specific — a daily quota belongs to one model, and a
@@ -408,20 +411,33 @@ class _Messages:
         # likelier to work than backing off against the same one. Only when the
         # whole fleet is unavailable is waiting the right move.
         for round_number in range(self.owner.max_retries + 1):
-            exhausted: set[str] = set()
             for current in candidates:
                 if current in exhausted:
                     continue
+                left = min(remaining(), expires - time.monotonic())
+                if left < 10.0:
+                    raise ProviderUnavailable(str(last) if last else "The model request deadline was reached.") from last
                 try:
+                    # Gemini requires at least a ten-second server deadline.
+                    # Do not start a request the turn cannot afford to finish.
+                    request_config = config.model_copy(update={"http_options": types.HttpOptions(
+                        timeout=int(left * 1000),
+                        retry_options=types.HttpRetryOptions(attempts=1),
+                    )})
                     response = self.owner.raw.models.generate_content(
-                        model=current, contents=contents, config=config
+                        model=current, contents=contents, config=request_config
                     )
                     if current != model:
                         self.owner.active_model = current
+                    self.owner.last_error_kind = None
                     return response
                 except Exception as exc:  # noqa: BLE001 - provider exception surface
                     last = exc
                     message = str(exc)
+                    self.owner.last_error_kind = (
+                        "daily_quota" if is_daily_quota_exhausted(message) else
+                        "rate_limit" if "429" in message else "provider_error"
+                    )
                     if self.owner.thinking_level and _rejects_thinking_level(message):
                         # Not every model accepts the knob. Drop it for the rest
                         # of the process rather than failing every request.
@@ -436,7 +452,12 @@ class _Messages:
 
             if round_number == self.owner.max_retries:
                 break
-            time.sleep(min(_server_retry_delay(str(last)) or delay, self.owner.max_backoff))
+            if len(exhausted) == len(candidates):
+                break
+            pause = min(_server_retry_delay(str(last)) or delay, self.owner.max_backoff)
+            if pause + 10.0 >= min(remaining(), expires - time.monotonic()):
+                break
+            time.sleep(pause)
             delay *= 2
 
         raise ProviderUnavailable(str(last)) from last

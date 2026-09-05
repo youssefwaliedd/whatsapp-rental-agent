@@ -35,6 +35,7 @@ DEFAULT_PROVIDER = os.getenv("RENTAL_AGENT_PROVIDER", "gemini")
 
 @dataclass(frozen=True)
 class AgentSettings:
+    max_turn_seconds: float = float(os.getenv("RENTAL_AGENT_MAX_TURN_SECONDS", "30"))
     #: "gemini" (free tier) or "anthropic". The engine, tools, persistence and
     #: state are provider-agnostic; only the adapter changes.
     provider: str = DEFAULT_PROVIDER

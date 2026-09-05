@@ -328,9 +328,10 @@ def test_a_reply_written_before_the_accident_was_known_is_thrown_away(booking_ct
     )
     turn = bot.respond(booking_ctx, "i've just crashed the car")
 
-    assert turn.reply == "Are you safe?", "the pre-escalation reply must not reach the customer"
-    assert "ESCALATED" in client.system_texts()[-1], "the second call knew"
-    assert len(client.requests) == 2
+    assert "ambulance 998" in turn.reply
+    assert "SUVs" not in turn.reply, "the pre-escalation reply must not reach the customer"
+    assert booking_ctx.load_state().escalated
+    assert len(client.requests) == 1, "emergency guidance must not wait for another model call"
 
 
 def test_a_turn_with_no_escalation_is_not_re_run(booking_ctx, settings):
@@ -359,7 +360,8 @@ def test_an_already_escalated_conversation_is_not_re_run(booking_ctx, settings):
     before = len(client.requests)
     bot.respond(booking_ctx, "the police are here now")
 
-    assert len(client.requests) - before == 1
+    # An unresolved emergency uses the fixed response without another model call.
+    assert len(client.requests) - before == 0
 
 
 def test_a_low_severity_signal_is_left_to_the_agent(booking_ctx, settings):

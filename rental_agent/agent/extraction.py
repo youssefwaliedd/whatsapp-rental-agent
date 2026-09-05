@@ -140,6 +140,10 @@ def build_extraction_input(
     message: str, state: ConversationState, now: datetime, active_reservation: dict[str, Any] | None
 ) -> str:
     known: list[str] = []
+    if state.pickup_date and not state.pickup_at:
+        known.append(f"pickup DATE: {state.pickup_date.isoformat()}, time still unknown. Keep this date when a time arrives.")
+    if state.return_date and not state.return_at:
+        known.append(f"return DATE: {state.return_date.isoformat()}, time still unknown.")
     if state.pickup_at:
         known.append(f"delivery: {state.pickup_at.isoformat()}")
     if state.return_at:
@@ -214,22 +218,39 @@ def _parse_dt(value: str | None, tz: Any) -> datetime | None:
     return moment.replace(tzinfo=tz) if moment.tzinfo is None else moment
 
 
-def merge(state: ConversationState, extraction: Extraction, tz: Any) -> ConversationState:
+def merge(state: ConversationState, extraction: Extraction, tz: Any, message: str | None = None) -> ConversationState:
     """Fold an extraction into state. Additive only — never clears a known value.
 
     This one-way property is the whole point: no extraction glitch can make the
     agent forget a date the customer already gave and ask for it again.
     """
     pickup = _parse_dt(extraction.pickup_at, tz)
+    from ..domain.dates import anchor
+    if message is not None:
+        pickup = anchor(pickup, state.pickup_date, message)
     if pickup:
         state.pickup_at = pickup
+        state.pickup_date = pickup.date()
     ret = _parse_dt(extraction.return_at, tz)
+    if message is not None:
+        ret = anchor(ret, state.return_date, message)
     if ret:
         state.return_at = ret
+        state.return_date = ret.date()
     if extraction.delivery_location:
         state.delivery_location = extraction.delivery_location
 
     prefs = state.vehicle_preferences
+    import re
+    if message and re.search(r"\b(?:forget|scratch|instead|no longer|never\s?mind)\b|بدل|انس", message, re.I):
+        if extraction.models or extraction.makes or extraction.categories:
+            prefs.models, prefs.makes, prefs.categories = [], [], []
+            state.current_vehicle_options = []
+            if not state.reservation_id:
+                state.selected_vehicle_id = None
+                state.quote_id = None
+        if re.search(r"any colo[u]?r|forget.*colo[u]?r|أي لون|اى لون", message, re.I):
+            prefs.color = None
     for named in extraction.models:
         if named not in prefs.models:
             prefs.models.append(named)
@@ -244,7 +265,7 @@ def merge(state: ConversationState, extraction: Extraction, tz: Any) -> Conversa
         if category not in prefs.categories:
             prefs.categories.append(category)
     if extraction.color:
-        prefs.color = extraction.color
+        prefs.color = None if extraction.color.lower() in ("any", "any colour", "any color") else extraction.color
     if extraction.budget_per_day:
         prefs.budget_per_day = Decimal(str(extraction.budget_per_day))
     if extraction.min_passengers:

@@ -531,3 +531,20 @@ def test_a_model_that_rejects_the_thinking_level_still_answers(gemini_client):
     assert result.content[0].text == "answered without it"
     assert attempts[0] is not None and attempts[-1] is None
     assert gemini_client.thinking_level is None   # remembered, not retried each time
+
+
+def test_short_remaining_budget_never_sends_an_invalid_gemini_deadline(gemini_client):
+    from rental_agent.agent.providers.budget import turn_budget
+    from rental_agent.agent.providers.errors import ProviderUnavailable
+    gemini_client.raw = SimpleNamespace(models=StubModels([]))
+    with turn_budget(5), pytest.raises(ProviderUnavailable, match='deadline'):
+        gemini_client.messages.create(messages=[{'role': 'user', 'content': 'hi'}])
+    assert not gemini_client.raw.models.calls
+
+
+def test_gemini_timeout_is_bounded_and_sdk_retries_are_disabled(gemini_client):
+    gemini_client.raw = SimpleNamespace(models=StubModels([_candidate([_part(text='ok')])]))
+    gemini_client.messages.create(messages=[{'role': 'user', 'content': 'hi'}])
+    config = gemini_client.raw.models.calls[0]['config']
+    assert 10000 <= config.http_options.timeout <= 15000
+    assert config.http_options.retry_options.attempts == 1

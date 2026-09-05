@@ -94,7 +94,7 @@ def test_the_correction_names_the_figure_and_the_alternatives():
 
 def test_the_fallback_promises_nothing():
     assert not money_in(SAFE_REPLY)
-    assert "double-check" in SAFE_REPLY.lower()
+    assert "could not verify" in SAFE_REPLY.lower()
 
 
 # --- through the agent ------------------------------------------------------

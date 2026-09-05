@@ -428,5 +428,12 @@
     "_comment": "The booking provider decides whether a booking exists (BOOKING_PROVIDER). The simulated provider is authoritative for demo inventory and confirms outright; a provider that cannot settle availability leaves every booking a request a person confirms, whatever this flag says. Set holds_require_confirmation true to force a person into the loop even where the provider could confirm — which is what Delta needs the day a real connector exists but their phone and counter bookings still are not in it.",
     "holds_require_confirmation": false,
     "hold_expires_after_minutes": 120
+  },
+  "operator_location": {
+    "_comment": "Published on their contact page and read 5 Sep 2026. The address is a fact they publish, so the agent may state it. Whether a customer may COLLECT from here is not published anywhere — their site advertises free pick-up and drop-off, which is delivery, and says nothing about walking in. Null until they answer, so the agent offers to check rather than inviting somebody to drive to an industrial area on a guess.",
+    "address": "Ras Al Khor Industrial Area 1, Dubai",
+    "phone": "+971 56 669 9228",
+    "collection_available": null,
+    "_hours_note": "Their contact page lists 00:00-23:59 seven days, while their terms give free delivery 09:00-22:00 with a fee outside it. A fourth published contradiction; the terms are encoded and the questionnaire asks."
   }
 }

@@ -51,6 +51,7 @@ _IGNORED_NUMBERS = {Decimal("999")}
 #: would otherwise be reported as invented prices on almost every message, and
 #: an evaluator that cries wolf on every car name gets ignored.
 _NOT_A_PRICE = [
+    re.compile(r"(?:ambulance|police|fire services|الإسعاف على|بالشرطة على|المدني على)\s+(?:997|998|999)\b", re.I),
     re.compile(r"\d{4}-\d{2}-\d{2}(?:T[\d:+\-.]+)?"),   # ISO dates and timestamps
     re.compile(r"[—–-]\s*(?:19|20)\d{2}\b"),             # model year after a dash
     re.compile(r"\(\s*(?:19|20)\d{2}\s*\)"),             # model year in parentheses
@@ -109,17 +110,38 @@ def _numbers_in(value: Any, into: set[Decimal]) -> None:
             into.update(_decimals(value))
 
 
-def supported_numbers(tool_calls: Iterable[Any]) -> set[Decimal]:
+def supported_numbers(tool_calls: Iterable[Any], monetary_only: bool = False) -> set[Decimal]:
     """Every figure the tools produced, plus the round percentages a discount
     ceiling licenses the agent to offer below."""
+    tool_calls = list(tool_calls)
     supported: set[Decimal] = set()
+    def monetary(value):
+        if isinstance(value, list):
+            for item in value:
+                monetary(item)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if isinstance(item, (dict, list)):
+                    monetary(item)
+                elif key in ("total_due_at_delivery", "amount_due") or re.search(r"(?:price|amount|total|subtotal|fee|deposit|excess|charge|refund|unit_price)$", key):
+                    if item is not None and not isinstance(item, bool):
+                        try:
+                            supported.add(Decimal(str(item)))
+                        except InvalidOperation:
+                            pass
     for call in tool_calls:
-        _numbers_in(call.result or {}, supported)
-        _numbers_in(call.arguments or {}, supported)
+        if (call.result or {}).get("error"):
+            continue
+        if monetary_only:
+            monetary(call.result or {})
+        else:
+            _numbers_in(call.result or {}, supported)
 
     # An agent permitted 10% may legitimately offer 5% — anything at or under a
     # ceiling the engine returned is supported, not invented.
-    ceilings = [n for n in supported if n <= 20]
+    ceilings = [] if monetary_only else [Decimal(str(call.result["max_percent"])) for call in tool_calls
+                if call.tool_name == "get_allowed_discount"
+                and (call.result or {}).get("max_percent") is not None]
     for ceiling in ceilings:
         step = Decimal("1")
         value = step
@@ -192,11 +214,14 @@ def check_unsupported_claims(messages, tool_calls, owner_decisions=None) -> list
 
     supported = supported_numbers(tool_calls) | owner_authorised_numbers(owner_decisions)
     findings: list[Finding] = []
-
+    from ..agent.figures import budget_values, without_budget_echoes
+    budgets = set()
     for message in messages:
+        if message.direction == "inbound":
+            budgets.update(budget_values(message.content))
         if message.direction != "outbound":
             continue
-        unsupported = sorted(_decimals(message.content) - supported)
+        unsupported = sorted(_decimals(without_budget_echoes(message.content, budgets)) - supported)
         if not unsupported:
             continue
         findings.append(
@@ -364,6 +389,12 @@ def check_escalated_before_answering(messages, tool_calls) -> list[Finding]:
     The right shape is: answer once, escalate when they press. So this fires only
     where the customer had asked a single time.
     """
+    # Asking for a human or an exact missing amount is a legitimate escalation.
+    if any(m.direction == "inbound" and re.search(
+        r"\b(?:colleague|human|manager|owner|exact|confirm.*charge)\b|زميل|موظف|بالضبط",
+        m.content or "", re.I,
+    ) for m in messages):
+        return []
     escalated_for_figure = any(
         "unconfirmed_figure" in str((call.arguments or {}).get("reason", ""))
         or (call.result or {}).get("reason") == "unconfirmed_figure"
@@ -567,7 +598,10 @@ def check_unavailable_without_alternatives(messages, tool_calls) -> list[Finding
         return []
 
     for message in messages:
-        if message.direction == "outbound" and _UNAVAILABLE.search(message.content or ""):
+        text = message.content or ""
+        if re.search(r"nothing is booked|no booking|cancelled|canceled|cancellation|إلغاء", text, re.I):
+            continue
+        if message.direction == "outbound" and _UNAVAILABLE.search(text):
             return [
                 Finding(
                     type="no_alternatives_offered",
@@ -767,7 +801,11 @@ def check_stonewalled(messages) -> list[Finding]:
 
 def run_all(messages, tool_calls, state, escalated: bool, owner_decisions=None) -> list[Finding]:
     """Every deterministic check, most serious first."""
-    findings = [
+    findings = [Finding(
+        type=item["type"], severity="high", situation="a proposed reply failed outbound validation",
+        bad_behavior=item["reply"], correct_behavior=item["reason"], evidence=item,
+    ) for item in getattr(state, "validation_findings", [])]
+    findings += [
         *check_unsupported_claims(messages, tool_calls, owner_decisions),
         *check_absence_claimed_for_unconfirmed(messages, tool_calls),
         *check_confirmed_a_hold(messages, tool_calls),

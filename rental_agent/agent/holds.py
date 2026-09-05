@@ -81,7 +81,8 @@ BOOKING_SUBJECT = re.compile(
 #: produce. Cut out before the search rather than used to wave the whole reply
 #: through, because one honest sentence must not license a wrong one beside it.
 CONDITIONAL = re.compile(
-    r"\b(?:once|when|as soon as|after|until|unless|if|before|pending|subject to)\b"
+    r"\bnothing (?:is|has been) (?:booked|confirmed|reserved)\b"
+    r"|\b(?:once|when|as soon as|after|until|unless|if|before|pending|subject to)\b"
     r"[^.!?؟]{0,80}?\b(?:booked|confirmed|reserved|secured)\b"
     r"|\b(?:not|isn'?t|aren'?t|won'?t be|can'?t be|cannot be)\s+(?:yet\s+)?"
     r"(?:booked|confirmed|reserved|secured)\b"
@@ -137,6 +138,13 @@ def inspect(reply: str) -> Claim:
 
     explicit = generic = False
     for sentence in _SENTENCE.split(text):
+        # Confirming a cancellation does not assert a live reservation.
+        sentence = re.sub(
+            r"(?:i|we)(?:'ve| have)?\s+confirmed\s+(?:the\s+)?cancellation"
+            r"|(?:your |the )?cancellation\s+is\s+(?:now\s+)?confirmed"
+            r"|تم\s+تأكيد\s+إلغاء(?:\s+الحجز)?",
+            " cancellation completed ", sentence, flags=re.I,
+        )
         cleaned = CONDITIONAL.sub(" ", sentence)
         if CONFIRMED_CLAIM.search(cleaned):
             explicit = True
@@ -182,6 +190,5 @@ SAFE_REPLY = (
 
 #: The same, for a reply that announced a booking nobody ever made.
 NO_BOOKING_REPLY = (
-    "Nothing is booked yet — let me get the details confirmed with you first, and I'll "
-    "come back as soon as it is done."
+    "Nothing is booked yet. Please confirm your rental details before asking me to proceed."
 )

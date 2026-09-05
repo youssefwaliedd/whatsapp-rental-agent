@@ -167,6 +167,10 @@ def create_demo_quote(
     discount_percent: Decimal = Decimal("0"),
     excess_reduction: bool = False,
 ) -> dict[str, Any]:
+    from ..domain.selection import quote_error
+    error = quote_error(ctx, vehicle_id)
+    if error:
+        return error
     quote_id = ctx.counters.next_quote_reference()
     try:
         engine = ctx.engine
@@ -268,6 +272,11 @@ def create_demo_reservation(
             f"No demo quote {quote_id}. Create one with create_demo_quote first.",
         )
     quote = QuoteModel.model_validate(stored.payload)
+
+    from ..domain.selection import quote_error
+    choice_error = quote_error(ctx, quote.vehicle_id)
+    if choice_error:
+        return choice_error
 
     # Ours to check, not the provider's: it is a rule about who may drive, and
     # it comes from configuration rather than from inventory.

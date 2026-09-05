@@ -154,7 +154,9 @@ customer. They are talking to a person at a car rental company.
 
 
 @lru_cache(maxsize=4)
-def _system_text(operator_name: str, is_demonstration: bool, playbook: str = "") -> str:
+def _system_text(
+    operator_name: str, is_demonstration: bool, playbook: str = "", location: str = ""
+) -> str:
     """Assembled once per operator, then reused byte-for-byte.
 
     The operator name is not volatile — it changes when the configuration
@@ -167,6 +169,8 @@ def _system_text(operator_name: str, is_demonstration: bool, playbook: str = "")
     if is_demonstration:
         parts.append(DEMONSTRATION_NOTICE)
     parts.append(SYSTEM_PROMPT_BODY)
+    if location:
+        parts.append(f"\n\n# Where we are\n\n{location}")
     if playbook:
         parts.append(
             "\n\n# How this company sells\n\n"
@@ -177,6 +181,45 @@ def _system_text(operator_name: str, is_demonstration: bool, playbook: str = "")
     return "".join(parts).replace(OPERATOR, operator_name)
 
 
+def _where_we_are(rules: Rules) -> str:
+    """The office, as the customer would be told it.
+
+    "Where are you?" is one of the first questions anybody asks a rental company
+    and the agent had no answer at all — it could not say the address and had
+    nowhere to say it from, so it changed the subject.
+
+    Whether somebody may actually collect from there is a separate question, and
+    an unanswered one: their site advertises free pick-up and drop-off, which is
+    delivery, and says nothing about walking in. Until they answer, the agent
+    offers to check rather than inviting a customer to drive to an industrial
+    area on a guess.
+    """
+    where = rules.get("operator_location", {})
+    address = where.get("address")
+    if not address:
+        return ""
+
+    lines = [f"Our office is at {address}."]
+    if where.get("phone"):
+        lines.append(f"The number customers call is {where['phone']}.")
+
+    if where.get("collection_available") is True:
+        lines.append("Customers may collect from there — say so, and give the address.")
+    elif where.get("collection_available") is False:
+        lines.append(
+            "We do not hand cars over at the office. Delivery only, and free anywhere "
+            "in Dubai inside operating hours."
+        )
+    else:
+        lines.append(
+            "Whether a customer may collect in person has not been confirmed. You may "
+            "give the address when they ask where we are. You may NOT tell them to come "
+            "and collect — say you will confirm that with a colleague, and offer "
+            "delivery, which is free anywhere in Dubai inside operating hours."
+        )
+    return "\n".join(lines)
+
+
 def build_system(rules: Rules, operator: Operator) -> list[dict[str, Any]]:
     """The cached prefix. Must be byte-identical on every request."""
     from ..config import load_playbook
@@ -185,7 +228,10 @@ def build_system(rules: Rules, operator: Operator) -> list[dict[str, Any]]:
         {
             "type": "text",
             "text": _system_text(
-                operator.demo_company_name, operator.is_demonstration, load_playbook()
+                operator.demo_company_name,
+                operator.is_demonstration,
+                load_playbook(),
+                _where_we_are(rules),
             ),
             # Tools render before system, so this one breakpoint caches both.
             "cache_control": {"type": "ephemeral"},
@@ -238,6 +284,10 @@ def render_state(
     ]
 
     known: list[str] = []
+    if state.pickup_date and not state.pickup_at:
+        known.append(f"pickup date {state.pickup_date.isoformat()}; time still needed. Preserve this date when they give a time.")
+    if state.return_date and not state.return_at:
+        known.append(f"return date {state.return_date.isoformat()}; time still needed.")
     if state.pickup_at:
         known.append(f"delivery {_fmt(state.pickup_at)}")
     if state.return_at:

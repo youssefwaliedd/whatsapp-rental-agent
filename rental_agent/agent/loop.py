@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,10 +28,11 @@ from ..domain.enums import Stage
 from ..services import booking as booking_service
 from ..tools.registry import execute_tool
 from .providers.errors import ProviderUnavailable
+from .providers.budget import remaining, turn_budget
 import logging
 
 from . import extraction as extraction_mod
-from . import availability, figures, holds
+from . import availability, figures, holds, facts
 from .prompt import build_system, render_state
 from .schemas import TOOLS
 from .settings import FALLBACK_BETA, AgentSettings
@@ -161,7 +163,7 @@ class _Pending:
             self.joined = True
             if self.future is not None:
                 try:
-                    self.result = self.future.result()
+                    self.result = self.future.result(timeout=remaining())
                 except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
                     self.error = f"{type(exc).__name__}: {str(exc)[:200]}"
         return self.result if self.result is not None else extraction_mod.Extraction()
@@ -207,6 +209,13 @@ class Agent:
     # -- turn -----------------------------------------------------------
 
     def respond(
+        self, ctx: ToolContext, message: str, *, provider_message_id: str | None = None,
+        media: list[str] | None = None,
+    ) -> AgentTurn:
+        with turn_budget(self.settings.max_turn_seconds):
+            return self._respond(ctx, message, provider_message_id=provider_message_id, media=media)
+
+    def _respond(
         self,
         ctx: ToolContext,
         message: str,
@@ -230,6 +239,32 @@ class Agent:
             return AgentTurn(reply="", duplicate=True)
 
         state = ctx.load_state()
+        from ..domain.dates import remember
+        remember(state, message, now)
+        ctx.save_state(state)
+        from ..domain.incident import urgent_report
+        from ..services.escalation import emergency_reply, URGENT_REASONS
+        urgent = urgent_report(message)
+        if urgent:
+            execute_tool(ctx, "escalate_conversation", {"reason": urgent, "detail": message})
+            turn = AgentTurn(reply=emergency_reply(ctx), escalated=True,
+                tool_calls=["escalate_conversation"], tools_succeeded=["escalate_conversation"])
+            ctx.messages.record(conversation_id=ctx.conversation_id, direction="outbound",
+                                content=turn.reply, now=now)
+            return turn
+        if state.escalated and state.escalation_reason in URGENT_REASONS:
+            turn = AgentTurn(reply=emergency_reply(ctx))
+            ctx.messages.record(conversation_id=ctx.conversation_id, direction="outbound",
+                                content=turn.reply, now=now)
+            return turn
+        from ..domain import selection
+        selection.remember_customer_choice(ctx, message)
+        state = ctx.load_state()
+        if not state.escalated and selection.ambiguous(ctx, message):
+            turn = AgentTurn(reply=selection.clarification(ctx, message))
+            ctx.messages.record(conversation_id=ctx.conversation_id, direction="outbound",
+                                content=turn.reply, now=now)
+            return turn
         active = execute_tool(ctx, "get_active_reservation", {})
         # A hold stands in for a live booking here on purpose: "make it 8
         # instead" refers to it just the same, and the state block renders it as
@@ -264,7 +299,7 @@ class Agent:
                 max_tokens=self.settings.extraction_max_tokens,
             )
             if self.settings.parallel_extraction:
-                pending.future = _EXTRACTION_POOL.submit(call)
+                pending.future = _EXTRACTION_POOL.submit(copy_context().run, call)
             else:
                 pending.run_now(call)
                 state = self._absorb_extraction(ctx, pending, message, state)
@@ -279,8 +314,11 @@ class Agent:
         except ProviderUnavailable as exc:
             pending.cancel()
             turn = self._provider_unavailable(ctx, exc, message)
+            turn.media = ctx.take_media()
+            turn.cards = ctx.take_cards()
         turn.extraction_error = pending.error
         turn = self._guard_outbound(ctx, turn, state, now, customer, active_reservation)
+        selection.remember_options(ctx, turn)
 
         ctx.messages.record(
             conversation_id=ctx.conversation_id or "",
@@ -295,154 +333,95 @@ class Agent:
         self, ctx: ToolContext, turn: AgentTurn, state: Any, now: Any,
         customer: Any, active_reservation: Any,
     ) -> AgentTurn:
-        """The last three things checked before a message goes out.
+        """Validate prices, availability, booking status and operational facts."""
+        # One shared retry budget. Every rewritten reply passes every check.
+        invented = set(turn.invented_figures)
+        unchecked, unbacked = turn.unchecked_availability, turn.confirmed_a_hold
+        for attempt in range(2):
+            from .options import correct_counts
+            turn.reply = correct_counts(turn.reply, ctx.engine.list_fleet())
+            calls = self._turn_calls(ctx)
+            current = ctx.load_state() if ctx.session is not None else state
+            if facts.needs_answer(ctx, turn.reply, calls) and not current.awaiting_figure:
+                result = execute_tool(ctx, "escalate_conversation", {
+                    "reason": "unconfirmed_figure", "detail": facts.latest_customer(ctx),
+                })
+                if result.get("escalated"):
+                    turn.tool_calls.append("escalate_conversation")
+                    turn.tools_succeeded.append("escalate_conversation")
+                    calls = self._turn_calls(ctx)
+                    current = ctx.load_state()
+                    # Describe the request that was actually recorded, rather
+                    # than promising that dates will magically reveal the fee.
+                    turn.reply = facts.safe_reply(ctx)
 
-        All three are rules the prompt already states and the model does not
-        reliably follow, and all three are wrong in a way the customer acts on:
-        a price they plan around, a car they choose, and a booking they believe
-        they have.
-        """
-        turn = self._refuse_invented_figures(ctx, turn, state, now, customer, active_reservation)
-        turn = self._refuse_unchecked_availability(
-            ctx, turn, state, now, customer, active_reservation
-        )
-        return self._refuse_unbacked_confirmation(ctx, turn, state, now, customer, active_reservation)
-
-    def _refuse_unchecked_availability(
-        self, ctx: ToolContext, turn: AgentTurn, state: Any, now: Any,
-        customer: Any, active_reservation: Any,
-    ) -> AgentTurn:
-        """Do not tell a customer a car is free until something has looked.
-
-        Said once and corrected two messages later, after the customer had
-        already chosen on the strength of it. This operator publishes
-        availability nowhere, which makes it the fact the model has least
-        business inferring.
-        """
-        if not availability.claims_available(turn.reply):
-            return turn
-
-        calls = self._turn_calls(ctx)
-        if availability.checked_for(calls, state.pickup_at, state.return_at):
-            return turn
-
-        _log.warning("reply claimed availability with nothing having checked — asking again")
-        try:
-            retried = self._run_tool_loop(
-                ctx, state, now, customer, active_reservation,
-                directive=availability.CORRECTION,
-            )
-        except ProviderUnavailable:
-            retried = None
-
-        if retried is not None:
-            recheck = self._turn_calls(ctx)
-            if not availability.claims_available(retried.reply) or availability.checked_for(
-                recheck, state.pickup_at, state.return_at
+            issues = []
+            fallback = facts.safe_reply(ctx) if ctx.session is not None else SAFE_FALLBACK_REPLY
+            verdict = figures.inspect(turn.reply, calls, facts.customer_budgets(ctx))
+            if not verdict.ok:
+                invented.update(str(v) for v in verdict.unsupported)
+                issues.append(figures.correction(verdict))
+                fallback = figures.SAFE_REPLY
+            if availability.claims_available(turn.reply) and not availability.checked_for(
+                calls, current.pickup_at, current.return_at
             ):
-                retried.unchecked_availability = True
-                return retried
-
-        turn.reply = availability.SAFE_REPLY
-        turn.unchecked_availability = True
-        return turn
-
-    def _refuse_unbacked_confirmation(
-        self, ctx: ToolContext, turn: AgentTurn, state: Any, now: Any,
-        customer: Any, active_reservation: Any,
-    ) -> AgentTurn:
-        """Do not tell a customer their booking is done unless one is.
-
-        Stated as proof rather than suspicion. A hold does not back the claim —
-        nobody who can see the fleet has said the car is free — and no booking
-        at all backs it even less, which is the case a hold-shaped guard would
-        have waved straight through.
-
-        Read live rather than from the reservation loaded at the top of the
-        turn: the common shape is the model taking a hold and announcing it in
-        the same breath, and at the start of that turn there was no booking.
-
-        Answers about the booking the reply names, when it names one, so a
-        customer with one confirmed car and one still being checked can still be
-        told the truth about the confirmed one.
-        """
-        claim = holds.inspect(turn.reply)
-        if not claim:
-            return turn
-
-        backing = booking_service.confirmation_backing(ctx, claim.references)
-        if backing == booking_service.CONFIRMED:
-            return turn
-        if backing == booking_service.NOTHING and not claim.explicit:
-            # "All set" with no booking anywhere is a pleasantry about whatever
-            # else was on the table, not a promise about a car.
-            return turn
-
-        awaiting = backing == booking_service.AWAITING
-        _log.warning(
-            "reply claimed a booking that is %s — asking again",
-            "awaiting confirmation" if awaiting else "not on file",
-        )
-        try:
-            retried = self._run_tool_loop(
-                ctx, state, now, customer, active_reservation,
-                directive=holds.CORRECTION if awaiting else holds.NOTHING_TO_CONFIRM,
+                unchecked = True
+                issues.append(availability.CORRECTION)
+                fallback = availability.SAFE_REPLY
+            claim = holds.inspect(turn.reply)
+            if claim:
+                backing = booking_service.confirmation_backing(ctx, claim.references)
+                if backing != booking_service.CONFIRMED and (claim.explicit or backing == booking_service.AWAITING):
+                    unbacked = True
+                    waiting = backing == booking_service.AWAITING
+                    issues.append(holds.CORRECTION if waiting else holds.NOTHING_TO_CONFIRM)
+                    fallback = holds.SAFE_REPLY if waiting else holds.NO_BOOKING_REPLY
+            issues.extend(facts.problems(ctx, turn.reply, calls))
+            if not issues:
+                break
+            if ctx.session is not None:
+                saved = ctx.load_state()
+                saved.validation_findings.append({
+                    "type": "outbound_validation_failed",
+                    "reply": turn.reply[:500], "reason": "\n".join(issues)[:1500],
+                })
+                saved.validation_findings = saved.validation_findings[-50:]
+                ctx.save_state(saved)
+            if attempt:
+                turn.reply = fallback
+                break
+            try:
+                rewritten = self._run_tool_loop(ctx, current, now, customer, active_reservation,
+                    directive="\n".join(issues) + "\nPreserve the answer to the customer's actual question.")
+            except ProviderUnavailable:
+                turn.reply = fallback
+                turn.media = ctx.take_media() or turn.media
+                turn.cards = ctx.take_cards() or turn.cards
+                break
+            rewritten.tool_calls = turn.tool_calls + rewritten.tool_calls
+            rewritten.tools_succeeded = turn.tools_succeeded + rewritten.tools_succeeded
+            rewritten.media = rewritten.media or turn.media
+            rewritten.cards = rewritten.cards or turn.cards
+            turn = rewritten
+        turn.invented_figures = tuple(sorted(invented))
+        turn.unchecked_availability = unchecked
+        turn.confirmed_a_hold = unbacked
+        # A request for one answer notifies staff without pausing the sale.
+        if "escalate_conversation" in turn.tools_succeeded:
+            turn.escalated = turn.escalated or any(
+                c.tool_name == "escalate_conversation" and (c.result or {}).get("escalated")
+                for c in self._turn_calls(ctx)
             )
-        except ProviderUnavailable:
-            retried = None
-
-        if retried is not None:
-            second = holds.inspect(retried.reply)
-            if not second or booking_service.confirmation_backing(
-                ctx, second.references
-            ) == booking_service.CONFIRMED:
-                retried.confirmed_a_hold = True
-                return retried
-
-        turn.reply = holds.SAFE_REPLY if awaiting else holds.NO_BOOKING_REPLY
-        turn.confirmed_a_hold = True
-        return turn
-
-    def _refuse_invented_figures(
-        self, ctx: ToolContext, turn: AgentTurn, state: Any, now: Any,
-        customer: Any, active_reservation: Any,
-    ) -> AgentTurn:
-        """Do not send a price no tool produced.
-
-        The evaluator already finds these, afterwards, once the customer has the
-        number. This is the same rule applied while there is still time to do
-        something about it.
-
-        One retry. Each costs a model call against a 2-5 second target, and a
-        model that has invented a figure with the real ones in front of it will
-        not do better on a third pass. If the retry also fails, the reply says
-        nothing about money at all: a customer told "let me confirm that" is
-        inconvenienced, and a customer told the wrong total is misled.
-        """
-        verdict = figures.inspect(turn.reply, self._turn_calls(ctx))
-        if verdict.ok:
-            return turn
-
-        _log.warning(
-            "reply stated %s, which no tool produced — asking for it again",
-            ", ".join(str(v) for v in verdict.unsupported),
-        )
-        try:
-            retried = self._run_tool_loop(
-                ctx, state, now, customer, active_reservation,
-                directive=figures.correction(verdict),
-            )
-        except ProviderUnavailable:
-            retried = None
-
-        if retried is not None:
-            second = figures.inspect(retried.reply, self._turn_calls(ctx))
-            if second.ok:
-                retried.invented_figures = tuple(str(v) for v in verdict.unsupported)
-                return retried
-
-        turn.reply = figures.SAFE_REPLY
-        turn.invented_figures = tuple(str(v) for v in verdict.unsupported)
+        # Cancellation is a state transition already completed by the service.
+        # Its receipt must never be replaced by a no-booking fallback.
+        if "cancel_demo_reservation" in turn.tools_succeeded:
+            cancelled = next((c.result for c in reversed(self._turn_calls(ctx))
+                if c.tool_name == "cancel_demo_reservation" and (c.result or {}).get("status") == "cancelled"), None)
+            if cancelled:
+                turn.reply = f"Your booking {cancelled['reservation_id']} is cancelled."
+                if cancelled.get("cancellation_fee") is not None:
+                    turn.reply += f" Cancellation fee: {cancelled.get('currency', 'AED')} {cancelled['cancellation_fee']}."
+                turn.reply += "\n\n" + cancelled.get("demo_notice", "")
         return turn
 
     @staticmethod
@@ -612,7 +591,7 @@ class Agent:
         to notice.
         """
         extracted = pending.join()
-        state = extraction_mod.merge(state, extracted, ctx.engine.tz)
+        state = extraction_mod.merge(state, extracted, ctx.engine.tz, message)
         ctx.save_state(state)
 
         if extracted.escalation_signal in extraction_mod.HIGH_SEVERITY_SIGNALS:
@@ -677,6 +656,8 @@ class Agent:
         escalated_late = False
 
         while iterations < self.settings.max_tool_iterations:
+            if remaining() <= 0:
+                raise ProviderUnavailable("The response deadline was reached.")
             iterations += 1
             response = self._create(
                 model=self.settings.resolved_model(),
@@ -698,8 +679,11 @@ class Agent:
                 if state.escalated and not was_escalated:
                     # The reply in hand was composed without knowing the
                     # customer had just reported an accident. Throw it away and
-                    # answer again, now that the state block says so. One extra
-                    # call, on the rarest and highest-stakes turn there is.
+                    # use fixed emergency guidance for urgent reports.
+                    from ..services.escalation import URGENT_REASONS, emergency_reply
+                    if state.escalation_reason in URGENT_REASONS:
+                        return AgentTurn(reply=emergency_reply(ctx), escalated=True,
+                            tool_calls=called, tools_succeeded=succeeded, iterations=iterations)
                     escalated_late = True
                     continue
 
@@ -750,6 +734,9 @@ class Agent:
                     if result.get("awaiting_confirmation"):
                         awaiting = True
                 self._absorb(ctx, use.name, result)
+                if result.get("urgent") and result.get("safety_reply"):
+                    return AgentTurn(reply=result["safety_reply"], escalated=True,
+                        tool_calls=called, tools_succeeded=succeeded, iterations=iterations)
                 results.append(
                     {
                         "type": "tool_result",

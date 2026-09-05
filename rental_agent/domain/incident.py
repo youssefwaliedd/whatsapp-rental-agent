@@ -59,6 +59,20 @@ def asks_rather_than_reports(text: str | None) -> bool:
     way round is somebody waiting at the scene of an accident.
     """
     content = text or ""
-    if ACTUAL.search(content):
+    if ACTUAL.search(content) or urgent_report(content):
         return False
     return bool(QUESTION.search(content))
+
+
+def urgent_report(text: str) -> str | None:
+    """Recognise clear roadside emergencies even when the model is offline."""
+    # Evaluate clauses separately: a report followed by "who should I call?"
+    # remains an emergency, while hypothetical and negated claims do not.
+    for clause in re.split(r"[.!?؟\n]|\b(?:but|however)\b", text, flags=re.I):
+        if re.search(r"\b(?:if|would|could|not|never|no)\b|(?:لو|إذا|مش|غير)\s", clause, re.I):
+            continue
+        if re.search(r"(?:someone|somebody|i|passenger)\s+(?:is |am |was )?(?:hurt|injured|bleeding)|حد مصاب|شخص مصاب", clause, re.I):
+            return "injury"
+        if re.search(r"(?:engine|car|vehicle).{0,40}(?:smok(?:e|ing)|fire)|(?:smok(?:e|ing)|fire).{0,40}(?:engine|car)|السيارة تحترق", clause, re.I):
+            return "accident"
+    return None

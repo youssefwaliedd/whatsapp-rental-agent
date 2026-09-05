@@ -48,7 +48,15 @@ def defers_booking(message: str | None) -> bool:
     text = message or ""
     if OVERRIDES.search(text):
         return False
-    return bool(DEFERS.search(text))
+    # Liking an option or asking its fees is not acceptance of a booking.
+    if re.search(r"\b(?:i like|what are the fees|what are the charges)\b|عجبتني|ايه الرسوم", text, re.I) and not re.search(
+        r"\b(?:book|reserve|go ahead|proceed)\b|احجز", text, re.I
+    ):
+        return True
+    return bool(DEFERS.search(text) or re.search(
+        r"(?:لا\s*تحجز|ما\s*تحجزش|مت?حجزش|لا\s*تقم\s*بالحجز|قبل\s*الحجز|"
+        r"لسه\s*بفكر|وريني.*الأول|سأقرر\s*لاحق|هقرر\s*بعدين)", text
+    ))
 
 
 GUIDANCE = (

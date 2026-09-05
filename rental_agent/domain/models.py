@@ -7,7 +7,7 @@ customer was shown.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, ClassVar, Literal
 
@@ -270,12 +270,15 @@ class ConversationState(Base):
 
     pickup_at: datetime | None = None
     return_at: datetime | None = None
+    pickup_date: date | None = None
+    return_date: date | None = None
     delivery_location: str | None = None
     return_location: str | None = None
 
     vehicle_preferences: VehiclePreferences = Field(default_factory=VehiclePreferences)
 
     presented_vehicle_ids: list[str] = Field(default_factory=list)
+    current_vehicle_options: list[str] = Field(default_factory=list)
     selected_vehicle_id: str | None = None
     quote_id: str | None = None
     reservation_id: str | None = None
@@ -294,6 +297,7 @@ class ConversationState(Base):
     #: repeated-question failure, and it can only be detected at ask time —
     #: by evaluation time the value is present either way.
     redundant_asks: list[str] = Field(default_factory=list)
+    validation_findings: list[dict[str, str]] = Field(default_factory=list)
 
     def unanswered_asks(self, slot: str) -> int:
         """How many times this has been asked while still not supplied.

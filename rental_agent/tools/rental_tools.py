@@ -124,7 +124,8 @@ def _vehicle_detail(vehicle: Vehicle, engine: RentalEngine) -> dict[str, Any]:
             "extra_km_price": _figure(vehicle.extra_km_price),
             "luggage_capacity": vehicle.luggage_capacity,
             "features": vehicle.features,
-            "images": vehicle.images,
+            "photo_count": len(vehicle.images),
+            "photo_guidance": "Call show_vehicle_photos to send photos. Never infer colour or model year from photo filenames.",
             "status": vehicle.status.value,
             "minimum_driver_age": engine.minimum_age_for(vehicle.category),
             "insurance_excess": str(engine.rules.insurance_excess_for(vehicle.category.value)),
@@ -234,6 +235,7 @@ def search_available_vehicles(ctx: ToolContext, args: dict[str, Any]) -> dict[st
         returned = {m.vehicle.id for m in matches}
         if named and not any(v.id in returned for v in named):
             unavailable = []
+            excluded = []
             for vehicle in named:
                 # Through the provider. Telling a customer a named car is not
                 # free is an answer about inventory, and inventory has one
@@ -241,6 +243,21 @@ def search_available_vehicles(ctx: ToolContext, args: dict[str, Any]) -> dict[st
                 result = ctx.provider.check_availability(
                     vehicle.id, criteria.pickup_at, criteria.return_at
                 )
+                if not result.usable or result.available:
+                    excluded.append({
+                        "vehicle_id": vehicle.id,
+                        "display_name": vehicle.display_name,
+                        "daily_price": str(vehicle.daily_price),
+                        "available": result.available if result.usable else None,
+                        "reason": (
+                            "availability_unknown" if not result.usable else
+                            "over_budget" if criteria.max_daily_price is not None
+                            and vehicle.daily_price > criteria.max_daily_price else
+                            "colour_unconfirmed" if criteria.color and vehicle.color == "unspecified" else
+                            "preferences_not_matched"
+                        ),
+                    })
+                    continue
                 unavailable.append(
                     {
                         "vehicle_id": vehicle.id,
@@ -254,6 +271,13 @@ def search_available_vehicles(ctx: ToolContext, args: dict[str, Any]) -> dict[st
                         ),
                     }
                 )
+            if excluded:
+                return {
+                    "count": 0, "vehicles": [], "excluded_by_preferences": excluded,
+                    "hint": "These cars did not match the filters. Explain the reason: over budget, "
+                    "unconfirmed colour, or another preference. Do not call them booked or unavailable "
+                    "for the dates. Ask which preference can change, or find alternatives.",
+                }
             return {
                 "count": 0,
                 "vehicles": [],
@@ -281,6 +305,10 @@ def get_vehicle_details(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
 
 
 def calculate_quote(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from ..domain.selection import quote_error
+    error = quote_error(ctx, args["vehicle_id"])
+    if error:
+        return error
     engine = ctx.engine
     quote = engine.calculate_quote(
         vehicle_id=args["vehicle_id"],
@@ -291,6 +319,10 @@ def calculate_quote(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         or Decimal("0"),
         excess_reduction=bool(args.get("excess_reduction", False)),
     )
+    # Preserve the verified breakdown even if the model's summary is rejected
+    # or the next provider request fails.
+    from ..formatting import quote_message
+    ctx.queue_card(quote_message(quote, engine.rules), tag="quote")
     return _quote(quote)
 
 
@@ -423,7 +455,9 @@ def show_vehicle_photos(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
             "vehicle_id": vehicle.id,
             "display_name": vehicle.display_name,
             "images": images,
-            "caption": args.get("caption") or None,
+            # Captions are customer-visible too. Keep model-generated prices
+            # and unverified specifications out of this second output channel.
+            "caption": vehicle.display_name,
         }
     )
     return {

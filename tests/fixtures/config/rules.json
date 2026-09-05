@@ -409,5 +409,12 @@
   "booking": {
     "_comment": "The fictional operator's availability is in the fleet file, so a booking is a booking.",
     "holds_require_confirmation": false
+  },
+  "operator_location": {
+    "_comment": "Published on their contact page and read 5 Sep 2026. The address is a fact they publish, so the agent may state it. Whether a customer may COLLECT from here is not published anywhere — their site advertises free pick-up and drop-off, which is delivery, and says nothing about walking in. Null until they answer, so the agent offers to check rather than inviting somebody to drive to an industrial area on a guess.",
+    "address": "Sandline Rentals, Al Quoz, Dubai",
+    "phone": "+971 50 000 0000",
+    "collection_available": null,
+    "_hours_note": "Their contact page lists 00:00-23:59 seven days, while their terms give free delivery 09:00-22:00 with a fee outside it. A fourth published contradiction; the terms are encoded and the questionnaire asks."
   }
 }

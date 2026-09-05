@@ -19,6 +19,7 @@ because the answer is in the policy document.
 from __future__ import annotations
 
 import difflib
+import re
 from typing import Any
 
 from ..context import ToolContext
@@ -37,6 +38,25 @@ URGENT_REASONS = {
 }
 
 
+def emergency_reply(ctx: ToolContext) -> str:
+    """Fixed emergency guidance, without a model inventing roadside instructions.
+
+    Numbers: https://u.ae/en/information-and-services/justice-safety-and-the-law/handling-emergencies
+    """
+    contacts = ctx.engine.rules.get("emergency_contacts", {})
+    police = contacts.get("police", "999")
+    ambulance = contacts.get("ambulance", "998")
+    fire = contacts.get("fire", "997")
+    if re.search(r"[\u0600-\u06ff]", _last_customer_message(ctx) or ""):
+        return (f"سلامتك أولاً. في حالة الإصابة اتصل بالإسعاف على {ambulance}، "
+                f"وبالشرطة على {police} للحادث، وبالدفاع المدني على {fire} عند وجود حريق أو دخان. "
+                "اتبع تعليمات خدمات الطوارئ. تم تسجيل طلب عاجل ليتولى زميل مساعدتك.")
+    return (f"Your safety comes first. For injuries, call ambulance {ambulance}; "
+            f"for the accident, police {police}; for fire or smoke, fire services {fire}. "
+            "Follow the emergency operator's instructions. An urgent case has been recorded "
+            "for a colleague to take over.")
+
+
 def _last_customer_message(ctx: ToolContext) -> str | None:
     """What the customer actually said, most recently."""
     if ctx.session is None or not ctx.conversation_id:
@@ -53,6 +73,11 @@ def classify_reason(reason: str, triggers: list[str]) -> str:
     normalised = reason.strip().lower().replace(" ", "_")
     if normalised in triggers:
         return normalised
+    # Compound reasons must retain their most serious recognised component.
+    words = set(re.findall(r"[a-z]+", reason.lower()))
+    for trigger in sorted(triggers, key=lambda t: (t not in URGENT_REASONS, -len(t))):
+        if set(trigger.split("_")) <= words:
+            return trigger
     close = difflib.get_close_matches(normalised, triggers, n=1, cutoff=0.75)
     return close[0] if close else "other"
 
@@ -65,6 +90,9 @@ def escalate_conversation(
 
     triggers = ctx.engine.rules.escalation_triggers
     classified = classify_reason(reason, triggers)
+    previous = ctx.load_state().escalation_reason
+    if previous in URGENT_REASONS and classified not in URGENT_REASONS:
+        classified = previous
     urgent = classified in URGENT_REASONS
 
     # Their own words, not the model's reading of them.
@@ -149,6 +177,7 @@ def escalate_conversation(
         "recognised_trigger": classified != "other",
         # Milestone 4 turns this into an actual WhatsApp message to staff.
         "staff_notified": False,
+        "safety_reply": emergency_reply(ctx) if urgent else None,
         "guidance": (
             "Tell the customer a colleague is taking over, and do not attempt "
             "to resolve it yourself. For an accident, remind them of safety "

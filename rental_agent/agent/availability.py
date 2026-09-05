@@ -55,9 +55,14 @@ AVAILABILITY_TOOLS = {
 
 def claims_available(reply: str) -> bool:
     text = reply or ""
-    if NOT_A_CLAIM.search(text):
-        return False
-    return bool(CLAIMS_AVAILABLE.search(text))
+    for sentence in re.split(r"[.!?؟\n]+", text):
+        if NOT_A_CLAIM.search(sentence) or re.search(
+            r"(?:سأتحقق|نتحقق|هتأكد|سنتأكد|ليست|غير)\s*.*(?:متاح|متوفر)", sentence
+        ):
+            continue
+        if CLAIMS_AVAILABLE.search(sentence) or re.search(r"(?:متاحة?|متوفرة?)\b", sentence):
+            return True
+    return False
 
 
 def _same_moment(raw: Any, moment: datetime | None) -> bool:
@@ -102,10 +107,13 @@ CORRECTION = (
     "This operator publishes no availability anywhere, so you cannot know it without "
     "asking a tool. Call search_available_vehicles for the dates they gave you, and "
     "answer from what it returns.\n"
-    "If you would rather not check yet, say you are checking — do not say it is free."
+    "If you would rather not check yet, say you are checking — do not say it is free.\n"
+    "Keep everything else you wrote. Only the availability claim has to go — the "
+    "customer asked you something, and dropping their question to talk about "
+    "availability answers a question they did not ask."
 )
 
 #: Sent when the model asserts availability twice without checking.
 SAFE_REPLY = (
-    "Let me confirm that one is free for your dates and come straight back to you."
+    "I cannot confirm availability without checking your rental dates."
 )
