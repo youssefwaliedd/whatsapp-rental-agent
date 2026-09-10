@@ -18,6 +18,10 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import select
+from ..store.models import Reservation
+from ..payments.stripe import minor_units, ZERO_DECIMAL
+
 from ..context import ToolContext
 from ..payments import PaymentError, build_provider
 
@@ -80,6 +84,17 @@ def create_payment_link(
     if isinstance(reservation, dict):
         return reservation
 
+    reservation = _locked(ctx, reservation_id)
+    if reservation.status != "confirmed":
+        return _error("reservation_not_confirmed", "This booking is not confirmed. A colleague must check it before payment.")
+    if reservation.payment_status in {"paid", "payment_review", "refund_pending", "refunded", "partially_refunded", "holding_paid", "deposit_paid"}:
+        return _error("payment_already_received", "A payment is already recorded. Do not request another payment; a colleague must check any balance or refund.")
+
+    from .checkout import reservation_gate
+    blocked = reservation_gate(ctx,reservation)
+    if blocked:
+        return blocked
+
     purpose = (purpose or config.get("default_purpose") or RENTAL_TOTAL).lower()
     if purpose not in config.get("purposes", [RENTAL_TOTAL]):
         return _error("unknown_purpose", f"{purpose!r} is not something this operator charges for.")
@@ -93,7 +108,13 @@ def create_payment_link(
     now = ctx.now()
     reference = f"PAY-{ctx.counters.next('payment')}"
     try:
-        link = build_provider().create_link(
+        provider = build_provider()
+        if reservation.is_demo and getattr(provider, "is_live", False):
+            return _error("live_payment_for_demo", "A simulated reservation cannot collect real money. Use Stripe test mode.")
+        if getattr(provider, "name", "") == "stripe" and (reservation.payment_reference or "").startswith("cs_"):
+            if not provider.expire_checkout(reservation.payment_reference):
+                return _error("checkout_already_completed", "The previous checkout has completed. Please do not pay again; return from Stripe or ask a colleague to verify the payment.")
+        link = provider.create_link(
             amount=amount,
             currency=reservation.currency,
             reference=reference,
@@ -114,7 +135,9 @@ def create_payment_link(
     ctx.reservations.append_history(
         reservation,
         {"event": "payment_link_created", "purpose": purpose,
-         "amount": str(amount), "reference": link.reference},
+         "amount": str(amount), "reference": link.reference,
+         "currency": link.currency, "url": link.url, "is_demo": link.is_demo,
+         "expires_at": getattr(link, "expires_at", None)},
         now,
     )
 
@@ -134,7 +157,27 @@ def create_payment_link(
             ),
         }
     )
+    ctx.queue_card(payment_receipt(result), tag="payment_link")
     return result
+
+
+def payment_receipt(result: dict[str, Any], *, arabic: bool = False) -> str:
+    if arabic:
+        purpose = {RENTAL_TOTAL: "إجمالي الإيجار", DEPOSIT: "التأمين", HOLDING: "دفعة الحجز"}.get(result["purpose"], "الإيجار")
+        text = f"رابط دفع {purpose}: {Decimal(result['amount']):,.2f} {result['currency']}\n{result['payment_url']}"
+        if result.get("is_demo"):
+            text += "\nهذه دفعة تجريبية فقط، ولن يتم خصم أموال حقيقية."
+        return text
+    text = (f"Payment for {result['purpose'].replace('_', ' ')}: "
+            f"{result['currency']} {Decimal(result['amount']):,.2f}\n{result['payment_url']}")
+    if result.get("is_demo"):
+        text += "\nTest payment only. No real money is collected."
+    return text
+
+
+def _locked(ctx, reservation_id):
+    return ctx.session.scalar(select(Reservation).where(
+        Reservation.reservation_id == reservation_id).with_for_update().execution_options(populate_existing=True))
 
 
 def mark_paid(
@@ -145,68 +188,155 @@ def mark_paid(
     currency: str,
     reference: str,
     event_id: str = "",
+    payment_intent: str = "",
+    livemode: bool | None = None,
 ) -> dict[str, Any]:
-    """Record money that actually arrived.
-
-    Idempotent, because Stripe retries an event until it gets a 200 and a
-    customer must not be recorded as having paid twice. The event id is written
-    into the reservation's history and a repeat is ignored on sight.
-
-    The amount stored is the one the provider says it received, converted back
-    from minor units. Not the one we asked for: a customer paying an old link, a
-    currency conversion or a partial payment all make those differ, and
-    reconciling against what you hoped for is how money goes missing on paper.
-    """
-    reservation = ctx.reservations.get(reservation_id)
+    """Reconcile an authenticated processor receipt against an issued checkout."""
+    reservation = _locked(ctx, reservation_id)
     if reservation is None:
         return {"recorded": False, "reason": "unknown_reservation", "reservation_id": reservation_id}
-
-    already = any(
-        entry.get("event") == "payment_received" and entry.get("event_id") == event_id
-        for entry in (reservation.history or [])
-        if event_id
-    )
-    if already or reservation.payment_status == "paid":
-        return {
-            "recorded": False,
-            "reason": "already_recorded",
-            "reservation_id": reservation_id,
-            "payment_status": reservation.payment_status,
-        }
-
-    amount = (
-        (Decimal(amount_minor) / 100) if amount_minor is not None
-        else Decimal(str(reservation.total_charge))
-    )
+    history = reservation.history or []
+    if any(h.get("event") == "payment_received" and
+           (h.get("reference") == reference or (event_id and h.get("event_id") == event_id)) for h in history):
+        return {"recorded": False, "reason": "already_recorded", "reservation_id": reservation_id,
+                "payment_status": reservation.payment_status}
+    issued = next((h for h in reversed(history) if h.get("event") == "payment_link_created"
+                   and h.get("reference") == reference), None)
+    if not issued:
+        return {"recorded": False, "reason": "unknown_checkout", "reservation_id": reservation_id}
+    if isinstance(amount_minor, bool) or not isinstance(amount_minor, int) or amount_minor <= 0 or not currency:
+        return {"recorded": False, "reason": "invalid_payment_amount", "reservation_id": reservation_id}
+    currency = currency.upper()
+    amount = Decimal(amount_minor) / (1 if currency in ZERO_DECIMAL else 100)
     expected = Decimal(str(reservation.total_charge))
-
-    now = ctx.now()
-    reservation.payment_status = "paid"
-    reservation.payment_reference = reference or reservation.payment_reference
+    purpose = issued.get("purpose", RENTAL_TOTAL)
+    problems = []
+    if currency != issued.get("currency", reservation.currency).upper():
+        problems.append("currency_mismatch")
+    if amount != Decimal(issued["amount"]):
+        problems.append("amount_mismatch")
+    if purpose == RENTAL_TOTAL and amount != expected:
+        problems.append("booking_amount_changed")
+    if reference != reservation.payment_reference:
+        problems.append("superseded_checkout")
+    if reservation.status != "confirmed":
+        problems.append("booking_not_confirmed")
+    if any(h.get("event") == "payment_received" for h in history):
+        problems.append("additional_payment")
+    if livemode is not None and livemode != (not issued.get("is_demo", reservation.is_demo)):
+        problems.append("payment_mode_mismatch")
+    status = "payment_review" if problems else {
+        RENTAL_TOTAL: "paid", HOLDING: "holding_paid", DEPOSIT: "deposit_paid"
+    }.get(purpose, "payment_review")
+    reservation.payment_status = status
     reservation.version += 1
-    ctx.reservations.append_history(
-        reservation,
-        {
-            "event": "payment_received",
-            "event_id": event_id,
-            "amount": str(amount),
-            "currency": currency,
-            "reference": reference,
-        },
-        now,
-    )
-    ctx.session.flush()
-
-    result = {
-        "recorded": True,
-        "reservation_id": reservation_id,
-        "amount": str(amount),
-        "currency": currency,
-        "payment_status": "paid",
-    }
+    ctx.reservations.append_history(reservation, {
+        "event": "payment_received", "event_id": event_id, "reference": reference,
+        "amount": str(amount), "currency": currency, "purpose": purpose,
+        "payment_intent": payment_intent, "issues": problems,
+    }, ctx.now())
+    result = {"recorded": True, "reservation_id": reservation_id, "amount": str(amount),
+              "currency": currency, "payment_status": status, "issues": problems}
     if amount != expected:
-        # Recorded either way — the money is real. Flagged because a mismatch is
-        # somebody's problem and silence would make it nobody's.
-        result["amount_differs"] = True
-        result["expected"] = str(expected)
+        result.update(amount_differs=True, expected=str(expected))
+    if problems:
+        queue_payment_review(ctx, reservation, "Payment reconciliation requires review: " + ", ".join(problems))
+    record_payment_message(ctx, reservation, result)
     return result
+
+
+def record_payment_message(ctx, reservation, result):
+    """Persist the same factual receipt for the browser and WhatsApp."""
+    status = result["payment_status"]
+    if status == "paid":
+        text = f"Payment received: {result['currency']} {result['amount']} for {reservation.reservation_id}. Your rental payment is recorded."
+    elif status in {"holding_paid", "deposit_paid"}:
+        text = f"Your {status.replace('_paid', '')} payment is recorded for {reservation.reservation_id}. This does not mean the rental balance is paid."
+    elif status in {"refunded", "partially_refunded"}:
+        text = f"Stripe reports a {status.replace('_', ' ')} payment for {reservation.reservation_id}: {result['currency']} {result['amount']}."
+    else:
+        text = f"A payment was received for {reservation.reservation_id}, but it needs a colleague's review before we can confirm the rental payment. Please do not pay again."
+    result["message"] = text
+    if reservation.conversation_id:
+        ctx.messages.record(conversation_id=reservation.conversation_id, direction="outbound", content=text, now=ctx.now())
+
+
+def mark_checkout_status(ctx, *, reservation_id, reference, status, event_id=""):
+    reservation = _locked(ctx, reservation_id)
+    if reservation is None:
+        return {"recorded": False, "reason": "unknown_reservation"}
+    if reference != reservation.payment_reference or reservation.payment_status not in {"link_sent", "failed", "expired"}:
+        return {"recorded": False, "reason": "stale_checkout_event"}
+    if reservation.payment_status == status:
+        return {"recorded": False, "reason": "already_recorded"}
+    reservation.payment_status = status
+    ctx.reservations.append_history(reservation, {"event": "checkout_" + status,
+        "reference": reference, "event_id": event_id}, ctx.now())
+    if reservation.conversation_id:
+        ctx.messages.record(conversation_id=reservation.conversation_id, direction="outbound",
+            content=f"The payment checkout for {reservation_id} has {status}. The rental is not marked paid. You can request a new link.", now=ctx.now())
+    return {"recorded": True, "payment_status": status, "reservation_id": reservation_id}
+
+
+def mark_refunded(ctx, *, payment_intent, amount_minor, currency, event_id=""):
+    if not payment_intent:
+        return {"recorded": False, "reason": "unknown_payment"}
+    # Receipt history is also kept for cancelled bookings and superseded links.
+    for row in ctx.session.scalars(select(Reservation)):
+        receipt = next((h for h in row.history or [] if h.get("event") == "payment_received"
+                        and h.get("payment_intent") == payment_intent), None)
+        if receipt:
+            break
+    else:
+        return {"recorded": False, "reason": "unknown_payment"}
+    reservation = _locked(ctx, row.reservation_id)
+    if not isinstance(amount_minor, int) or isinstance(amount_minor, bool) or amount_minor <= 0 or currency.upper() != receipt['currency']:
+        return {"recorded": False, "reason": "invalid_refund"}
+    amount = Decimal(amount_minor) / (1 if currency.upper() in ZERO_DECIMAL else 100)
+    previous = max((Decimal(h['amount']) for h in reservation.history or [] if h.get('event') == 'payment_refunded'
+                    and h.get('payment_intent') == payment_intent), default=Decimal(0))
+    if amount <= previous:
+        return {"recorded": False, "reason": "already_recorded"}
+    status = "refunded" if amount == Decimal(receipt['amount']) else "partially_refunded"
+    if amount > Decimal(receipt['amount']) or len([h for h in reservation.history or [] if h.get('event') == 'payment_received']) > 1:
+        status = "payment_review"
+    reservation.payment_status = status
+    ctx.reservations.append_history(reservation, {"event": "payment_refunded", "payment_intent": payment_intent,
+        "amount": str(amount), "currency": currency.upper(), "event_id": event_id}, ctx.now())
+    result = {"recorded": True, "reservation_id": reservation.reservation_id, "payment_status": status,
+              "amount": str(amount), "currency": currency.upper()}
+    record_payment_message(ctx, reservation, result)
+    return result
+
+
+def cancellation_payment_review(ctx, reservation):
+    """Close unpaid checkout where possible; queue paid cancellations for staff."""
+    received = [h for h in reservation.history or [] if h.get('event') == 'payment_received']
+    if received and reservation.payment_status != 'refunded':
+        reservation.payment_status = 'refund_pending'
+        ctx.reservations.append_history(reservation, {'event': 'refund_review_requested',
+            'reason': 'booking_cancelled'}, ctx.now())
+        queue_payment_review(ctx, reservation, 'A paid booking was cancelled. Review the cancellation fee and approve any refund. No refund has been sent.')
+        return 'A refund review has been recorded for a colleague. No refund has been issued yet.'
+    if (reservation.payment_reference or '').startswith('cs_'):
+        try:
+            provider = build_provider()
+            if provider.name == 'stripe':
+                if not provider.expire_checkout(reservation.payment_reference):
+                    queue_payment_review(ctx, reservation, 'The cancelled booking has a completed checkout. Reconcile its payment and any refund before proceeding.')
+                    return 'The checkout needs a colleague to reconcile its payment. Please do not pay again.'
+                if reservation.payment_status == 'link_sent':
+                    reservation.payment_status = 'expired'
+        except PaymentError:
+            queue_payment_review(ctx, reservation, 'Booking cancelled, but its Stripe checkout could not be closed. Check the payment account before taking further action.')
+            return 'A colleague needs to check the old payment link. Please do not pay it.'
+    return ''
+
+
+def queue_payment_review(ctx, reservation, detail):
+    if not reservation.conversation_id:
+        return
+    from .escalation import escalate_conversation
+    review_ctx = ToolContext(session=ctx.session, customer_id=reservation.customer_id,
+        conversation_id=reservation.conversation_id, now_fn=ctx.now_fn, reference_date=ctx.reference_date)
+    escalate_conversation(review_ctx, reason='refund_request', detail=f'{reservation.reservation_id}: {detail}')

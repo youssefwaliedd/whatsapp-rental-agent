@@ -548,3 +548,108 @@ def test_gemini_timeout_is_bounded_and_sdk_retries_are_disabled(gemini_client):
     config = gemini_client.raw.models.calls[0]['config']
     assert 10000 <= config.http_options.timeout <= 15000
     assert config.http_options.retry_options.attempts == 1
+
+
+def test_slow_failure_can_fail_over_with_remaining_turn_time(gemini_client, monkeypatch):
+    from rental_agent.agent.providers.budget import turn_budget
+    clock = [100.0]
+    monkeypatch.setattr(gemini.time, 'monotonic', lambda: clock[0])
+    calls = []
+    def generate_content(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            clock[0] += 9.2
+            raise RuntimeError('503 UNAVAILABLE high demand')
+        return _candidate([_part(text='Prices recovered')])
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    with turn_budget(30):
+        result = gemini_client.messages.create(messages=[{'role':'user','content':'What are their prices?'}])
+    assert result.content[0].text == 'Prices recovered'
+    assert len(calls) == 2
+    assert calls[0]['model'] != calls[1]['model']
+    assert calls[1]['config'].http_options.timeout <= 15000
+
+
+def test_failover_does_not_extend_total_turn_deadline(gemini_client, monkeypatch):
+    from rental_agent.agent.providers.budget import turn_budget
+    from rental_agent.agent.providers.errors import ProviderUnavailable
+    clock = [100.0]
+    monkeypatch.setattr(gemini.time, 'monotonic', lambda: clock[0])
+    calls = []
+    def generate_content(**kwargs):
+        calls.append(kwargs)
+        clock[0] += 15
+        raise TimeoutError('request timed out')
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    with turn_budget(30), pytest.raises(ProviderUnavailable):
+        gemini_client.messages.create(messages=[{'role':'user','content':'prices'}])
+    assert len(calls) == 2
+    assert clock[0] == 130
+
+
+def test_retry_after_is_not_shortened_by_backoff_cap(gemini_client, monkeypatch):
+    from rental_agent.agent.providers.budget import turn_budget
+    clock = [100.0]
+    monkeypatch.setattr(gemini.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(gemini.time, 'sleep', lambda seconds: clock.__setitem__(0, clock[0]+seconds))
+    gemini_client.fallback_models = []
+    gemini_client.max_backoff = 1
+    calls = []
+    def generate_content(**kwargs):
+        calls.append(clock[0])
+        if len(calls) == 1:
+            raise RuntimeError("429 RESOURCE_EXHAUSTED {'retryDelay': '31s'}")
+        return _candidate([_part(text='Recovered')])
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    with turn_budget(60):
+        gemini_client.messages.create(messages=[{'role':'user','content':'prices'}])
+    assert calls == [100, 131]
+
+
+def test_provider_logs_and_errors_do_not_store_response_bodies(gemini_client, caplog):
+    from rental_agent.agent.providers.errors import ProviderUnavailable
+    gemini_client.max_retries = 0
+    gemini_client.fallback_models = []
+    def generate_content(**kwargs):
+        raise RuntimeError('503 UNAVAILABLE private-customer-data secret-api-key')
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    with pytest.raises(ProviderUnavailable) as caught:
+        gemini_client.messages.create(messages=[{'role':'user','content':'prices'}])
+    assert str(caught.value) == 'overloaded (HTTP 503)'
+    assert 'private-customer-data' not in caplog.text
+    assert 'secret-api-key' not in caplog.text
+
+
+def test_empty_network_timeout_still_fails_over(gemini_client):
+    import httpx
+    calls = []
+    def generate_content(**kwargs):
+        calls.append(kwargs['model'])
+        if len(calls) == 1:
+            raise httpx.ReadTimeout('')
+        return _candidate([_part(text='Recovered')])
+    gemini_client.raw = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    response = gemini_client.messages.create(messages=[{'role':'user','content':'prices'}])
+    assert response.content[0].text == 'Recovered'
+    assert len(calls) == 2
+
+
+def test_transient_failures_retry_automatically_after_failover(gemini_client, monkeypatch):
+    from rental_agent.agent.providers.budget import turn_budget
+    clock=[100.0];attempts=[];pauses=[]
+    monkeypatch.setattr(gemini.time,'monotonic',lambda:clock[0])
+    def sleep(seconds):
+        pauses.append(seconds);clock[0]+=seconds
+    monkeypatch.setattr(gemini.time,'sleep',sleep)
+    gemini_client.fallback_models=['gemini-fallback-test']
+    def generate_content(**kwargs):
+        attempts.append(kwargs['model'])
+        if len(attempts)==1: raise RuntimeError('503 UNAVAILABLE high demand')
+        if len(attempts)==2: raise RuntimeError('504 DEADLINE_EXCEEDED')
+        return _candidate([_part(text='Recovered automatically')])
+    gemini_client.raw=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    with turn_budget(30):
+        result=gemini_client.messages.create(messages=[{'role':'user','content':'Show the cars'}])
+    assert result.content[0].text=='Recovered automatically'
+    assert attempts==['gemini-test','gemini-fallback-test','gemini-test']
+    assert pauses==[2.0]

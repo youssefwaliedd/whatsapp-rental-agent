@@ -168,6 +168,10 @@ def create_demo_quote(
     excess_reduction: bool = False,
 ) -> dict[str, Any]:
     from ..domain.selection import quote_error
+    from .checkout import time_error
+    error = time_error(ctx, pickup_at, return_at)
+    if error:
+        return error
     error = quote_error(ctx, vehicle_id)
     if error:
         return error
@@ -195,6 +199,11 @@ def create_demo_quote(
     except ValueError as exc:
         return _error("invalid_request", str(exc))
 
+    from .checkout import enabled
+    if enabled(ctx) and delivery_location is not None:
+        # Pricing uses the canonical delivery zone. The accepted quote must
+        # retain the customer's actual building/address, including punctuation.
+        quote = quote.model_copy(update={'delivery_location':delivery_location})
     _persist_quote(ctx, quote)
     _update_state(
         ctx,
@@ -258,6 +267,8 @@ def create_demo_reservation(
     customer_id = customer_id or ctx.customer_id
     if not customer_id:
         return _error("no_customer", "No customer is associated with this conversation")
+    if customer_id != ctx.customer_id:
+        return _error("customer_mismatch", "Use the customer associated with this conversation.")
 
     # The customer's own words, before anything is written down. "First show me
     # the pictures" created a booking in testing; the address in the same
@@ -272,6 +283,11 @@ def create_demo_reservation(
             f"No demo quote {quote_id}. Create one with create_demo_quote first.",
         )
     quote = QuoteModel.model_validate(stored.payload)
+
+    from .checkout import gate
+    blocked = gate(ctx, quote)
+    if blocked:
+        return blocked
 
     from ..domain.selection import quote_error
     choice_error = quote_error(ctx, quote.vehicle_id)
@@ -657,6 +673,14 @@ def confirm_hold(ctx: ToolContext, reservation: Reservation) -> dict[str, Any]:
     * the price of the new window is not the price of the old one, and the
       stored quote may have expired.
     """
+    from . import checkout
+    if checkout.enabled(ctx):
+        blocked = checkout.reservation_gate(ctx, reservation)
+        if blocked:
+            return {"outcome": "conflict", "reason": blocked['error'], "message": blocked['message']}
+        if pending_change(reservation):
+            return {"outcome": "conflict", "reason": "fresh_acceptance_required",
+                    "message": "The requested changes need a fresh quote and customer acceptance before confirmation."}
     wanted = pending_change(reservation)
     pickup = _as_datetime(wanted.get("pickup_at")) or reservation.pickup_at
     ret = _as_datetime(wanted.get("return_at")) or reservation.return_at
@@ -707,7 +731,14 @@ def confirm_hold(ctx: ToolContext, reservation: Reservation) -> dict[str, Any]:
     except (ValueError, VehicleNotFound, VehicleUnavailable) as exc:
         return {"outcome": "conflict", "reason": "cannot_price", "message": str(exc)}
 
-    _persist_quote(ctx, quote)
+    if checkout.enabled(ctx):
+        accepted = checkout.current_quote(ctx)
+        if (quote.total_charge, quote.deposit) != (accepted.total_charge, accepted.deposit):
+            return {"outcome": "conflict", "reason": "fresh_acceptance_required",
+                    "message": "The price changed. A fresh quote and customer acceptance are required."}
+        quote = accepted
+    else:
+        _persist_quote(ctx, quote)
     now = ctx.now()
     previous_total = reservation.total_charge
 
@@ -896,6 +927,10 @@ def modify_demo_reservation(
     delivery_location: str | None = None,
     vehicle_id: str | None = None,
 ) -> dict[str, Any]:
+    from .checkout import mutation_error
+    blocked = mutation_error(ctx, reservation_id)
+    if blocked:
+        return blocked
     held = _hold_awaiting(ctx, reservation_id)
     if held is not None:
         return _hold_change_request(ctx, held, {
@@ -1019,6 +1054,10 @@ def modify_demo_reservation(
 def extend_demo_rental(
     ctx: ToolContext, *, reservation_id: str, new_return_at: datetime
 ) -> dict[str, Any]:
+    from .checkout import mutation_error
+    blocked = mutation_error(ctx, reservation_id)
+    if blocked:
+        return blocked
     held = _hold_awaiting(ctx, reservation_id)
     if held is not None:
         return _hold_change_request(ctx, held, {"return_at": new_return_at})
@@ -1115,6 +1154,10 @@ def extend_demo_rental(
 def cancel_demo_reservation(
     ctx: ToolContext, *, reservation_id: str, reason: str | None = None
 ) -> dict[str, Any]:
+    from .checkout import mutation_error
+    blocked = mutation_error(ctx, reservation_id)
+    if blocked:
+        return blocked
     already = ctx.reservations.get(reservation_id)
     if already is not None and already.status == "cancelled":
         # Telling the customer "that cannot be cancelled" about a booking they
@@ -1169,6 +1212,8 @@ def cancel_demo_reservation(
         now,
     )
     _update_state(ctx, reservation_id=None, stage=Stage.LOST_LEAD)
+    from .payments import cancellation_payment_review
+    payment_guidance = cancellation_payment_review(ctx, reservation)
 
     result = _reservation_dict(reservation, ctx)
     result.update(
@@ -1178,6 +1223,7 @@ def cancel_demo_reservation(
             "cancellation_band": band,
             "hours_before_pickup": round(hours_before, 1),
             "vehicle_released": True,
+            "payment_guidance": payment_guidance,
         }
     )
     return result
@@ -1192,6 +1238,17 @@ def record_demo_documents(
     ctx: ToolContext, *, documents: list[str], reservation_id: str | None = None
 ) -> dict[str, Any]:
     """Simulated only. No identity document is verified, requested or stored."""
+    from .checkout import enabled
+    if enabled(ctx):
+        return _error('attachment_checks_required', 'Upload the required sample documents in this chat. Text claims and demo document flags cannot satisfy checkout checks.')
+    from . import documents as document_service
+    receipts = document_service.summary(ctx)
+    if receipts:
+        if any(r["status"] in {"checks_passed", "needs_replacement"} for r in receipts):
+            return {"error": "eligibility_policy_required", "attachments": receipts,
+                    "message": "Use the recorded automatic check results. They do not prove identity or rental eligibility. Never convert attachments into demo document approval."}
+        return {"error": "staff_review_required", "attachments": receipts,
+                "message": "WhatsApp attachments require staff review. Do not mark them verified or use the demo document tool for them."}
     if not ctx.customer_id:
         return _error("no_customer", "No customer is associated with this conversation")
     customer = ctx.customers.get(ctx.customer_id)
@@ -1238,9 +1295,16 @@ def simulate_payment(
     ctx: ToolContext, *, reservation_id: str, method: str = "credit_card"
 ) -> dict[str, Any]:
     """No real payment is ever taken. This only marks the demo record."""
+    from .checkout import enabled
+    if enabled(ctx):
+        return _error('processor_confirmation_required','Only a verified payment processor event may mark a checkout paid. Text claims cannot do this.')
     reservation = _live_reservation(ctx, reservation_id)
     if isinstance(reservation, dict):
         return reservation
+
+    import os
+    if os.getenv("PAYMENT_PROVIDER", "simulated").strip().lower() != "simulated":
+        return _error("payment_confirmation_required", "Payment must be verified by the payment processor. A customer message cannot mark it paid.")
 
     accepted = ctx.engine.rules["payment"]["accepted"]
     if method not in accepted:
@@ -1290,7 +1354,15 @@ def schedule_demo_delivery(
     if isinstance(reservation, dict):
         return reservation
 
+    from .checkout import reservation_gate, enabled
+    blocked = reservation_gate(ctx,reservation)
+    if blocked:
+        return blocked
+
     scheduled = delivery_at or reservation.pickup_at
+    if enabled(ctx) and ((delivery_at and delivery_at != reservation.pickup_at) or
+                        (delivery_location and delivery_location != reservation.delivery_location)):
+        return _error("fresh_acceptance_required", "A different delivery time or address requires a fresh quote and acceptance before scheduling.")
     if delivery_location:
         reservation.delivery_location = (
             normalise_location(delivery_location) or delivery_location
@@ -1340,6 +1412,7 @@ def schedule_demo_delivery(
 
 
 def get_customer(ctx: ToolContext) -> dict[str, Any]:
+    from . import documents as document_service
     if not ctx.customer_id:
         return _error("no_customer", "No customer is associated with this conversation")
     customer = ctx.customers.get(ctx.customer_id)
@@ -1363,6 +1436,7 @@ def get_customer(ctx: ToolContext) -> dict[str, Any]:
         "residency": customer.residency,
         "driver_age": customer.driver_age,
         "documents_on_file": list(customer.documents_on_file or []),
+        "document_attachments": document_service.summary(ctx),
         "preferences": dict(customer.preferences or {}),
         "is_returning_customer": bool(reservations) and not spoken,
         "previous_demo_bookings": [
@@ -1420,6 +1494,14 @@ def get_active_reservation(ctx: ToolContext) -> dict[str, Any]:
     """What "can you make it 8 instead?" refers to."""
     if not ctx.customer_id:
         return _error("no_customer", "No customer is associated with this conversation")
+    from .checkout import enabled
+    state = ctx.load_state()
+    if enabled(ctx) and state.checkout.get('mode') == 'new':
+        current = ctx.reservations.get(state.reservation_id) if state.reservation_id else None
+        if current and current.customer_id == ctx.customer_id:
+            return {'has_active_reservation':True, 'reservation':_reservation_dict(current,ctx)}
+        return {'has_active_reservation':False, 'reservation':None,
+                'guidance':'This is a new enquiry. Earlier bookings are unrelated. Update the current quote, never an earlier reservation.'}
     reservation = ctx.reservations.active_for_customer(ctx.customer_id)
     if reservation is not None:
         return {

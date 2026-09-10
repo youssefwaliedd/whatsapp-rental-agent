@@ -47,11 +47,16 @@ _MONEY = re.compile(
     re.I,
 )
 
+# Checkout identifiers and encoded fragments are opaque, not price claims.
+# Keep Markdown link labels and surrounding prose available for validation.
+_URL = re.compile(r"https?://[^\s<>\[\]]+", re.I)
+
 
 def money_in(text: str) -> set[Decimal]:
     """Every figure in a reply that is stated as an amount."""
     found: set[Decimal] = set()
-    for match in _MONEY.finditer((text or "").replace("٬", ",").replace("٫", ".")):
+    prose = _URL.sub("", text or "")
+    for match in _MONEY.finditer(prose.replace("٬", ",").replace("٫", ".")):
         raw = next((g for g in match.groups() if g), None)
         if raw is None:
             continue

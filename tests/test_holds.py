@@ -102,6 +102,7 @@ def holding_ctx(booking_ctx):
     rules = booking_ctx.engine.rules.as_dict()
     before = rules.get("booking")
     rules["booking"] = {
+        "enforce_checkout_flow": False,  # Isolated hold tests; strict checkout has its own integration tests.
         "holds_require_confirmation": True,
         # The real config carries this too, and dropping it here made every
         # hold immortal in the tests that most needed it not to be.

@@ -407,6 +407,8 @@
     ]
   },
   "booking": {
+    "enforce_checkout_flow": false,
+    "_checkout_note": "Legacy isolated service fixtures. Strict checkout tests explicitly enable the gate and verify every transition. Never deploy this fixture configuration.",
     "_comment": "The fictional operator's availability is in the fleet file, so a booking is a booking.",
     "holds_require_confirmation": false
   },

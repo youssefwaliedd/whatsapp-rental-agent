@@ -7,4 +7,5 @@ __pycache__/
 .env.*
 !.env.example
 .DS_Store
+.private_documents/
 whatsapp_sim.db*

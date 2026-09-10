@@ -1,0 +1,42 @@
+# Synthetic pilot only. Generate a document key and DB password in .env first.
+x-bot: &bot
+  build: .
+  env_file: .env
+  environment: &env
+    APP_ENV: production
+    DATABASE_URL: postgresql+psycopg://bot:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db/rental
+    WHATSAPP_DURABLE: "1"
+    WHATSAPP_DOCUMENT_CHECKS: auto
+    DOCUMENT_STORAGE: local
+    WHATSAPP_DOCUMENT_DIR: /data/documents
+    DOCUMENT_RETENTION_DAYS: "30"
+  volumes:
+    - documents:/data/documents
+  restart: unless-stopped
+  depends_on:
+    db:
+      condition: service_healthy
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bot
+      POSTGRES_DB: rental
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U bot -d rental"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+  web:
+    <<: *bot
+    ports:
+      - "127.0.0.1:8000:8000"
+  worker:
+    <<: *bot
+    command: [python, run_worker.py]
+volumes:
+  postgres:
+  documents:

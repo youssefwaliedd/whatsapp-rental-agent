@@ -13,7 +13,9 @@ def remaining(default=15.0):
 
 @contextmanager
 def turn_budget(seconds):
-    token = deadline.set(time.monotonic() + seconds)
+    end = time.monotonic() + seconds
+    parent = deadline.get()
+    token = deadline.set(min(end, parent) if parent is not None else end)
     try:
         yield
     finally:

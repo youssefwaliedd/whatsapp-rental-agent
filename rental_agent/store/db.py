@@ -56,6 +56,8 @@ def database_url(path: str | Path | None = None) -> str:
     if path is None:
         configured = os.getenv("DATABASE_URL")
         if configured:
+            if configured.startswith("postgresql://"):
+                configured = configured.replace("postgresql://", "postgresql+psycopg://", 1)
             return configured
     return f"sqlite+pysqlite:///{Path(path or os.getenv('DEMO_DB_PATH') or DEFAULT_DB_PATH)}"
 
@@ -117,7 +119,14 @@ def create_db_engine(path: str | Path | None = None, echo: bool = False) -> Engi
 
 
 def init_db(engine: Engine) -> sessionmaker[Session]:
-    Base.metadata.create_all(engine)
+    if engine.dialect.name == "postgresql":
+        from sqlalchemy import text
+        # Web and worker may start together on an empty database.
+        with engine.begin() as connection:
+            connection.execute(text("SELECT pg_advisory_xact_lock(7149201)"))
+            Base.metadata.create_all(connection)
+    else:
+        Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     _seed_counters(factory)
     return factory
@@ -129,8 +138,12 @@ def _seed_counters(factory: sessionmaker[Session]) -> None:
             ("reservation", RESERVATION_SEQUENCE_START),
             ("quote", QUOTE_SEQUENCE_START),
         ):
-            if session.get(Counter, name) is None:
-                session.add(Counter(name=name, value=start))
+            if session.bind.dialect.name == "postgresql":
+                from sqlalchemy.dialects.postgresql import insert
+            else:
+                from sqlalchemy.dialects.sqlite import insert
+            session.execute(insert(Counter).values(name=name, value=start)
+                            .on_conflict_do_nothing(index_elements=["name"]))
         session.commit()
 
 

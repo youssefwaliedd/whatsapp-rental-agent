@@ -133,3 +133,84 @@ replayed successfully, with only “three” changed to “two”.
 Fifteen additional option-count regression cases pass. The latest main suite
 passes 1,097 tests; the four local-port tests were last verified during the
 preceding fix.
+
+## Payment, conversation and preview follow-up (6 September 2026)
+
+Implemented:
+
+- Explicit, simple English/Arabic payment requests for an existing booking now
+  return an engine-generated payment receipt without depending on a model reply.
+  Requests that also change rental details use the normal conversation flow.
+- Outbound validation catches immediate promises to send links, quotes, photos or
+  availability later when there is no scheduled follow-up. The prompt requests
+  completed actions or a question for the specific missing information.
+- Stripe callbacks reconcile the issued checkout, amount, currency, payment mode,
+  booking status and payment purpose. Unmatched receipts cannot settle a booking;
+  mismatched or additional receipts are recorded for staff review. A holding or
+  deposit payment does not mark the rental total paid. Processor mode cannot use
+  the simulation tool to mark a payment authorised.
+- Duplicate receipts do not produce duplicate payment records or messages. Failed
+  and expired checkout events cannot overwrite a received payment. Partial/full
+  refund notifications update the payment record; paid cancellations create a
+  refund review rather than claiming that money was returned. Refund execution
+  remains a staff action in Stripe, subject to the operator's decision.
+- Replacement Stripe links expire the previous checkout. Completed checkouts
+  require reconciliation before issuing another link. Simulated bookings cannot
+  collect real money with a live Stripe key; unknown provider names fail closed.
+- The browser accepts signed callbacks at `/payments/stripe` and verifies an
+  authenticated Stripe read at `/payments/return?session_id=...`. A redirect or
+  customer statement alone never marks payment received. `run_chat.py` supplies
+  return URLs from `CHAT_BASE_URL` or `CHAT_PORT` unless explicitly overridden.
+- A new additive `message_presentations` table stores response parts, quote cards,
+  photographs and reactions. Refresh uses original timestamps and date separators,
+  preserves formatting and checkout URLs, and displays new payment receipts via
+  polling. Old messages retain their text/timestamps; media never saved by the old
+  build cannot be restored from that transcript alone.
+
+Verification:
+
+- Full suite: 1,141 passed, including local socket tests. After the final mixed
+  request guard and receipt checks, all 126 affected tests passed, including the
+  additional mixed-request regression.
+- Live Stripe test account: stored rental amount matched checkout; authenticated
+  return of an unpaid session stayed unpaid; replacement expired the previous
+  checkout. No real payment was submitted.
+- Live Gemini: English and Arabic requests without a booking asked for missing
+  rental details without creating a booking or leaving an empty promise.
+- Browser: photographs, quote cards, bold/italic text, exact checkout hrefs and
+  original timestamps survived refresh. A signed synthetic payment notification
+  appeared without customer input and survived another refresh; no browser errors.
+
+Operational limits remain: real inventory/booking integration, approved business
+fees, production infrastructure and public payment-webhook delivery. Local
+checkout return verification covers a customer returning to this browser, while
+reliable background payment updates require Stripe to reach the webhook. Existing
+links retain their original return URLs; generate a new link to use the new page.
+
+## Documents attached directly in WhatsApp (6 September 2026)
+
+- Customers send JPG, PNG or PDF attachments in the chat, with no upload link.
+  Authenticated Meta downloads validate type, signature, size and SHA-256.
+  Files use private local storage with random filenames and restricted permissions.
+- Receipts are distinct from staff approval. Failed downloads request a resend;
+  duplicate webhook delivery does not store another file. Pending staff handovers
+  do not discard incoming attachments. File contents, filenames and captions are
+  not sent to the language model by this collection path.
+- The configured staff number can use `DOCS`, `DOC <reference> VIEW`,
+  `DOC <reference> APPROVE <type>`, and `DOC <reference> REJECT <reason>`.
+  Staff must receive a review copy before recording a decision. Customer messages
+  and the demonstration document tool cannot approve these files.
+- Review outcomes are persisted separately from payment and reservation status.
+  Notifications outside the customer reply window wait for customer input.
+- All WhatsApp POST webhooks now fail closed without an app secret, protecting
+  both attachment ingestion and staff access to private files.
+- Verification: **1,166 tests passed**, including 24 new document cases and the
+  local socket tests. All document files and Meta responses were synthetic;
+  no real identity files or WhatsApp messages were sent. Existing Starlette/httpx
+  deprecation warning remains.
+
+See `docs/whatsapp-documents.md` for staff commands and storage configuration.
+Real WhatsApp testing remains blocked on phone verification/configuration.
+Production storage encryption, retention/deletion policy, durable processing and
+automatic staff notifications still require work. The demonstration asks for
+fictional sample documents only.

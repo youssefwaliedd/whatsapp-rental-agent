@@ -18,10 +18,15 @@ Meta signs the exact bytes it sent.
 from __future__ import annotations
 
 import logging
+import os
+from dataclasses import asdict
+from contextlib import contextmanager
+from datetime import timezone, timedelta
 from datetime import date, datetime
 from typing import Any, Callable
 
 from fastapi import BackgroundTasks, FastAPI, Request, Response
+from sqlalchemy import select
 
 from ..config import load_rules
 from ..context import ToolContext
@@ -29,9 +34,13 @@ from ..formatting import photo_caption
 from ..payments import webhook as payments_webhook
 from .. import booking_provider
 from ..evaluation import evaluator
-from ..services import booking, handover, outcomes
+from ..services import booking, documents, handover, outcomes
 from ..sources import refresh as refresh_mod
-from ..store.models import Escalation
+from ..store.models import CustomerDocument, Escalation, WorkItem, Message, Customer, Conversation
+from .media import MediaError, PrivateMediaStore, download_media
+from .storage import build_store
+from .jobs import Worker, TurnSession, active_session, enqueue, utcnow
+from ..services.document_checks import DocumentChecker, notice as document_notice, purge_expired
 from . import reactions as reactions_mod
 from . import window as window_mod
 from .client import WhatsAppClient
@@ -54,14 +63,27 @@ def create_app(
     client: WhatsAppClient | None = None,
     reference_date: date | None = None,
     now_fn: Callable[[], datetime] | None = None,
+    document_store: PrivateMediaStore | None = None,
+    media_downloader: Callable | None = None,
+    document_checker: Any = None,
+    durable: bool | None = None,
 ) -> FastAPI:
     """Build the webhook app.
 
     Everything it depends on is injected, so the whole request path can be
     exercised against simulated Meta payloads with no credentials and no network.
     """
+    real_session_factory = session_factory
+    durable = durable if durable is not None else os.getenv("WHATSAPP_DURABLE", "0") == "1"
+    def session_factory():
+        current = active_session.get()
+        return TurnSession(current) if current is not None else real_session_factory()
     settings = settings or WhatsAppSettings()
     client = client or WhatsAppClient(settings)
+    document_store = document_store or build_store()
+    if document_checker is None and os.getenv("WHATSAPP_DOCUMENT_CHECKS", "staff") == "auto":
+        document_checker = DocumentChecker()
+    media_downloader = media_downloader or (lambda media_id: download_media(settings, media_id))
     app = FastAPI(title="Sandline Rentals — WhatsApp webhook (DEMO)")
 
     # -- verification handshake ------------------------------------------
@@ -82,17 +104,26 @@ def create_app(
 
     @app.post("/webhook")
     async def receive(request: Request, background: BackgroundTasks) -> Response:
-        raw = await request.body()
+        chunks = bytearray()
+        async for chunk in request.stream():
+            chunks.extend(chunk)
+            if len(chunks) > 2 * 1024 * 1024:
+                return Response(content="payload too large", status_code=413)
+        raw = bytes(chunks)
 
-        if settings.can_verify_signatures:
-            signature = request.headers.get("X-Hub-Signature-256")
-            if not verify_signature(raw, signature, settings.app_secret):
-                # Anyone can find the URL; only Meta can sign for it.
-                log.warning("rejected a webhook with a bad signature")
-                return Response(content="invalid signature", status_code=403)
+        if not settings.can_verify_signatures:
+            return Response(content="webhook signature verification is not configured", status_code=503)
+        signature = request.headers.get("X-Hub-Signature-256")
+        if not verify_signature(raw, signature, settings.app_secret):
+            # Protect both customer uploads and commands that access private files.
+            log.warning("rejected a webhook with a bad signature")
+            return Response(content="invalid signature", status_code=403)
 
         try:
-            payload = await request.json()
+            import json
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                return Response(content="invalid payload", status_code=400)
         except Exception:  # noqa: BLE001 - malformed body, nothing to retry for
             return Response(content="ok", status_code=200)
 
@@ -100,8 +131,23 @@ def create_app(
             log.debug("delivery status %s for %s", status.get("status"), status.get("id"))
 
         messages = parse_messages(payload)
-        for message in messages:
-            background.add_task(_dispatch, message)
+        if durable:
+            try:
+                with real_session_factory() as db:
+                    for message in messages:
+                        enqueue(db, key="in:" + message.message_id, lane="in:" + message.from_number,
+                                kind="inbound", payload=asdict(message))
+                        # A new customer message reopens delivery of an owed reply.
+                        from sqlalchemy import update
+                        db.execute(update(WorkItem).where(WorkItem.lane == "out:" + message.from_number,
+                            WorkItem.status == "waiting_window").values(status="pending", available_at=utcnow()))
+                    db.commit()
+            except Exception:
+                log.error("Could not persist inbound webhook")
+                return Response(content="temporarily unavailable", status_code=503)
+        else:
+            for message in messages:
+                background.add_task(_dispatch, message)
 
         # Acknowledge before doing the work. A turn takes far longer than Meta
         # waits, and a late 200 means a redelivery and a second reply.
@@ -204,12 +250,80 @@ def create_app(
                             customer.whatsapp_id,
                             handover.customer_message(ctx, "timed_out"),
                         )
-                session.commit()
+                ctx.session.commit()
             except Exception:  # noqa: BLE001 - a stuck case must not block a live turn
-                session.rollback()
+                ctx.session.rollback()
                 log.exception("failed to sweep case %s", case.case_code)
 
     # -- the owner's side --------------------------------------------------
+
+    def _deliver_document_decision(ctx, doc, number, *, window_open=False):
+        if doc.notified_at:
+            return
+        if not window_open and not window_mod.is_open(ctx, doc.conversation_id):
+            return  # Persisted decision is delivered when the customer returns.
+        notice = documents.customer_notice(doc)
+        if client.send_text(number, notice).ok:
+            ctx.messages.record(conversation_id=ctx.conversation_id, direction="outbound",
+                                content=notice, now=ctx.now())
+            doc.notified_at = ctx.now()
+            ctx.session.commit()
+
+    def _handle_document_command(ctx, message):
+        """Only reached from the configured staff number, never an LLM tool."""
+        parts = message.text.strip().split(maxsplit=3)
+        if not parts or parts[0].upper() not in {"DOCS", "DOC"}:
+            return False
+        if parts[0].upper() == "DOCS":
+            pending = list(ctx.session.scalars(select(CustomerDocument).where(
+                CustomerDocument.status == "pending_review").order_by(
+                CustomerDocument.created_at).limit(10)))
+            reply = "No documents waiting for review."
+            if pending:
+                reply = "Documents awaiting review (oldest 10):\n" + "\n".join(
+                    f"{d.document_id}: {d.reservation_id or 'no booking linked'}" for d in pending)
+                reply += "\nTo view: DOC <reference> VIEW"
+            client.send_text(settings.staff_number, reply)
+            return True
+        if len(parts) < 3:
+            client.send_text(settings.staff_number,
+                "Use DOCS to list documents, or DOC <reference> VIEW.")
+            return True
+        reference, action = parts[1].upper(), parts[2].upper()
+        doc = ctx.session.get(CustomerDocument, reference)
+        if action == "VIEW":
+            if not doc or not doc.storage_key:
+                client.send_text(settings.staff_number, "No saved attachment for that reference.")
+                return True
+            try:
+                data = document_store.read(doc.storage_key)
+                customer = ctx.customers.get(doc.customer_id)
+                caption = (f"{reference}, customer {customer.name or customer.whatsapp_id}, "
+                           f"booking {doc.reservation_id or 'not yet linked'}.\n"
+                           f"DOC {reference} APPROVE <document_type>\n"
+                           f"DOC {reference} REJECT <reason>\n"
+                           f"Document types: {', '.join(documents.review_types(ctx))}\n"
+                           "Review identity, validity and eligibility before approving. "
+                           "Do not include identity numbers in the review reason.")
+                sent = client.send_private_document(settings.staff_number, data, doc.mime_type, caption)
+                if sent.ok:
+                    doc.review_copy_sent_at = ctx.now()
+                    ctx.session.commit()
+                else:
+                    client.send_text(settings.staff_number, "Could not deliver the attachment. Try VIEW again.")
+            except (OSError, ValueError, MediaError):
+                client.send_text(settings.staff_number, "Attachment unavailable. Ask the customer to resend it.")
+            return True
+        reviewed, reply = documents.review(ctx, reference, action,
+                                           parts[3] if len(parts) > 3 else "", settings.staff_number)
+        ctx.session.commit()
+        client.send_text(settings.staff_number, reply)
+        if reviewed:
+            ctx.customer_id = reviewed.customer_id
+            ctx.conversation_id = reviewed.conversation_id
+            customer = ctx.customers.get(reviewed.customer_id)
+            _deliver_document_decision(ctx, reviewed, customer.whatsapp_id)
+        return True
 
     def _handle_owner(message: InboundMessage) -> None:
         """Route a decision back to the one customer it belongs to."""
@@ -217,6 +331,9 @@ def create_app(
         try:
             ctx = ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)
             client.mark_read(message.message_id)
+
+            if _handle_document_command(ctx, message):
+                return
 
             case = handover.find_case(
                 ctx,
@@ -404,6 +521,41 @@ def create_app(
             _sweep_overdue(session)
             ctx = _context_for(session, message)
 
+            if message.media_kind:
+                if _record_inbound(ctx, message):
+                    return
+                # Intercept before pending handovers: their documents must not be
+                # lost simply because a colleague is already handling the case.
+                row = documents.receive(ctx, message, document_store, media_downloader)
+                if row.status == "pending_review" and document_checker is not None:
+                    document_checker.check(ctx, row, document_store)
+                session.commit()
+                if row.status in {"checks_passed", "needs_replacement"}:
+                    reply = document_notice(row)
+                    from ..services import checkout
+                    if checkout.enabled(ctx):
+                        reply += '\n\n' + checkout.document_checklist(ctx)
+                    row.notified_at = ctx.now()
+                elif row.status == "pending_review":
+                    reply = (f"Attachment received ({row.document_id}) and saved for staff review. "
+                             "It has not been approved yet. Send any remaining documents directly "
+                             "here as JPG, PNG or PDF attachments. Do not send payment-card photos.")
+                else:
+                    reply = ("I could not save that attachment. Please send it again here as a "
+                             "JPG, PNG or PDF smaller than 10 MB. It has not been submitted for review.")
+                if ctx.engine.operator.is_demonstration:
+                    reply += " This is a demonstration; use sample documents without real identity details."
+                ctx.messages.record(conversation_id=ctx.conversation_id, direction="outbound",
+                                    content=reply, now=ctx.now())
+                session.commit()
+                client.send_text(message.from_number, reply)
+                return
+
+            # A staff decision outside the reply window waits for customer input.
+            for doc in documents.for_customer(ctx):
+                if doc.reviewed_at and not doc.notified_at:
+                    _deliver_document_decision(ctx, doc, message.from_number, window_open=True)
+
             if message.unsupported:
                 client.send_text(message.from_number, UNSUPPORTED_REPLY)
                 session.commit()
@@ -503,9 +655,10 @@ def create_app(
         _, duplicate = ctx.messages.record(
             conversation_id=ctx.conversation_id or "",
             direction="inbound",
-            content=message.text,
+            content=(f"[sent a {message.media_kind}]" if message.media_kind else message.text),
             now=ctx.now(),
             provider_message_id=message.message_id,
+            media=[message.media_kind] if message.media_kind else None,
         )
         if duplicate:
             log.info("ignored a redelivery of %s", message.message_id)
@@ -569,6 +722,8 @@ def create_app(
 
     def _context_for(session: Any, message: InboundMessage) -> ToolContext:
         ctx = ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)
+        if document_store is not None and hasattr(document_store, 'cipher'):
+            session.info['document_cipher'] = document_store.cipher
         customer, created = ctx.customers.get_or_create(message.from_number, ctx.now())
         if message.contact_name and not customer.name:
             customer.name = message.contact_name
@@ -685,31 +840,100 @@ def create_app(
                 return
             ctx.customer_id = reservation.customer_id
             ctx.conversation_id = reservation.conversation_id
+            if result.get("payment_status") == "payment_review" and settings.staff_number:
+                client.send_text(settings.staff_number,
+                    f"Payment review needed for {reservation_id}: {', '.join(result.get('issues', []))}. Check the recorded receipt before confirming payment or requesting more money.")
             record = ctx.customers.get(reservation.customer_id)
-            if record is None or not window_mod.is_open(ctx, reservation.conversation_id or ""):
+            if record is None or (not durable and not window_mod.is_open(ctx, reservation.conversation_id or "")):
                 log.info("payment recorded for %s but the customer cannot be messaged",
                          reservation_id)
                 return
 
-            turn = agent_factory().relay(ctx, (
-                f"Their payment of {result['currency']} {result['amount']} for booking "
-                f"{reservation_id} has arrived and is recorded. Tell them it is received, "
-                "briefly and warmly, and confirm what happens next for the delivery. Do not "
-                "restate the amount as a different figure, and do not ask them to pay again."
-            ))
-            session.commit()
-            client.send_text(record.whatsapp_id, turn.reply)
+            # The reconciliation service already persisted this factual receipt.
+            # A mismatched payment must never become a successful-payment claim.
+            if result.get("message"):
+                client.send_text(record.whatsapp_id, result["message"])
         except Exception:  # noqa: BLE001 - the money is recorded either way
             session.rollback()
             log.exception("could not tell %s their payment arrived", reservation_id)
         finally:
             session.close()
 
+    @contextmanager
+    def turn_transaction(db):
+        token = active_session.set(db)
+        db.info["durable_turn"] = True
+        try:
+            yield
+        finally:
+            db.info.pop("durable_turn", None)
+            active_session.reset(token)
+
+    def process_inbound(db, job):
+        message = InboundMessage(**job.payload)
+        with turn_transaction(db):
+            _dispatch(message)
+            # Processing delays must not extend Meta's customer service window.
+            if message.timestamp:
+                try:
+                    sent_at = datetime.fromtimestamp(int(message.timestamp), timezone.utc)
+                    if sent_at > utcnow(): sent_at = utcnow()
+                    from sqlalchemy import update
+                    db.execute(update(Message).where(Message.provider_message_id == message.message_id,
+                        Message.direction == "inbound").values(created_at=sent_at))
+                except (ValueError, OverflowError, OSError):
+                    raise ValueError("Invalid inbound timestamp")
+            from sqlalchemy import update
+            db.execute(update(WorkItem).where(WorkItem.lane == "out:" + message.from_number,
+                WorkItem.status == "waiting_window").values(status="pending", available_at=utcnow()))
+
+    def process_outbound(db, job):
+        from .jobs import WindowClosed
+        payload = job.payload
+        if payload.get("type") != "template" and payload.get("to") != settings.staff_number:
+            last = db.scalar(select(Message.created_at).join(Conversation,
+                Message.conversation_id == Conversation.conversation_id).join(Customer,
+                Conversation.customer_id == Customer.customer_id).where(
+                    Customer.whatsapp_id == payload.get("to"), Message.direction == "inbound"
+                ).order_by(Message.created_at.desc()).limit(1))
+            if last is None or (now_fn or utcnow)() >= last + timedelta(hours=24):
+                raise WindowClosed()
+        result = client._send(payload)
+        if not result.ok:
+            raise RuntimeError("Outbound delivery failed")
+        if result.message_ids:
+            from sqlalchemy import update
+            db.execute(update(Escalation).where(Escalation.notification_message_id == job.key)
+                       .values(notification_message_id=result.message_ids[0]))
+
+    def process_payment_notice(db, job):
+        with turn_transaction(db):
+            _tell_them_it_arrived(job.payload["result"], job.payload["reservation_id"])
+
+    def persist_payment_notice(db, result, reservation_id, event_id):
+        enqueue(db, key="payment:" + event_id, lane="payment:" + reservation_id,
+                kind="payment_notice", payload={"result": result, "reservation_id": reservation_id})
+
+    def maintenance(db, job):
+        with turn_transaction(db):
+            ctx = _context(TurnSession(db))
+            _sweep_overdue(ctx.session)
+            _tell_owner_about_changes(ctx)
+            days = int(os.getenv("DOCUMENT_RETENTION_DAYS", "30"))
+            if days < 1: raise ValueError("DOCUMENT_RETENTION_DAYS must be positive")
+            purge_expired(ctx, document_store, days)
+
+    app.state.worker = Worker(real_session_factory, {"inbound": process_inbound,
+        "outbound": process_outbound, "payment_notice": process_payment_notice,
+        "maintenance": maintenance}, now_fn=now_fn or utcnow)
+    app.state.durable = durable
+
     app.include_router(
         payments_webhook.build_router(
             session_factory=session_factory,
             context_factory=_context,
             on_paid=_tell_them_it_arrived,
+            persist_notification=persist_payment_notice if durable else None,
         )
     )
 
@@ -717,6 +941,8 @@ def create_app(
     def health() -> dict[str, Any]:
         return {
             "status": "ok",
+            "durable_processing": durable,
+            "document_checks": "auto" if document_checker else "staff",
             "demo": True,
             # Which booking system is answering. A deployment that thinks it is
             # connected to Delta and is not should be able to see that here.
@@ -726,5 +952,21 @@ def create_app(
             "missing_settings": settings.missing(),
             "fleet_refresh": refresh_mod.STATE.as_dict(),
         }
+
+    @app.get("/ready")
+    def ready() -> Response:
+        from ..store.models import WorkerHeartbeat
+        try:
+            with real_session_factory() as db:
+                db.execute(select(1))
+                if durable:
+                    heartbeat = db.get(WorkerHeartbeat, "whatsapp")
+                    if heartbeat is None or utcnow() - heartbeat.seen_at > timedelta(minutes=3):
+                        return Response("worker unavailable", status_code=503)
+                    if db.scalar(select(WorkItem.id).where(WorkItem.status == "dead").limit(1)):
+                        return Response("failed jobs need attention", status_code=503)
+        except Exception:
+            return Response("database unavailable", status_code=503)
+        return Response("ready")
 
     return app

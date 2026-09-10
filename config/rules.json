@@ -54,7 +54,7 @@
         "credit_card_in_driver_name"
       ]
     },
-    "notes": "Documents are simulated in the prototype. No real identity data is verified or stored."
+    "notes": "Use fictional sample attachments in the prototype. AI extracts document facts; server checks enforce configured age, residency, document validity and name consistency before booking. These checks do not prove identity authenticity. Operator confirmation of the eligibility policy is required before real use."
   },
   "deposit": {
     "source": "Listings state no deposit required (T&Cs apply).",
@@ -425,6 +425,7 @@
     "weekly_monthly_rates": "Listed publicly as 'on request'; the engine bills daily x days."
   },
   "booking": {
+    "enforce_checkout_flow": true,
     "_comment": "The booking provider decides whether a booking exists (BOOKING_PROVIDER). The simulated provider is authoritative for demo inventory and confirms outright; a provider that cannot settle availability leaves every booking a request a person confirms, whatever this flag says. Set holds_require_confirmation true to force a person into the loop even where the provider could confirm — which is what Delta needs the day a real connector exists but their phone and counter bookings still are not in it.",
     "holds_require_confirmation": false,
     "hold_expires_after_minutes": 120

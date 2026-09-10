@@ -133,6 +133,7 @@
     background: var(--header); align-items: center; flex: none;
   }
   input[type=text] {
+    min-width: 0;
     flex: 1; font: inherit; font-size: 15px; color: var(--ink);
     background: var(--panel); border: none; border-radius: 20px; padding: 10px 15px;
   }
@@ -145,6 +146,8 @@
   }
   .send:disabled { opacity: .45; cursor: default; }
   .send:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .attach { background:none; color:var(--ink); border:0; font-size:25px; cursor:pointer; padding:4px; }
+  .upload-note { font-size:11px; color:var(--muted); background:var(--header); padding:4px 12px; }
 
   /* ── inspector, off to the side and out of the way ─────────────── */
   aside {
@@ -209,6 +212,7 @@
 
   @media (max-width: 780px) { aside { display: none; } body { padding: 8px; } }
   @media (prefers-reduced-motion: reduce) { .typing span { animation: none; } }
+  .bubble a { color: #67d4ed; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -228,7 +232,10 @@
 
   <div id="log"></div>
 
+  <div class="upload-note">Sample documents only. PDF, JPG or PNG, up to 10 MB. Checked by AI.</div>
   <form id="composer" autocomplete="off">
+    <button class="attach" type="button" id="attach" aria-label="Attach sample document" title="Attach sample PDF or image">+</button>
+    <input type="file" id="document-file" accept=".pdf,.jpg,.jpeg,.png" hidden>
     <input type="text" id="input" placeholder="Message" autofocus>
     <button class="send" type="submit" id="send" aria-label="Send">➤</button>
   </form>
@@ -292,10 +299,12 @@ const input = document.getElementById('input');
 const form = document.getElementById('composer');
 const sendBtn = document.getElementById('send');
 const statusEl = document.getElementById('status');
+const attachBtn = document.getElementById('attach');
+const documentFile = document.getElementById('document-file');
 const panel = document.getElementById('panel');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const esc = s => (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const esc = s => String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // WhatsApp renders *bold* and _italic_. The server already normalises markdown
 // into that, so this only has to render what a phone would.
@@ -305,36 +314,57 @@ const esc = s => (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'
 const URL_RE = /(https?:\/\/[^\s<]+)/g;
 
 const markup = s => s
-  .replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
-  .replace(/_([^_\n]+)_/g, '<i>$1</i>');
+  .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+  .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<b>$1</b>')
+  .replace(/(?<![\w])_([^_\n]+)_(?![\w])/g, '<i>$1</i>');
 
-const fmt = s => esc(s)
-  .split(URL_RE)
-  .map((piece, index) => index % 2
-    ? `<a href="${piece}" target="_blank" rel="noopener noreferrer">${piece}</a>`
-    : markup(piece))
-  .join('');
+function fmt(text) {
+  // Tokenize raw links before escaping or formatting their display labels.
+  const pattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s<>]+)\)|(https?:\/\/[^\s<>]+)/g;
+  let html = '', at = 0;
+  for (const match of String(text || '').matchAll(pattern)) {
+    html += markup(esc(text.slice(at, match.index)));
+    const url = match[2] || match[3];
+    const label = match[1] || url;
+    html += `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${markup(esc(match[1] || '')) || esc(label)}</a>`;
+    at = match.index + match[0].length;
+  }
+  return html + markup(esc(String(text || '').slice(at)));
+}
 
-const clock = () => new Date().toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+const clock = value => {
+  const when = value ? new Date(value) : new Date();
+  return Number.isNaN(when.getTime()) ? '' : when.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+};
+let lastDay = '';
+function dayMarker(value) {
+  if (!value) return;
+  const when = new Date(value), key = when.toLocaleDateString();
+  if (Number.isNaN(when.getTime()) || key === lastDay) return;
+  const day = document.createElement('div'); day.className = 'day';
+  day.textContent = key === new Date().toLocaleDateString() ? 'TODAY' : when.toLocaleDateString([], {day:'numeric',month:'short',year:'numeric'});
+  log.appendChild(day); lastDay = key;
+}
 
-function bubble(text, side) {
+function bubble(text, side, createdAt) {
+  dayMarker(createdAt);
   const row = document.createElement('div');
   row.className = `row ${side} spaced`;
   const ticks = side === 'out' ? '<span class="tick">✓✓</span>' : '';
-  row.innerHTML = `<div class="bubble">${fmt(text)}<span class="meta">${clock()}${ticks}</span></div>`;
-  log.appendChild(row);
-  log.scrollTop = log.scrollHeight;
+  row.innerHTML = `<div class="bubble">${fmt(text)}<span class="meta">${clock(createdAt)}${ticks}</span></div>`;
+  log.appendChild(row); log.scrollTop = log.scrollHeight;
   return row;
 }
 
-function photoBubble(url, caption) {
-  const row = document.createElement('div');
-  row.className = 'row in spaced';
-  const cap = caption
-    ? `<div class="cap">${fmt(caption)}<span class="meta">${clock()}</span></div>` : '';
-  row.innerHTML = `<div class="bubble photo"><img src="${esc(url)}" alt="" loading="lazy">${cap}</div>`;
-  log.appendChild(row);
-  log.scrollTop = log.scrollHeight;
+function photoBubble(url, caption, createdAt) {
+  const row = document.createElement('div'); row.className = 'row in spaced';
+  const cap = `<div class="cap">${fmt(caption || '')}<span class="meta">${clock(createdAt)}</span></div>`;
+  const img = document.createElement('img');
+  if (/^(?:https?:|\/)/i.test(url)) img.src = url;
+  img.alt = caption || 'Vehicle photo'; img.loading = 'lazy';
+  const body = document.createElement('div'); body.className = 'bubble photo';
+  body.appendChild(img); body.insertAdjacentHTML('beforeend', cap);
+  row.appendChild(body); log.appendChild(row); log.scrollTop = log.scrollHeight;
 }
 
 function markRead() {
@@ -376,6 +406,8 @@ function renderPanel(data) {
   const rows = [];
   const add = (k, v) => { if (v) rows.push(`<div class="kv"><span>${k}</span><span>${esc(String(v))}</span></div>`); };
   add('stage', s.stage);
+  add('AI error', data.provider_error);
+  for (const doc of s.documents || []) add(doc.document_type || 'document', doc.status);
   add('pickup', s.pickup_at);
   add('return', s.return_at);
   add('location', s.location);
@@ -399,37 +431,36 @@ function renderPanel(data) {
     (s.bookings && s.bookings.length)
       ? s.bookings.map(b => `<div class="booking"><div class="ref">${esc(b.reference)}</div>
           <div>${esc(b.vehicle)}</div>
-          <div style="color:var(--muted)">${esc(b.pickup)} · ${esc(b.total)} · ${esc(b.status)}</div></div>`).join('')
+          <div style="color:var(--muted)">${esc(b.pickup)} · ${esc(b.total)} · ${esc(b.status)} · payment: ${esc(b.payment_status || 'pending')}</div></div>`).join('')
       : '<div class="kv"><span>none yet</span></div>';
 }
 
-async function play(data) {
-  markRead();
-  typing(true);
+async function play(data, animate = true) {
+  if (animate) { markRead(); typing(true); }
 
   const parts = (data.parts && data.parts.length) ? data.parts : [{text: data.reply, pause: 0}];
   for (let i = 0; i < parts.length; i++) {
     // The first message is never delayed; the pause before each following one
     // is what the transport would actually wait.
-    if (i > 0) { typing(true); await sleep(parts[i].pause * 1000); }
+    if (animate && i > 0) { typing(true); await sleep(parts[i].pause * 1000); }
     typing(false);
-    bubble(parts[i].text, 'in');
-    if (i < parts.length - 1) await sleep(150);
+    bubble(parts[i].text, 'in', data.created_at);
+    if (animate && i < parts.length - 1) await sleep(150);
   }
 
   // The rendered quote breakdown, after the words and before the photos —
   // the same order the transport sends them in.
   for (const card of data.cards || []) {
-    typing(true); await sleep(600); typing(false);
-    const row = bubble(card, 'in');
+    if (animate) { typing(true); await sleep(600); typing(false); }
+    const row = bubble(card, 'in', data.created_at);
     const el = row && row.querySelector('.bubble');
     if (el) el.classList.add('card');
   }
 
   for (const item of data.media || []) {
     for (let i = 0; i < item.images.length; i++) {
-      typing(true); await sleep(700); typing(false);
-      photoBubble(item.images[i], i === 0 ? (item.caption || item.vehicle) : null);
+      if (animate) { typing(true); await sleep(700); typing(false); }
+      photoBubble(item.images[i], i === 0 ? (item.caption || item.vehicle) : null, data.created_at);
     }
   }
 
@@ -437,7 +468,7 @@ async function play(data) {
   typing(false);
 }
 
-async function load() {
+async function load(force = false) {
   try {
     const who = await (await fetch('/api/operator')).json();
     const name = who.name.replace(/\s*\(DEMO\)\s*$/, '');
@@ -448,13 +479,14 @@ async function load() {
   } catch (e) { /* keep the defaults in the markup */ }
 
   const data = await (await fetch('/api/state')).json();
+  if (sendBtn.disabled && !force) return;
   log.innerHTML = '';
-  const day = document.createElement('div');
-  day.className = 'day';
-  day.textContent = 'TODAY';
-  log.appendChild(day);
-
-  data.history.forEach(m => bubble(m.text, m.direction === 'inbound' ? 'out' : 'in'));
+  lastDay = '';
+  for (const m of data.history) {
+    if (m.presentation) await play(m.presentation, false);
+    else bubble(m.text, m.direction === 'inbound' ? 'out' : 'in', m.created_at);
+  }
+  historyFingerprint = data.history.map(m => m.id).join(',');
   if (data.history.length) markRead();
   renderPanel(data);
   if (!data.history.length) {
@@ -465,10 +497,11 @@ async function load() {
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = input.value.trim();
-  if (!text) return;
+  if (!text || sendBtn.disabled) return;
   input.value = '';
-  bubble(text, 'out');
+  bubble(text, 'out', new Date().toISOString());
   sendBtn.disabled = true;
+  attachBtn.disabled = true;
 
   try {
     const r = await fetch('/api/message', {
@@ -485,13 +518,41 @@ form.addEventListener('submit', async (e) => {
     } else {
       await play(data);
       renderPanel(data);
+      await load(true);
     }
   } catch (err) {
     typing(false);
     bubble('Could not reach the agent: ' + err, 'in');
   } finally {
     sendBtn.disabled = false;
+    attachBtn.disabled = false;
     input.focus();
+  }
+});
+
+attachBtn.addEventListener('click', () => documentFile.click());
+documentFile.addEventListener('change', async () => {
+  const file = documentFile.files[0];
+  if (!file || sendBtn.disabled) return;
+  if (file.size > 10 * 1024 * 1024) {
+    bubble('Please choose a file no larger than 10 MB.', 'in');
+    documentFile.value = ''; return;
+  }
+  sendBtn.disabled = attachBtn.disabled = true;
+  typing(true);
+  try {
+    const extension = file.name.split('.').pop().toLowerCase();
+    const mime = {pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg'}[extension];
+    if (!mime) throw new Error('Please choose a PDF, JPG or PNG.');
+    const response = await fetch('/api/documents', {method:'POST', body:file,
+      headers:{'Content-Type':mime,'X-Sample-Document':'1','X-Upload-ID':crypto.randomUUID()}});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Upload failed. Please try again.');
+    await load(true);
+  } catch (error) { bubble(error.message, 'in'); }
+  finally {
+    typing(false); sendBtn.disabled = attachBtn.disabled = false;
+    documentFile.value = ''; input.focus();
   }
 });
 
@@ -505,7 +566,17 @@ document.getElementById('inspect').addEventListener('click', () => {
   document.getElementById('learn').classList.add('hidden');
 });
 
+let historyFingerprint = '';
 load();
+setInterval(async () => {
+  if (sendBtn.disabled || document.hidden) return;
+  try {
+    const data = await (await fetch('/api/state')).json();
+    if (sendBtn.disabled) return;
+    if (data.history.map(m => m.id).join(',') !== historyFingerprint) await load();
+    else renderPanel(data);
+  } catch (_) { /* next poll retries without replacing the chat */ }
+}, 5000);
 </script>
 <script>
 // ── the learning panel ────────────────────────────────────────────────

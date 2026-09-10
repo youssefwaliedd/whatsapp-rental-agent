@@ -48,11 +48,10 @@ def verify(payload: bytes, header: str | None, secret: str, *, now: float | None
     """
     if not header or not secret:
         return False
-    parts = dict(
-        piece.split("=", 1) for piece in header.split(",") if "=" in piece
-    )
-    timestamp, signature = parts.get("t"), parts.get("v1")
-    if not timestamp or not signature:
+    parts = [piece.split("=", 1) for piece in header.split(",") if "=" in piece]
+    timestamp = next((v for k, v in parts if k == "t"), None)
+    signatures = [v for k, v in parts if k == "v1"]
+    if not timestamp or not signatures:
         return False
     try:
         age = (now or time.time()) - int(timestamp)
@@ -64,7 +63,7 @@ def verify(payload: bytes, header: str | None, secret: str, *, now: float | None
     expected = hmac.new(
         secret.encode(), f"{timestamp}.".encode() + payload, hashlib.sha256
     ).hexdigest()
-    return hmac.compare_digest(expected, signature)
+    return any(hmac.compare_digest(expected, signature) for signature in signatures)
 
 
 def build_router(
@@ -73,6 +72,7 @@ def build_router(
     context_factory: Callable[[Any], Any],
     on_paid: Callable[[Any, str], None] | None = None,
     secret: str | None = None,
+    persist_notification: Callable | None = None,
 ) -> APIRouter:
     """The provider's callback, injected the same way the Meta one is."""
     router = APIRouter()
@@ -87,32 +87,38 @@ def build_router(
             log.warning("rejected a payment event with a bad or missing signature")
             raise HTTPException(status_code=400, detail="signature verification failed")
 
-        event = json.loads(raw)
-        if event.get("type") not in PAID_EVENTS:
-            return {"ignored": event.get("type")}
-
-        session = event.get("data", {}).get("object", {})
-        if session.get("payment_status") != "paid":
+        try:
+            event = json.loads(raw)
+            if not isinstance(event, dict) or not isinstance(event.get("data", {}).get("object"), dict):
+                raise ValueError("invalid event")
+        except (ValueError, AttributeError, TypeError):
+            raise HTTPException(status_code=400, detail="invalid event")
+        kind = event.get("type")
+        if kind not in PAID_EVENTS | {"checkout.session.expired", "checkout.session.async_payment_failed", "charge.refunded"}:
+            return {"ignored": kind}
+        checkout = event["data"]["object"]
+        if kind in PAID_EVENTS and checkout.get("payment_status") != "paid":
             return {"ignored": "not paid"}
-
-        reservation_id = (session.get("metadata") or {}).get("reservation_id")
-        if not reservation_id:
-            log.error("paid session %s carries no reservation_id", session.get("id"))
-            return {"ignored": "no reservation"}
-
         from ..services import payments as payments_service
-
+        reservation_id = (checkout.get("metadata") or {}).get("reservation_id")
         db = session_factory()
         try:
             ctx = context_factory(db)
-            result = payments_service.mark_paid(
-                ctx,
-                reservation_id=reservation_id,
-                amount_minor=session.get("amount_total"),
-                currency=(session.get("currency") or "aed").upper(),
-                reference=session.get("id", ""),
-                event_id=event.get("id", ""),
-            )
+            if kind == "charge.refunded":
+                result = payments_service.mark_refunded(ctx,
+                    payment_intent=checkout.get("payment_intent"), amount_minor=checkout.get("amount_refunded"),
+                    currency=checkout.get("currency", ""), event_id=event.get("id", ""))
+                reservation_id = result.get("reservation_id")
+            elif not reservation_id:
+                return {"ignored": "no reservation"}
+            elif kind in PAID_EVENTS:
+                result = reconcile_checkout(ctx, checkout, event_id=event.get("id", ""))
+            else:
+                result = payments_service.mark_checkout_status(ctx, reservation_id=reservation_id,
+                    reference=checkout.get("id", ""), event_id=event.get("id", ""),
+                    status="expired" if kind == "checkout.session.expired" else "failed")
+            if persist_notification and result.get("recorded"):
+                persist_notification(db, result, reservation_id, event.get("id", ""))
             db.commit()
         except Exception:  # noqa: BLE001 - a 500 makes Stripe retry, which is right
             db.rollback()
@@ -121,7 +127,7 @@ def build_router(
         finally:
             db.close()
 
-        if on_paid is not None and result.get("recorded"):
+        if on_paid is not None and persist_notification is None and result.get("recorded"):
             try:
                 on_paid(result, reservation_id)
             except Exception:  # noqa: BLE001 - the money is recorded either way
@@ -129,3 +135,12 @@ def build_router(
         return result
 
     return router
+
+
+def reconcile_checkout(ctx, checkout, *, event_id=""):
+    """Only call with a signed webhook object or an authenticated Stripe read."""
+    from ..services.payments import mark_paid
+    return mark_paid(ctx, reservation_id=(checkout.get("metadata") or {}).get("reservation_id"),
+        amount_minor=checkout.get("amount_total"), currency=checkout.get("currency") or "",
+        reference=checkout.get("id", ""), event_id=event_id,
+        payment_intent=checkout.get("payment_intent") or "", livemode=checkout.get("livemode"))

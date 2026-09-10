@@ -15,17 +15,22 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
+from starlette.concurrency import run_in_threadpool
 
 from ..context import ToolContext
+from ..store.models import MessagePresentation, Reservation
+from ..payments.webhook import build_router, reconcile_checkout
+from ..payments.base import PaymentError
 from ..formatting import photo_caption
 from ..whatsapp import reactions as reactions_mod
 from ..whatsapp.client import split_message, to_whatsapp_markup
 from ..whatsapp.pacing import Pacing
+from ..services import documents as document_service
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.parent
@@ -53,18 +58,35 @@ def create_app(
     agent_factory: Callable[[], Any],
     reference_date: date | None = None,
     now_fn: Callable[[], datetime] | None = None,
+    document_store=None,
+    document_checker=None,
 ) -> FastAPI:
     app = FastAPI(title="Sandline Rentals — test chat (DEMO)")
 
     if (PROJECT_ROOT / "assets").exists():
         app.mount("/assets", StaticFiles(directory=PROJECT_ROOT / "assets"), name="assets")
 
-    def context(session: Any, handle: str) -> ToolContext:
+    def context(session: Any, handle: str, *, read_only=False) -> ToolContext:
         ctx = ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)
-        customer, _ = ctx.customers.get_or_create(handle, ctx.now())
-        conversation, _ = ctx.conversations.get_or_create(customer.customer_id, ctx.now())
+        # Polling a populated chat must stay read-only. Updating last_seen_at
+        # here contended with the chat turn's SQLite write transaction.
+        customer = ctx.customers.by_whatsapp_id(handle) if read_only else None
+        if customer is None:
+            customer, _ = ctx.customers.get_or_create(handle, ctx.now())
+        conversation = ctx.conversations.open_for_customer(customer.customer_id)
+        if conversation is None:
+            conversation, _ = ctx.conversations.get_or_create(customer.customer_id, ctx.now())
         ctx.customer_id = customer.customer_id
         ctx.conversation_id = conversation.conversation_id
+        if document_store is not None and hasattr(document_store,'cipher'):
+            session.info['document_cipher'] = document_store.cipher
+        else:
+            import os
+            if not os.getenv('DOCUMENT_ENCRYPTION_KEY'):
+                from ..whatsapp.storage import existing_browser_cipher
+                restored = existing_browser_cipher()
+                if restored is not None:
+                    session.info['document_cipher'] = restored
         session.flush()
         return ctx
 
@@ -74,6 +96,7 @@ def create_app(
         prefs = state.vehicle_preferences
         reservations = ctx.reservations.for_customer(ctx.customer_id or "")
         return {
+            'documents': document_service.summary(ctx),
             "stage": state.stage.value,
             "pickup_at": state.pickup_at.strftime("%a %d %b, %-I:%M %p") if state.pickup_at else None,
             "return_at": state.return_at.strftime("%a %d %b, %-I:%M %p") if state.return_at else None,
@@ -89,6 +112,7 @@ def create_app(
                     "reference": r.reservation_id,
                     "vehicle": ctx.engine.get_vehicle(r.vehicle_id).display_name,
                     "status": r.status,
+                    "payment_status": r.payment_status,
                     "total": f"{r.currency} {r.total_charge}",
                     "pickup": r.pickup_at.strftime("%a %d %b, %-I:%M %p"),
                 }
@@ -114,12 +138,17 @@ def create_app(
     @app.get("/api/state")
     def read_state(handle: str = DEFAULT_HANDLE) -> JSONResponse:
         with session_factory() as session:
-            ctx = context(session, handle)
+            ctx = context(session, handle, read_only=True)
             history = [
-                {"direction": m.direction, "text": m.content}
+                {"id": m.id, "direction": m.direction, "text": m.content,
+                 "created_at": m.created_at.isoformat(),
+                 "presentation": stored.payload if (stored := session.get(MessagePresentation, m.id)) else None}
                 for m in ctx.messages.for_conversation(ctx.conversation_id or "")
             ]
-            body = {"history": history, "state": snapshot(ctx)}
+            latest = next((m["presentation"] for m in reversed(history) if m["presentation"]), {})
+            body = {"history": history, "state": snapshot(ctx),
+                    "tools": latest.get("tools", []), "seconds": latest.get("seconds"),
+                    "provider_error": latest.get("provider_error")}
             session.commit()
         return JSONResponse(body)
 
@@ -184,8 +213,101 @@ def create_app(
                 "seconds": round((datetime.now() - started).total_seconds(), 1),
                 "state": snapshot(ctx),
             }
+            messages = ctx.messages.for_conversation(ctx.conversation_id)
+            outbound = next((m for m in reversed(messages) if m.direction == "outbound" and m.content == result.reply), None)
+            if outbound is not None and not result.duplicate:
+                body["created_at"] = outbound.created_at.isoformat()
+                body["message_id"] = outbound.id
+                presentation = {k: body[k] for k in ("reply", "parts", "cards", "media", "reaction", "created_at", "tools", "seconds", "provider_error")}
+                session.merge(MessagePresentation(message_id=outbound.id, payload=presentation))
             session.commit()
         return JSONResponse(body)
+
+    @app.post('/api/documents')
+    async def upload_document(request: Request, handle: str = DEFAULT_HANDLE):
+        # Custom header requires browser preflight for cross-origin uploads.
+        # The local harness does not grant CORS access to other websites.
+        import hashlib
+        import re
+        from ..services import checkout, documents
+        from ..services.document_checks import DocumentChecker, notice
+        from ..whatsapp.media import MAX_BYTES, MediaError, validate_file
+        from ..whatsapp.storage import build_browser_store
+        if request.headers.get('x-sample-document') != '1':
+            return JSONResponse({'error':'Use the sample document attachment button in the chat.'},status_code=403)
+        upload_id = request.headers.get('x-upload-id','')
+        if not re.fullmatch(r'[a-zA-Z0-9-]{10,64}',upload_id):
+            return JSONResponse({'error':'Missing upload reference.'},status_code=400)
+        data = bytearray()
+        async for chunk in request.stream():
+            data.extend(chunk)
+            if len(data)>MAX_BYTES:
+                return JSONResponse({'error':'Please send a JPG, PNG or PDF no larger than 10 MB.'},status_code=413)
+        mime = request.headers.get('content-type','').split(';')[0]
+        try: validate_file(bytes(data),mime)
+        except MediaError as exc: return JSONResponse({'error':str(exc)},status_code=400)
+        def process():
+            nonlocal document_store, document_checker
+            from ..store.models import CustomerDocument
+            if document_store is None: document_store = build_browser_store()
+            if document_checker is None: document_checker = DocumentChecker()
+            with session_factory() as session:
+                ctx = context(session,handle)
+                provider_id = 'browser-upload:'+upload_id
+                existing = session.scalar(select(CustomerDocument).where(CustomerDocument.provider_message_id==provider_id))
+                if existing:
+                    if existing.customer_id != ctx.customer_id or existing.sha256 != hashlib.sha256(data).hexdigest():
+                        return JSONResponse({'error':'This upload reference belongs to a different file.'},status_code=409)
+                    return JSONResponse({'ok':True,'document':existing.document_id,'state':snapshot(ctx)})
+                from types import SimpleNamespace
+                message = SimpleNamespace(message_id=provider_id,media_kind='document',raw={'document':{'id':upload_id}})
+                ctx.messages.record(conversation_id=ctx.conversation_id,direction='inbound',content='Attached a sample document',
+                    now=ctx.now(),provider_message_id=provider_id)
+                row = documents.receive(ctx,message,document_store,lambda _:(bytes(data),mime))
+                if row.status != 'pending_review': raise MediaError('The attachment could not be stored.')
+                document_checker.check(ctx,row,document_store)
+                session.flush()
+                reply = notice(row)
+                if checkout.enabled(ctx): reply += '\n\n'+checkout.document_checklist(ctx)
+                ctx.messages.record(conversation_id=ctx.conversation_id,direction='outbound',content=reply,now=ctx.now())
+                row.notified_at=ctx.now()
+                session.commit()
+                return JSONResponse({'ok':True,'document':row.document_id,'reply':reply,'state':snapshot(ctx)})
+        try: return await run_in_threadpool(process)
+        except Exception:
+            return JSONResponse({'error':'The document could not be checked. Please try uploading it again. Booking and payment remain blocked.'},status_code=503)
+
+    # Signed payment callbacks work in the browser harness as well as WhatsApp.
+    app.include_router(build_router(session_factory=session_factory,
+        context_factory=lambda session: ToolContext(session=session, now_fn=now_fn, reference_date=reference_date)))
+
+    @app.get("/payments/return")
+    def checkout_return(session_id: str = "", handle: str = DEFAULT_HANDLE):
+        from html import escape
+        from ..payments.stripe import StripeProvider
+        message = "No payment has been verified. Return to the chat to check your booking."
+        with session_factory() as session:
+            ctx = context(session, handle)
+            # Only verify sessions previously issued to this chat's customer.
+            booking = next((r for r in ctx.reservations.for_customer(ctx.customer_id)
+                if any(h.get("event") == "payment_link_created" and h.get("reference") == session_id
+                       for h in r.history or [])), None)
+            if booking:
+                try:
+                    checkout = StripeProvider().retrieve_checkout(session_id)
+                    if checkout.get("id") != session_id or (checkout.get("metadata") or {}).get("reservation_id") != booking.reservation_id:
+                        message = "The checkout does not match this booking. A colleague must check it."
+                    elif checkout.get("payment_status") == "paid":
+                        result = reconcile_checkout(ctx, checkout)
+                        message = result.get("message") or ("Your payment is already recorded." if result.get("reason") == "already_recorded" else "Payment needs review. Please do not pay again.")
+                    else:
+                        message = "Payment has not completed. You can return to the chat."
+                except PaymentError:
+                    message = "Stripe could not be reached to verify payment. Please do not pay again; check back shortly."
+            session.commit()
+        return HTMLResponse('<!doctype html><meta charset="utf-8"><title>Payment status</title>'
+            '<main style="font:18px system-ui;max-width:600px;margin:80px auto;padding:24px">'
+            '<h1>Payment status</h1><p>' + escape(message) + '</p><a href="/">Return to chat</a></main>')
 
     def learning_snapshot(ctx: ToolContext) -> dict[str, Any]:
         """What the loop currently knows, believes and is proposing."""
@@ -228,7 +350,7 @@ def create_app(
     @app.get("/api/learning")
     def learning(handle: str = DEFAULT_HANDLE) -> JSONResponse:
         with session_factory() as session:
-            ctx = context(session, handle)
+            ctx = context(session, handle, read_only=True)
             body = learning_snapshot(ctx)
             session.commit()
         return JSONResponse(body)

@@ -44,7 +44,12 @@ def now() -> datetime:
 
 REFERENCE_DATE = FROZEN_NOW.date() if FROZEN else datetime.now(TZ).date()
 
-PORT = 8100
+PORT = int(os.getenv("CHAT_PORT", "8100"))
+# Returning from checkout verifies the processor's status; a redirect alone
+# never marks a rental paid. Override the base for a tunnel or another port.
+CHAT_BASE_URL = os.getenv("CHAT_BASE_URL", f"http://127.0.0.1:{PORT}").rstrip("/")
+os.environ.setdefault("PAYMENT_SUCCESS_URL", CHAT_BASE_URL + "/payments/return?session_id={CHECKOUT_SESSION_ID}")
+os.environ.setdefault("PAYMENT_CANCEL_URL", CHAT_BASE_URL + "/?checkout=cancelled")
 
 _agent = None
 

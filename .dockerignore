@@ -1,0 +1,13 @@
+.git
+.venv
+.env
+.env.*
+!.env.example
+__pycache__
+.pytest_cache
+*.db
+*.db-*
+.private_documents
+*.docx
+*.log
+.DS_Store

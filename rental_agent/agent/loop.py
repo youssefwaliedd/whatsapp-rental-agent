@@ -27,7 +27,7 @@ from ..context import ToolContext
 from ..domain.enums import Stage
 from ..services import booking as booking_service
 from ..tools.registry import execute_tool
-from .providers.errors import ProviderUnavailable
+from .providers.errors import ProviderUnavailable, safe_provider_error
 from .providers.budget import remaining, turn_budget
 import logging
 
@@ -163,9 +163,12 @@ class _Pending:
             self.joined = True
             if self.future is not None:
                 try:
-                    self.result = self.future.result(timeout=remaining())
+                    # Extraction improves state but must not consume the
+                    # response deadline after a usable model reply has arrived.
+                    self.result = self.future.result(timeout=min(0.25, remaining()))
                 except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
                     self.error = f"{type(exc).__name__}: {str(exc)[:200]}"
+                    self.future.cancel()
         return self.result if self.result is not None else extraction_mod.Extraction()
 
     def cancel(self) -> None:
@@ -239,6 +242,9 @@ class Agent:
             return AgentTurn(reply="", duplicate=True)
 
         state = ctx.load_state()
+        from ..services import checkout
+        checkout.observe(ctx, message)
+        state = ctx.load_state()
         from ..domain.dates import remember
         remember(state, message, now)
         ctx.save_state(state)
@@ -260,6 +266,19 @@ class Agent:
         from ..domain import selection
         selection.remember_customer_choice(ctx, message)
         state = ctx.load_state()
+        flow_reply = checkout.reply_for_turn(ctx, message)
+        if not flow_reply and not state.escalated:
+            from .routine import reply as routine_reply
+            routine_turn = routine_reply(ctx, message)
+            if routine_turn:
+                selection.remember_options(ctx, routine_turn)
+                ctx.messages.record(conversation_id=ctx.conversation_id, direction='outbound',
+                    content=routine_turn.reply, now=ctx.now())
+                return routine_turn
+        if flow_reply:
+            turn = AgentTurn(reply=flow_reply, cards=ctx.take_cards())
+            ctx.messages.record(conversation_id=ctx.conversation_id, direction='outbound', content=turn.reply, now=ctx.now())
+            return turn
         if not state.escalated and selection.ambiguous(ctx, message):
             turn = AgentTurn(reply=selection.clarification(ctx, message))
             ctx.messages.record(conversation_id=ctx.conversation_id, direction="outbound",
@@ -276,6 +295,19 @@ class Agent:
         )
         customer = execute_tool(ctx, "get_customer", {})
 
+        from .actions import wants_payment
+        if not state.escalated and active_reservation and wants_payment(message):
+            from ..services.payments import payment_receipt
+            result = execute_tool(ctx, "create_payment_link", {"reservation_id": active_reservation["reservation_id"]})
+            succeeded = not result.get("error")
+            reply = payment_receipt(result, arabic=bool(re.search(r"[\u0600-\u06ff]", message))) if succeeded else result.get("message", "I could not create the payment link. Please try again.")
+            # The receipt is already the reply, so don't repeat its card.
+            ctx.take_cards()
+            turn = AgentTurn(reply=reply, tool_calls=["create_payment_link"],
+                tools_succeeded=["create_payment_link"] if succeeded else [])
+            ctx.messages.record(conversation_id=ctx.conversation_id, direction="outbound", content=reply, now=ctx.now())
+            return turn
+
         # 1. Extraction — an additive merge into state. It sharpens the turn but
         #    is not a prerequisite for it: the agent still has its tools, the
         #    stored state and the customer's actual words, so a failed
@@ -288,16 +320,17 @@ class Agent:
         #    takes it off the critical path entirely.
         pending = _Pending()
         if self.settings.extraction_enabled:
-            call = lambda: extraction_mod.extract(  # noqa: E731
-                self.client,
-                message=message,
-                state=state,
-                now=now,
-                active_reservation=active_reservation,
-                model=self.settings.resolved_extraction_model(),
-                effort=self.settings.extraction_effort,
-                max_tokens=self.settings.extraction_max_tokens,
-            )
+            def call():
+                # Bound optional work independently, including retries, so
+                # abandoned extraction cannot occupy worker threads for a turn.
+                with turn_budget(12):
+                    return extraction_mod.extract(
+                        self.client, message=message, state=state, now=now,
+                        active_reservation=active_reservation,
+                        model=self.settings.resolved_extraction_model(),
+                        effort=self.settings.extraction_effort,
+                        max_tokens=self.settings.extraction_max_tokens,
+                    )
             if self.settings.parallel_extraction:
                 pending.future = _EXTRACTION_POOL.submit(copy_context().run, call)
             else:
@@ -313,11 +346,29 @@ class Agent:
             self._clear_provider_failures(ctx)
         except ProviderUnavailable as exc:
             pending.cancel()
+            if ctx.session is not None and ctx.session.info.get("durable_turn"):
+                # The worker will roll back and retry this turn after an outage.
+                raise
             turn = self._provider_unavailable(ctx, exc, message)
             turn.media = ctx.take_media()
             turn.cards = ctx.take_cards()
         turn.extraction_error = pending.error
         turn = self._guard_outbound(ctx, turn, state, now, customer, active_reservation)
+        flow_reply = checkout.reply_for_turn(ctx, message)
+        if not flow_reply and checkout.enabled(ctx) and re.search(r'\b(?:everything is ready|ready to go|all (?:set|sorted)|ready for (?:pickup|collection))\b',turn.reply,re.I):
+            quote = checkout.current_quote(ctx)
+            reservation_id = ctx.load_state().reservation_id
+            reservation = ctx.reservations.get(reservation_id) if reservation_id else None
+            if quote:
+                status = checkout.evaluate(ctx,quote,check_expiry=not (reservation and reservation.payment_status=='paid'))
+                if not status['ready']:
+                    flow_reply = status['message']
+        if flow_reply and not turn.provider_error:
+            turn.reply = flow_reply
+            turn.cards.extend(ctx.take_cards())
+        collection_error = checkout.collection_claim_error(ctx,turn.reply)
+        if collection_error:
+            turn.reply = collection_error
         selection.remember_options(ctx, turn)
 
         ctx.messages.record(
@@ -356,7 +407,10 @@ class Agent:
                     turn.reply = facts.safe_reply(ctx)
 
             issues = []
-            fallback = facts.safe_reply(ctx) if ctx.session is not None else SAFE_FALLBACK_REPLY
+            from . import actions
+            if actions.unfinished(turn.reply):
+                issues.append(actions.CORRECTION)
+            fallback = actions.SAFE_REPLY if issues else (facts.safe_reply(ctx) if ctx.session is not None else SAFE_FALLBACK_REPLY)
             verdict = figures.inspect(turn.reply, calls, facts.customer_budgets(ctx))
             if not verdict.ok:
                 invented.update(str(v) for v in verdict.unsupported)
@@ -422,6 +476,24 @@ class Agent:
                 if cancelled.get("cancellation_fee") is not None:
                     turn.reply += f" Cancellation fee: {cancelled.get('currency', 'AED')} {cancelled['cancellation_fee']}."
                 turn.reply += "\n\n" + cancelled.get("demo_notice", "")
+                if cancelled.get("payment_guidance"):
+                    turn.escalated = True
+                    turn.reply += "\n\n" + cancelled["payment_guidance"]
+        if "create_payment_link" in turn.tools_succeeded:
+            receipt = next((c.result for c in reversed(self._turn_calls(ctx))
+                if c.tool_name == "create_payment_link" and (c.result or {}).get("payment_url")), None)
+            if receipt:
+                from ..services.payments import payment_receipt
+                record = ctx.reservations.get(receipt["reservation_id"])
+                current_link = (record and record.status == "confirmed"
+                    and record.payment_status == "link_sent"
+                    and record.payment_reference == receipt["payment_reference"]
+                    and (receipt.get("purpose") != "rental_total" or str(record.total_charge) == receipt["amount"]))
+                if current_link:
+                    turn.reply = payment_receipt(receipt, arabic=bool(re.search(r"[\u0600-\u06ff]", facts.latest_customer(ctx))))
+                elif "cancel_demo_reservation" not in turn.tools_succeeded:
+                    turn.reply = "The booking or payment details have changed. Please request an updated payment link after confirming the current rental details."
+                turn.cards = [card for card in turn.cards if receipt["payment_url"] not in card]
         return turn
 
     @staticmethod
@@ -484,7 +556,7 @@ class Agent:
                 ctx, state, now, customer, active_reservation, directive=directive
             )
         except ProviderUnavailable as exc:
-            turn = AgentTurn(reply=PROVIDER_BUSY_REPLY, provider_error=str(exc)[:200])
+            turn = AgentTurn(reply=PROVIDER_BUSY_REPLY, provider_error=safe_provider_error(exc))
 
         ctx.messages.record(
             conversation_id=ctx.conversation_id or "",
@@ -553,7 +625,7 @@ class Agent:
         ctx.save_state(state)
 
         if failures < PROVIDER_FAILURES_BEFORE_HANDOVER:
-            return AgentTurn(reply=PROVIDER_BUSY_REPLY, provider_error=str(exc)[:200])
+            return AgentTurn(reply=PROVIDER_BUSY_REPLY, provider_error=safe_provider_error(exc))
 
         execute_tool(
             ctx,
@@ -568,7 +640,7 @@ class Agent:
         )
         return AgentTurn(
             reply=PROVIDER_DOWN_REPLY,
-            provider_error=str(exc)[:200],
+            provider_error=safe_provider_error(exc),
             escalated=True,
         )
 
@@ -592,6 +664,14 @@ class Agent:
         """
         extracted = pending.join()
         state = extraction_mod.merge(state, extracted, ctx.engine.tz, message)
+        from ..services.checkout import enabled
+        if enabled(ctx) and state.checkout.get('mode') == 'new':
+            # Model extraction may resolve dates, but cannot invent clock times.
+            for side in ['pickup','return']:
+                moment = getattr(state,side+'_at')
+                clock = state.checkout.get(side+'_clock')
+                if moment:
+                    setattr(state,side+'_at',moment.replace(hour=clock[0],minute=clock[1]) if clock else None)
         ctx.save_state(state)
 
         if extracted.escalation_signal in extraction_mod.HIGH_SEVERITY_SIGNALS:
@@ -654,19 +734,30 @@ class Agent:
         awaiting = False
         iterations = 0
         escalated_late = False
+        outcomes = []
 
         while iterations < self.settings.max_tool_iterations:
-            if remaining() <= 0:
-                raise ProviderUnavailable("The response deadline was reached.")
             iterations += 1
-            response = self._create(
-                model=self.settings.resolved_model(),
-                max_tokens=self.settings.max_tokens,
-                system=build_system(engine.rules, engine.operator),
-                tools=TOOLS,
-                output_config={"effort": self.settings.effort},
-                messages=working,
-            )
+            try:
+                if remaining() <= 0:
+                    raise ProviderUnavailable("The response deadline was reached.")
+                response = self._create(
+                    model=self.settings.resolved_model(),
+                    max_tokens=self.settings.max_tokens,
+                    system=build_system(engine.rules, engine.operator),
+                    tools=TOOLS,
+                    output_config={"effort": self.settings.effort},
+                    messages=working,
+                )
+            except ProviderUnavailable as exc:
+                from .search_recovery import reply as search_reply
+                recovered = search_reply(ctx, outcomes)
+                if not recovered:
+                    raise
+                pending.cancel()
+                return AgentTurn(reply=recovered, tool_calls=called, tools_succeeded=succeeded,
+                    iterations=iterations, provider_error=safe_provider_error(exc),
+                    media=ctx.take_media(), cards=ctx.take_cards())
 
             # Join the extraction that has been running alongside this call. It
             # cost nothing in wall-clock time, and everything after this point
@@ -729,6 +820,7 @@ class Agent:
             for use in tool_uses:
                 called.append(use.name)
                 result = execute_tool(ctx, use.name, dict(use.input or {}))
+                outcomes.append((use.name, result))
                 if "error" not in result:
                     succeeded.append(use.name)
                     if result.get("awaiting_confirmation"):

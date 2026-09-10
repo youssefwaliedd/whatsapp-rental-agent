@@ -305,6 +305,11 @@ def get_vehicle_details(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
 
 
 def calculate_quote(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from ..services.checkout import enabled
+    if ctx.session is not None and enabled(ctx):
+        # A customer-facing quote must be the persisted quote later accepted.
+        from .state_tools import create_demo_quote
+        return create_demo_quote(ctx,args)
     from ..domain.selection import quote_error
     error = quote_error(ctx, args["vehicle_id"])
     if error:

@@ -183,3 +183,119 @@ def test_stripe_needs_a_key(monkeypatch):
 def test_amounts_convert_to_minor_units(amount, currency, expected):
     # The classic payment bug, and it fails in the expensive direction.
     assert minor_units(Decimal(amount), currency) == expected
+
+
+def test_browser_delivers_stripe_link_without_a_false_price_rejection(
+    booking_ctx, booked, session_factory, monkeypatch,
+):
+    from fastapi.testclient import TestClient
+    from rental_agent.agent.loop import Agent
+    from rental_agent.agent.settings import AgentSettings
+    from rental_agent.payments.base import PaymentLink
+    from rental_agent.webchat.app import create_app
+    from tests.fake_anthropic import FakeClient, calls, says
+    from .conftest import FROZEN_NOW, REFERENCE_DATE
+
+    quote, reservation = booked
+    url = "https://checkout.stripe.com/c/pay/cs_test_token#encoded1aEdLcUNc"
+    class Provider:
+        def create_link(self, **kwargs):
+            assert kwargs["amount"] == Decimal(quote["total_charge"])
+            return PaymentLink(url=url, reference="cs_test_token",
+                amount=kwargs["amount"], currency="AED", purpose="rental_total", is_demo=True)
+    monkeypatch.setattr("rental_agent.services.payments.build_provider", lambda: Provider())
+    # Reproduce a returning conversation containing a previous dead demo link.
+    booking_ctx.messages.record(conversation_id=booking_ctx.conversation_id,
+        direction="outbound", content="Pay here: https://demo.invalid/pay/PAY-2", now=FROZEN_NOW)
+    booking_ctx.session.commit()
+    reply = f"Pay AED {quote['total_charge']} for the rental total: {url}"
+    model = FakeClient(script=[
+        calls("create_payment_link", reservation_id=reservation["reservation_id"]), says(reply),
+    ])
+    agent = Agent(model, AgentSettings(extraction_enabled=False))
+    app = create_app(session_factory=session_factory, agent_factory=lambda: agent,
+        now_fn=lambda: FROZEN_NOW, reference_date=REFERENCE_DATE)
+    with TestClient(app) as client:
+        result = client.post("/api/message", json={"handle": "+971500000001",
+            "message": "generate new payement link"}).json()
+    assert quote["total_charge"] in result["reply"]
+    assert url in result["parts"][0]["text"]
+    assert result["tools"].count("create_payment_link") == 1
+    assert len(model.requests) == 0  # Explicit payment requests do not depend on the model.
+
+
+def test_paid_booking_does_not_get_another_checkout(booking_ctx,booked,monkeypatch):
+    _,r=booked
+    booking_ctx.reservations.get(r['reservation_id']).payment_status='paid'
+    def unexpected():
+        raise AssertionError('Must not contact processor')
+    monkeypatch.setattr('rental_agent.services.payments.build_provider',unexpected)
+    result=execute_tool(booking_ctx,'create_payment_link',{'reservation_id':r['reservation_id']})
+    assert result['error']=='payment_already_received'
+
+
+def test_unknown_provider_does_not_fall_back_to_a_dead_demo_link():
+    with pytest.raises(PaymentError,match='Unknown payment provider'):
+        build_provider('strpie')
+
+
+def test_live_stripe_key_cannot_charge_a_demo_booking(booking_ctx,booked,monkeypatch):
+    monkeypatch.setenv('PAYMENT_PROVIDER','stripe')
+    monkeypatch.setenv('STRIPE_API_KEY','sk_live_fake')
+    _,r=booked
+    result=execute_tool(booking_ctx,'create_payment_link',{'reservation_id':r['reservation_id']})
+    assert result['error']=='live_payment_for_demo'
+
+
+def test_arabic_payment_request_finishes_without_model(booking_ctx,booked):
+    from rental_agent.agent.loop import Agent
+    from rental_agent.agent.settings import AgentSettings
+    from tests.fake_anthropic import FakeClient
+    client=FakeClient(script=[])
+    turn=Agent(client,AgentSettings(extraction_enabled=False)).respond(booking_ctx,'ارسل رابط الدفع')
+    assert 'رابط دفع' in turn.reply
+    assert '252.00' in turn.reply
+    assert 'https://' in turn.reply
+    assert client.requests==[]
+
+
+def test_stripe_payment_cannot_be_marked_paid_by_simulation(booking_ctx,booked,monkeypatch):
+    _,r=booked
+    monkeypatch.setenv('PAYMENT_PROVIDER','stripe')
+    result=execute_tool(booking_ctx,'simulate_payment',{'reservation_id':r['reservation_id']})
+    assert result['error']=='payment_confirmation_required'
+    assert booking_ctx.reservations.get(r['reservation_id']).payment_status != 'authorised'
+
+
+def test_replacing_stripe_checkout_closes_the_previous_link(booking_ctx,booked,monkeypatch):
+    from rental_agent.payments.base import PaymentLink
+    _,r=booked
+    row=booking_ctx.reservations.get(r['reservation_id'])
+    row.payment_reference='cs_test_old'
+    calls=[]
+    class Provider:
+        name='stripe'
+        is_live=False
+        def expire_checkout(self,reference):
+            calls.append(('expire',reference));return True
+        def create_link(self,**kwargs):
+            calls.append(('create',kwargs['amount']))
+            return PaymentLink(url='https://checkout.stripe.com/c/pay/cs_test_new',reference='cs_test_new',
+                amount=kwargs['amount'],currency='AED',purpose='rental_total')
+    monkeypatch.setattr('rental_agent.services.payments.build_provider',Provider)
+    result=execute_tool(booking_ctx,'create_payment_link',{'reservation_id':r['reservation_id']})
+    assert 'error' not in result
+    assert calls==[('expire','cs_test_old'),('create',Decimal(r['total_charge']))]
+
+
+def test_completed_checkout_is_not_replaced_before_reconciliation(booking_ctx,booked,monkeypatch):
+    _,r=booked
+    booking_ctx.reservations.get(r['reservation_id']).payment_reference='cs_test_complete'
+    class Provider:
+        name='stripe'
+        is_live=False
+        def expire_checkout(self,reference):return False
+        def create_link(self,**kwargs):raise AssertionError('Would create a duplicate payment')
+    monkeypatch.setattr('rental_agent.services.payments.build_provider',Provider)
+    result=execute_tool(booking_ctx,'create_payment_link',{'reservation_id':r['reservation_id']})
+    assert result['error']=='checkout_already_completed'

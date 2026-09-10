@@ -17,4 +17,6 @@ def build_provider(name: str | None = None) -> PaymentProvider:
         from .stripe import StripeProvider
 
         return StripeProvider()
-    return SimulatedProvider()
+    if chosen == "simulated":
+        return SimulatedProvider()
+    raise PaymentError(f"Unknown payment provider: {chosen}")

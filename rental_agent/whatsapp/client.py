@@ -128,6 +128,10 @@ class WhatsAppClient:
         return response.json()
 
     def _send(self, payload: dict[str, Any]) -> SendResult:
+        from .jobs import queue_payload
+        queued = queue_payload(payload)
+        if queued is not None:
+            return queued
         if not self.settings.configured:
             return SendResult(
                 ok=False,
@@ -354,6 +358,24 @@ class WhatsAppClient:
         )
 
     # -- media -----------------------------------------------------------
+
+    def send_private_document(self, to: str, data: bytes, mime: str, caption: str) -> SendResult:
+        """Upload a private review copy to Meta, then send only to configured staff."""
+        from .media import MIME_EXTENSIONS, validate_file
+        try:
+            validate_file(data, mime)
+            response = httpx.post(
+                f"{GRAPH_BASE}/{self.settings.phone_number_id}/media",
+                headers={"Authorization": f"Bearer {self.settings.access_token}"},
+                data={"messaging_product": "whatsapp", "type": mime},
+                files={"file": ("document" + MIME_EXTENSIONS[mime], data, mime)}, timeout=30,
+            )
+            response.raise_for_status()
+            media_id = response.json()["id"]
+            return self._send({"messaging_product": "whatsapp", "to": to, "type": "document",
+                               "document": {"id": media_id, "caption": caption[:1000]}})
+        except Exception:
+            return SendResult(ok=False, error="Could not deliver the private review copy.")
 
     def card_url(self, image_path: str) -> str | None:
         """Turn a fleet.json image entry into a URL Meta can fetch.

@@ -12,6 +12,8 @@ function with one test per currency we accept.
 from __future__ import annotations
 
 import os
+import hashlib
+import json
 from decimal import Decimal
 
 import httpx
@@ -45,7 +47,7 @@ class StripeProvider:
     @property
     def is_live(self) -> bool:
         """Test keys start sk_test_. Worth knowing before a demo takes money."""
-        return self.api_key.startswith("sk_live_")
+        return self.api_key.startswith(("sk_live_", "rk_live_"))
 
     def create_link(
         self,
@@ -71,17 +73,25 @@ class StripeProvider:
 
         try:
             response = httpx.post(
-                API, data=form, auth=(self.api_key, ""), timeout=self.timeout
+                API, data=form, auth=(self.api_key, ""), timeout=self.timeout,
+                headers={"Idempotency-Key": "rental-" + hashlib.sha256(
+                    json.dumps(form, sort_keys=True).encode()).hexdigest()},
             )
         except httpx.HTTPError as exc:
             raise PaymentError(f"could not reach Stripe: {exc}") from exc
 
         if response.status_code >= 400:
-            detail = response.json().get("error", {}).get("message", response.text[:200])
+            try:
+                detail = response.json().get("error", {}).get("message", "Request rejected")
+            except (ValueError, AttributeError):
+                detail = f"HTTP {response.status_code}"
             raise PaymentError(f"Stripe refused the request: {detail}")
 
-        body = response.json()
-        url = body.get("url")
+        try:
+            body = response.json()
+            url = body.get("url")
+        except (ValueError, AttributeError) as exc:
+            raise PaymentError("Stripe returned an invalid checkout response") from exc
         if not url:
             raise PaymentError("Stripe returned a session with no payment page")
         return PaymentLink(
@@ -91,4 +101,27 @@ class StripeProvider:
             currency=currency.upper(),
             purpose=(metadata or {}).get("purpose", "unspecified"),
             is_demo=not self.is_live,
+            expires_at=body.get("expires_at"),
         )
+
+
+    def retrieve_checkout(self, reference: str) -> dict:
+        if not reference.startswith("cs_") or not all(c.isalnum() or c == "_" for c in reference):
+            raise PaymentError("Invalid checkout reference")
+        try:
+            response = httpx.get(f"{API}/{reference}", auth=(self.api_key, ""), timeout=self.timeout)
+            response.raise_for_status()
+            return response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise PaymentError("Could not verify checkout with Stripe") from exc
+
+    def expire_checkout(self, reference: str) -> bool:
+        checkout = self.retrieve_checkout(reference)
+        if checkout.get("status") != "open":
+            return checkout.get("status") == "expired"
+        try:
+            response = httpx.post(f"{API}/{reference}/expire", auth=(self.api_key, ""), timeout=self.timeout)
+            response.raise_for_status()
+            return True
+        except httpx.HTTPError as exc:
+            raise PaymentError("Could not expire the previous Stripe checkout") from exc

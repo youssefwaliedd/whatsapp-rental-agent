@@ -1,0 +1,30 @@
+name: Chatbot regression tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: bot
+          POSTGRES_PASSWORD: synthetic-ci-only
+          POSTGRES_DB: tests
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bot -d tests"
+          --health-interval 5s --health-retries 10
+    env:
+      TEST_POSTGRES_URL: postgresql+psycopg://bot:synthetic-ci-only@localhost:5432/tests
+      PAYMENT_PROVIDER: simulated
+      WHATSAPP_DURABLE: "0"
+      WHATSAPP_DOCUMENT_CHECKS: staff
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -q
+      - run: docker build -t rental-pilot:test .

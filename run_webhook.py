@@ -15,6 +15,7 @@ Runs happily without credentials — /health reports what is still missing.
 from __future__ import annotations
 
 import logging
+import os
 
 import uvicorn
 
@@ -23,10 +24,13 @@ from rental_agent.store.db import create_db_engine, init_db
 from rental_agent.whatsapp.port import refuse_if_taken
 from rental_agent.whatsapp.settings import WhatsAppSettings
 from rental_agent.whatsapp.webhook import create_app
+from rental_agent.deployment import validate_environment
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
 
-PORT = 8000
+PORT = int(os.getenv("PORT", "8000"))
+
+validate_environment()
 
 settings = WhatsAppSettings()
 session_factory = init_db(create_db_engine())

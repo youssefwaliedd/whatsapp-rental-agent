@@ -30,6 +30,7 @@ class PaymentLink:
     currency: str
     purpose: str
     is_demo: bool = True
+    expires_at: int | None = None
 
 
 class PaymentError(Exception):

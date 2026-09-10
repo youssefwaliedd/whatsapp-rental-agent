@@ -19,3 +19,5 @@ psycopg[binary]>=3.2
 fastapi>=0.115
 uvicorn[standard]>=0.32
 httpx>=0.27
+cryptography>=44.0     # authenticated encryption for private documents
+boto3>=1.35           # optional S3 document backend

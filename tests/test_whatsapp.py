@@ -471,16 +471,13 @@ def test_a_voice_note_gets_an_explanation_not_silence(harness):
     assert outbound.texts == [("971500000001", UNSUPPORTED_REPLY)]
 
 
-def test_a_photo_reaches_the_agent_and_is_recorded_as_media(harness):
-    """Previously an image was answered with "I can only read text" and thrown
-    away — so a customer could not send a licence at all, and the agent recorded
-    documents anyway on the strength of "here you go"."""
+def test_a_photo_with_an_invalid_media_id_requests_a_replacement(harness):
+    """A webhook marker alone must not become a successful document receipt."""
     client, outbound, agent = harness
     post(client, image_payload())
 
-    assert agent.calls, "the agent must see it"
-    with_media = [m for m in agent.recorded_media if m]
-    assert with_media == [["image"]]
+    assert agent.calls == []
+    assert "could not save" in outbound.texts[-1][1]
 
 
 def test_a_redelivery_is_not_answered_twice(session_factory):

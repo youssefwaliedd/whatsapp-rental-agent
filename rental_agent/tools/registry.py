@@ -87,6 +87,19 @@ def execute_tool(
             "message": f"'{name}' needs a database session and this context has none",
         }
 
+    # Recheck prerequisites even when an earlier idempotent result exists.
+    # A cached success cannot override expired documents or changed terms.
+    from ..services.checkout import tool_gate
+    try:
+        blocked = tool_gate(ctx, name, args)
+    except Exception as exc:
+        envelope = _envelope(exc)
+        if envelope is None:
+            raise
+        return envelope
+    if blocked:
+        return blocked
+
     def run() -> dict[str, Any]:
         try:
             return handler(ctx, args)

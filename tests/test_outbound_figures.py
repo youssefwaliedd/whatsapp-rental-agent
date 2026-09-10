@@ -63,6 +63,25 @@ def test_things_that_are_not_prices_are_left_alone(text):
     assert money_in(text) == set()
 
 
+@pytest.mark.parametrize("url", [
+    "https://checkout.stripe.com/c/pay/cs_test_token#encoded1aEdLcUNc",
+    "https://checkout.stripe.com/c/pay/cs_test_dh999?amount=2935.80",
+])
+def test_checkout_tokens_are_not_monetary_claims(url):
+    assert money_in(url) == set()
+    assert money_in(f"Pay AED 2,935.80 here: {url}") == {Decimal("2935.80")}
+
+
+@pytest.mark.parametrize("reply", [
+    "[Pay AED 999.00](https://checkout.stripe.com/c/pay/dh1)",
+    "https://checkout.stripe.com/c/pay/dh1\nPay AED 999.00",
+    "<https://checkout.stripe.com/c/pay/dh1> AED 999.00",
+])
+def test_a_link_does_not_hide_an_unsupported_displayed_price(reply):
+    verdict = inspect(reply, QUOTED)
+    assert verdict.unsupported == (Decimal("999.00"),)
+
+
 # --- the verdict ------------------------------------------------------------
 
 

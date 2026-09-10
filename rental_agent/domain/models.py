@@ -282,6 +282,8 @@ class ConversationState(Base):
     selected_vehicle_id: str | None = None
     quote_id: str | None = None
     reservation_id: str | None = None
+    # Server-owned checkout evidence. The extractor cannot set these fields.
+    checkout: dict[str, Any] = Field(default_factory=dict)
 
     driver_age: int | None = None
     residency: ResidencyType = ResidencyType.UNKNOWN

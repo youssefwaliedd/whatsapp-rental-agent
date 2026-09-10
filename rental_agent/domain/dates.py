@@ -13,6 +13,16 @@ DATE_RANGE = re.compile(rf"\b(\d{{1,2}})\s*(?:to|through|[-–])\s*(\d{{1,2}})\s
 
 
 def remember(state, message: str, now: datetime) -> None:
+    # Document validity dates and questions about saved dates are not new rental
+    # instructions. They must not overwrite the customer's enquiry.
+    if re.search(r'\b(?:expir\w*|date of birth|issued|issuance)\b|تاريخ الانتهاء|تاريخ الميلاد', message, re.I):
+        return
+    if re.search(r'\b(?:what|which)\b.*\bdates?\b', message, re.I):
+        return
+    # "September 10th till 13th" carries its month across the range.
+    message = re.sub(r'(\d)(?:st|nd|rd|th)\b', r'\1', message, flags=re.I)
+    message = re.sub(rf'\b({MONTHS})\s+(\d{{1,2}})\s*(?:to|till|until|through|[-–])\s*(\d{{1,2}})\b',
+                     lambda m:f'{m[1]} {m[2]} to {m[1]} {m[3]}', message, flags=re.I)
     span = DATE_RANGE.search(message)
     if span:
         message = DATE_RANGE.sub(lambda m: f"{m[1]} {m[3]} {m[4] or now.year} to {m[2]} {m[3]} {m[4] or now.year}", message)

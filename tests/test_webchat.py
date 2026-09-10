@@ -61,6 +61,16 @@ def test_the_page_loads(chat):
     assert "https://" not in response.text, "no external stylesheets or fonts"
 
 
+def test_provider_diagnostic_survives_reload(chat):
+    client, agent = chat
+    agent.turn = AgentTurn(reply='Temporarily unavailable', provider_error='overloaded (HTTP 503)')
+    response = client.post('/api/message', json={'message':'What are their prices?'}).json()
+    assert response['provider_error'] == 'overloaded (HTTP 503)'
+    refreshed = client.get('/api/state').json()
+    assert refreshed['provider_error'] == 'overloaded (HTTP 503)'
+    assert refreshed['history'][-1]['presentation']['provider_error'] == 'overloaded (HTTP 503)'
+
+
 def test_the_header_names_the_configured_operator(chat):
     """The page must not hardcode a company. It used to say Sandline while the
     fleet belonged to somebody else — the same bug the system prompt had."""
@@ -214,3 +224,30 @@ def test_photo_urls_are_servable_by_the_mounted_assets_route(chat):
     response = client.get(url)
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
+
+
+def test_rich_history_preserves_media_cards_reactions_and_original_time(chat):
+    client,agent=chat
+    agent.turn=AgentTurn(reply='**Price** details',cards=['AED 252.00'],
+        media=[{'display_name':'Sunny','images':['assets/vehicles/veh_13.png']}],
+        tools_succeeded=['create_demo_reservation'])
+    sent=client.post('/api/message',json={'message':'show me'}).json()
+    history=client.get('/api/state').json()['history']
+    saved=history[-1]
+    assert saved['created_at']==FROZEN_NOW.isoformat()
+    assert saved['presentation']['created_at']==saved['created_at']
+    for key in ['parts','cards','media','reaction']:
+        assert saved['presentation'][key]==sent[key]
+    assert history[0]['created_at']==FROZEN_NOW.isoformat()
+
+
+def test_browser_registers_signed_payment_webhook(chat):
+    client,_=chat
+    assert client.post('/payments/stripe',json={}).status_code==400
+
+
+def test_return_url_parameters_alone_cannot_claim_payment(chat):
+    client,_=chat
+    response=client.get('/payments/return?session_id=cs_forged&paid=true')
+    assert response.status_code==200
+    assert 'No payment has been verified' in response.text

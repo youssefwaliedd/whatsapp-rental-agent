@@ -22,6 +22,7 @@ verify the translation is correct.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -32,10 +33,18 @@ from google import genai
 from google.genai import types
 
 from ...env import load_dotenv
-from .errors import ProviderUnavailable
+from .errors import ProviderUnavailable, safe_provider_error
 from .budget import remaining
 
 load_dotenv()
+
+_log = logging.getLogger('rental_agent.gemini')
+
+
+def _unavailable(last=None):
+    error = ProviderUnavailable(safe_provider_error(last) if last else 'The model request deadline was reached.')
+    error.retry_after = _server_retry_delay(str(last)) if last else None
+    return error
 
 #: Free-tier default. Override with GEMINI_MODEL — run `/models` in the console
 #: to see what your key can actually reach.
@@ -402,8 +411,12 @@ class _Messages:
         candidates = [model] + [m for m in self.owner.fallback_models if m != model]
         last: Exception | None = None
         delay = 2.0
-        expires = time.monotonic() + min(remaining(), 15.0)
+        # The 15-second cap belongs to each HTTP attempt. Applying it to this
+        # whole loop prevented failover after a nine-second failed request,
+        # despite the shared turn deadline still having 21 seconds remaining.
+        expires = time.monotonic() + remaining()
         exhausted: set[str] = set()
+        retry_at: dict[str, float] = {}
 
         # Sweep every model before waiting on any of them. Both failure modes
         # here are model-specific — a daily quota belongs to one model, and a
@@ -414,9 +427,11 @@ class _Messages:
             for current in candidates:
                 if current in exhausted:
                     continue
-                left = min(remaining(), expires - time.monotonic())
+                if time.monotonic() < retry_at.get(current, 0):
+                    continue
+                left = min(15.0, remaining(), expires - time.monotonic())
                 if left < 10.0:
-                    raise ProviderUnavailable(str(last) if last else "The model request deadline was reached.") from last
+                    raise _unavailable(last) from last
                 try:
                     # Gemini requires at least a ten-second server deadline.
                     # Do not start a request the turn cannot afford to finish.
@@ -433,7 +448,13 @@ class _Messages:
                     return response
                 except Exception as exc:  # noqa: BLE001 - provider exception surface
                     last = exc
-                    message = str(exc)
+                    # Network timeout exceptions can have an empty message.
+                    # Include their type so retry eligibility is not lost.
+                    message = f'{type(exc).__name__}: {exc}'
+                    _log.warning('Gemini attempt failed: model=%s error=%s', current, safe_provider_error(exc))
+                    server_delay = _server_retry_delay(message)
+                    if server_delay:
+                        retry_at[current] = time.monotonic() + server_delay
                     self.owner.last_error_kind = (
                         "daily_quota" if is_daily_quota_exhausted(message) else
                         "rate_limit" if "429" in message else "provider_error"
@@ -454,13 +475,16 @@ class _Messages:
                 break
             if len(exhausted) == len(candidates):
                 break
-            pause = min(_server_retry_delay(str(last)) or delay, self.owner.max_backoff)
+            # Never retry a rate-limited model before its advertised delay.
+            waits = [max(0.0, retry_at.get(m, 0) - time.monotonic())
+                     for m in candidates if m not in exhausted]
+            pause = max(min(waits, default=0), min(delay, self.owner.max_backoff))
             if pause + 10.0 >= min(remaining(), expires - time.monotonic()):
                 break
             time.sleep(pause)
             delay *= 2
 
-        raise ProviderUnavailable(str(last)) from last
+        raise _unavailable(last) from last
 
     def create(self, **kwargs: Any) -> Response:
         response = self._generate(
@@ -501,6 +525,20 @@ class _UnsupportedBeta:
         @staticmethod
         def create(**_: Any) -> Any:
             raise RuntimeError("server-side fallbacks are not supported on this provider")
+
+
+def bounded_generate_content(raw_client, *, model, contents, config, seconds=30):
+    """Use the same bounded retry policy for document extraction as chat.
+
+    Stay on the configured document model; never silently send documents to a
+    different model. Disable nested SDK retries through the shared generator.
+    """
+    from types import SimpleNamespace
+    from .budget import turn_budget
+    owner = SimpleNamespace(raw=raw_client, max_retries=1, max_backoff=2.0,
+        fallback_models=[], thinking_level=None, active_model=None, last_error_kind=None)
+    with turn_budget(seconds):
+        return _Messages(owner)._generate(model,contents,config)
 
 
 class GeminiClient:
